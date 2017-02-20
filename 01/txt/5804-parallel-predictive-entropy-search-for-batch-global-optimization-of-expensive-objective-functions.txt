@@ -1,0 +1,996 @@
+Parallel Predictive Entropy Search for Batch Global Optimization of Expensive Objective Functions
+
+Amar Shah Department of Engineering
+Cambridge University as793@cam.ac.uk
+
+Zoubin Ghahramani Department of Engineering University of Cambridge zoubin@eng.cam.ac.uk
+
+Abstract
+We develop parallel predictive entropy search (PPES), a novel algorithm for Bayesian optimization of expensive black-box objective functions. At each iteration, PPES aims to select a batch of points which will maximize the information gain about the global maximizer of the objective. Well known strategies exist for suggesting a single evaluation point based on previous observations, while far fewer are known for selecting batches of points to evaluate in parallel. The few batch selection schemes that have been studied all resort to greedy methods to compute an optimal batch. To the best of our knowledge, PPES is the first nongreedy batch Bayesian optimization strategy. We demonstrate the benefit of this approach in optimization performance on both synthetic and real world applications, including problems in machine learning, rocket science and robotics.
+1 Introduction
+Finding the global maximizer of a non-concave objective function based on sequential, noisy observations is a fundamental problem in various real world domains e.g. engineering design [1], finance [2] and algorithm optimization [3]. We are interesed in objective functions which are unknown but may be evaluated pointwise at some expense, be it computational, economical or other. The challenge is to find the maximizer of the expensive objective function in as few sequential queries as possible, in order to minimize the total expense.
+A Bayesian approach to this problem would probabilistically model the unknown objective function, f . Based on posterior belief about f given evaluations of the the objective function, you can decide where to evaluate f next in order to maximize a chosen utility function. Bayesian optimization [4] has been successfully applied in a range of difficult, expensive global optimization tasks including optimizing a robot controller to maximize gait speed [5] and discovering a chemical derivative of a particular molecule which best treats a particular disease [6].
+Two key choices need to be made when implementing a Bayesian optimization algorithm: (i) a model choice for f and (ii) a strategy for deciding where to evaluate f next. A common approach for modeling f is to use a Gaussian process prior [7], as it is highly flexible and amenable to analytic calculations. However, other models have shown to be useful in some Bayesian optimization tasks e.g. Student-t process priors [8] and deep neural networks [9]. Most research in the Bayesian optimization literature considers the problem of deciding how to choose a single location where f should be evaluated next. However, it is often possible to probe several points in parallel. For example, you may possess 2 identical robots on which you can test different gait parameters in parallel. Or your computer may have multiple cores on which you can run algorithms in parallel with different hyperparameter settings.
+Whilst there are many established strategies to select a single point to probe next e.g. expected improvement, probability of improvement and upper confidence bound [10], there are few well known strategies for selecting batches of points. To the best of our knowledge, every batch selection
+1
+
+strategy proposed in the literature involves a greedy algorithm, which chooses individual points until the batch is filled. Greedy choice making can be severely detrimental, for example, a greedy approach to the travelling salesman problem could potentially lead to the uniquely worst global solution [11]. In this work, our key contribution is to provide what we believe is the first non-greedy algorithm to choose a batch of points to probe next in the task of parallel global optimization.
+Our approach is to choose a set of points which in expectation, maximally reduces our uncertainty about the location of the maximizer of the objective function. The algorithm we develop, parallel predictive entropy search, extends the methods of [12, 13] to multiple point batch selection. In Section 2, we formalize the problem and discuss previous approaches before developing parallel predictive entropy search in Section 3. Finally, we demonstrate the benefit of our non-greedy strategy on synthetic as well as real-world objective functions in Section 4.
+
+2 Problem Statement and Background
+
+Our aim is to maximize an objective function f : X  R, which is unknown but can be (noisily) evaluated pointwise at multiple locations in parallel. In this work, we assume X is a compact subset of RD. At each decision, we must select a set of Q points St = {xt,1, ..., xt,Q}  X , where the
+objective function would next be evaluated in parallel. Each evaluation leads to a scalar observation yt,q = f (xt,q) + t,q, where we assume t,q  N (0, 2) i.i.d. We wish to minimize a future regret, rT = [f (x) - f (xT )], where x  argmaxxX f (x) is an optimal decision (assumed to exist) and xT is our guess of where the maximizer of f is after evaluating T batches of input points. It is highly intractable to make decisions T steps ahead in the setting described, therefore it is common
+to consider the regret of the very next decision. In this work, we shall assume f is a draw from a Gaussian process with constant mean   R and differentiable kernel function k : X 2  R.
+
+Most Bayesian optimization research focuses on choosing a single point to query at each decision i.e. Q = 1. A popular strategy in this setting is to choose the point with highest expected improvement over the current best evaluation, i.e. the maximizer of aEI(x|D) =
+E max(f (x) - f (xbest), 0) D = (x)   (x) +  (x)  (x) , where D is the set of ob-
+servations, xbest is the best evaluation point so far, (x) = Var[f (x)|D], (x) = E[f (x)|D],  (x) = ((x) - f (xbest))/(x) and (.) and (.) are the standard Gaussian p.d.f. and c.d.f.
+
+Aside from being an intuitive approach, a key advantage of using the expected improvement strategy
+is in the fact that it is computable analytically and is infinitely differentiable, making the problem of finding argmaxxX aEI(x|D) amenable to a plethora of gradient based optimization methods. Unfortunately, the corresponding strategy for selecting Q > 1 points to evaluate in parallel does not lead to an analytic expression. [14] considered an approach which sequentially used the EI criterion
+to greedily choose a batch of points to query next, which [3] formalized and utilized by defining
+
+aEI-MCMC x|D, {xq }qq =1 =
+
+aEI x|D{xq , yq }qq =1 p {yq }qq =1|D, {xq }qq =1 dy1..dyq,
+
+Xq
+
+the expected gain in evaluating x after evaluating {xq , yq }qq =1, which can be approximated using
+
+Monte Carlo samples, hence the name EI-MCMC. Choosing a batch of points St using the EI-
+
+MCMC policy is doubly greedy: (i) the EI criterion is greedy as it inherently aims to minimize one-
+
+step regret, rt, and (ii) the EI-MCMC approach starts with an empty set and populates it sequentially (and hence greedily), deciding the best single point to include until |St| = Q.
+
+A similar but different approach called simulated matching (SM) was introduced by [15]. Let  be a baseline policy which chooses a single point to evaluate next (e.g. EI). SM aims to select a batch St of size Q, which includes a point `close to' the best point which  would have chosen when applied
+sequentially Q times, with high probability. Formally, SM aims to maximize
+
+aSM(St|D) = -ESQ Ef
+
+min
+xSt
+
+(x
+
+-
+
+argmaxx
+
+SQ f (x
+
+))2
+
+D, SQ
+
+,
+
+where SQ is the set of Q points which policy  would query if employed sequentially. A greedy k-medoids based algorithm is proposed to approximately maximize the objective, which the authors
+
+justify by the submodularity of the objective function.
+
+The upper confidence bound (UCB) strategy [16] is another method used by practitioners to decide
+where to evaluate an objective function next. The UCB approach is to maximize aUCB(x|D) = (x) + t1/2(x), where t is a domain-specific time-varying positive parameter which trades off
+
+2
+
+exploration and exploitation. In order to extend this approach to the parallel setting, [17] noted that the predictive variance of a Gaussian process depends only on where observations are made, and not the observations themselves. Therefore, they suggested the GP-BUCB method, which greedily populates the set St by maximizing a UCB type equation Q times sequentially, updating  at each step, whilst maintaining the same  for each batch. Finally, a variant of the GP-UCB was proposed by [18]. The first point of the set St is chosen by optimizing the UCB objective. Thereafter, a `relevant region' Rt  X which contains the maximizer of f with high probability is defined. Points are greedily chosen from this region to maximize the information gain about f , measured by expected reduction in entropy, until |St| = Q. This method was named Gaussian process upper confidence bound with pure exploration (GP-UCB-PE).
+Each approach discussed resorts to a greedy batch selection process. To the best of our knowledge, no batch Bayesian optimization method to date has avoided a greedy algorithm. We avoid a greedy batch selection approach with PPES, which we develop in the next section.
+
+3 Parallel Predictive Entropy Search
+
+Our approach is to maximize information [19] about the location of the global maximizer x, which we measure in terms of the negative differential entropy of p(x|D). Analogous to [13], PPES aims to choose the set of Q points, St = {xq}Qq=1, which maximizes
+
+aPPES(St|D) = H p(x|D) - Ep {yq}Qq=1 D,St H p x|D  {xq, yq}Qq=1 ,
+
+(1)
+
+where H[p(x)] = - p(x) log p(x)dx is the differential entropy of its argument and the expectation
+
+above is taken with respect to the posterior joint predictive distribution of {yq}Qq=1 given the previous evaluations, D, and the set St. Evaluating (1) exactly is typically infeasible. The prohibitive aspects are that p x|D  {xq, yq}Qq=1 would have to be evaluated for many different combinations of {xq, yq}Qq=1, and the entropy computations are not analytically tractable in themselves. Significant
+approximations need to be made to (1) before it becomes practically useful [12]. A convenient equivalent formulation of the quantity in (1) can be written as the mutual information between x
+
+and {yq}Qq=1 given D [20]. By symmetry of the mutual information, we can rewrite aPPES as
+
+aPPES(St|D) = H p {yq}Qq=1|D, St - Ep(x|D) H p {yq}Qq=1|D, St, x ,
+
+(2)
+
+where p {yq}Qq=1|D, St, x is the joint posterior predictive distibution for {yq}Qq=1 given the observed data, D and the location of the global maximizer of f . The key advantage of the formulation in (2), is that the objective is based on entropies of predictive distributions of the observations, which are much more easily approximated than the entropies of distributions on x.
+
+In fact, the first term of (2) can be computed analytically. Suppose p {fq}Qq=1|D, St is multivariate Gaussian with covariance K, then H p {yq}Qq=1|D, St = 0.5 log[det(2e(K + 2I))]. We develop an approach to approximate the expectation of the predictive entropy in (2), using an
+expectation propagation based method which we discuss in the following section.
+
+3.1 Approximating the Predictive Entropy
+
+Assuming a sample of x, we discuss our approach to approximating H p {yq}Qq=1|D, St, x in (2) for a set of query points St. Note that we can write
+
+p {yq}Qq=1|D, St, x =
+
+Q
+
+p {fq}Qq=1|D, St, x
+
+p(yq|fq) df1...dfQ,
+
+q=1
+
+(3)
+
+where p {fq}Qq=1|D, St, x is the posterior distribution of the objective function at the locations xq  St, given previous evaluations D, and that x is the global maximizer of f . Recall that p(yq|fq) is Gaussian for each q. Our approach will be to derive a Gaussian approximation to
+p {fq}Qq=1|D, St, x , which would lead to an analytic approximation to the integral in (3).
+
+The posterior predictive distribution of the Gaussian process, p {fq}Qq=1|D, St , is multivariate Gaussian distributed. However, by further conditioning on the location x, the global maximizer of f , we impose the condition that f (x)  f (x ) for any x  X . Imposing this constraint for
+
+3
+
+all x  X is extremely difficult and makes the computation of p {fq}Qq=1|D, St, x highly intractable. We instead impose the following two conditions (i) f (x)  f (x ) for each x  St, and (ii) f (x )  ymax + , where ymax is the largest observed noisy objective function value and
+ N (0, 2). Constraint (i) is equivalent to imposing that f (x ) is larger than objective function
+values at current query locations, whilst condition (ii) makes f (x ) larger than previous objec-
+tive function evaluations, accounting for noise. Denoting the two conditions C, and the variables f = [f1, ..., fQ] and f + = [f ; f ], where f = f (x), we incorporate the conditions as follows
+
+p f |D, St, x 
+
+p f +|D, St, x 
+
+f
+
+- ymax 
+
+Q
+I(f  fq) df ,
+
+q=1
+
+(4)
+
+where I(.) is an indicator function. The integral in (4) can be approximated using expectation propa-
+
+gation [21]. The Gaussian process predictive p(f +|D, St, x) is N (f +; m+, K+). We approximate
+
+the integrand of (4) with w(f +) = N (f +; m+, K+)
+
+Q+1 q=1
+
+ZqN (cq
+
+f+;
+
+q ,
+
+q ),
+
+where
+
+each
+
+Zq
+
+and q are positive, q  R and for q  Q, cq is a vector of length Q + 1 with qth entry -1, Q + 1st
+
+entry 1, and remaining entries 0, whilst cQ+1 = [0, ..., 0, 1] . The approximation w(f +) approxi-
+
+mates the Gaussian CDF, (.), and each indicator function, I(.), with a univariate, scaled Gaussian
+
+PDF. The site parameters, {Zq, q, q}Qq=+11, are learned using a fast EP algorithm, for which details
+
+are given in the supplementary material, where we show that w(f +) = ZN (f +; +, +), where
+
++ = +
+
+K-+1m+
+
++
+
+Q+1 q=1
+
+q q
+
+cq cq
+
+-1
+,
+
++ =
+
+K-+1
+
++
+
+Q+1 q=1
+
+1 q
+
+cq cq
+
+-1
+,
+
+(5)
+
+and hence p f +|D, St, C  N (f +; +, +). Since multivariate Gaussians are consistent under marginalization, a convenient corollary is that p f |D, St, x  N (f ; , ), where  is the vector containing the first Q elements of +, and  is the matrix containing the first Q rows and columns of +. Since sums of independent Gaussians are also Gaussian distributed, we see that p {yq}Qq=1|D, St, x  N ([y1, ..., yQ] ; ,  + 2I). The final convenient attribute of our Gaus-
+sian approximation, is that the differential entropy of a multivariate Gaussian can be computed
+analytically, such that H p {yq}Qq=1|D, St, x  0.5 log[det(2e( + 2I))].
+
+3.2 Sampling from the Posterior over the Global Maximizer
+
+So far, we have considered how to approximate H p {yq}Qq=1|D, St, x , given the global maximizer, x. We in fact would like the expected value of this quantity over the posterior distribution of the global maximizer, p(x|D). Literally, p(x|D)  p(f (x) = maxxX f (x)|D), the posterior probability that x is the global maximizer of f . Computing the distribution p(x|D) is intractable, but it is possible to approximately sample from it and compute a Monte Carlo based approximation of the desired expectation. We consider two approaches to sampling from the posterior of the global maximizer: (i) a maximum a posteriori (MAP) method, and (ii) a random feaure approach.
+
+apaMdlragvAcmaiPnnatgasxagxtmhesepXtploeopusf(tsrxeiornimgo|Drtph)d(.eixsMtWri|AbeDuPm)t.ioeasyntTiaomhpfeapxtrMeoxiAnwimPitthahoitsefawptsh(iaenxyg.el|xeFDpiper)soctitilsenydt,iteisvtsatiplisumoessaitmetoerfpioatlhetr exmtoMporcAdeoedPm,i.cpgtTiuivvtheeeenrexenbMtayrAroexPpy,tMwaAbosyPiktre=eiysthe global maximizer of the posterior mean of f given the observations D. Secondly, choosing to utohsfeethcxeoMnpdAoiPstieoarnisosfris(mtxsetah)neEofPff(ax.lg)WofrohitrehnxmxdeXviselisosapmeeapdslyeindtoSseeuncctfhioortnhcea3t.w1thhteeonpcoxosntve=erirogxreMmaAsePadne, stahirteexdg.loTibshaislsigmisnaibxfieicmcaaniuztsleyer suboptimal, the EP approximation may be poor. Whilst using the MAP estimate approximation is convenient, it is after all a point estimate and fails to characterize the full posterior distribution. We therefore consider a method to draw samples from p(x|D) using random features.
+
+Random Feature Samples from p(x|D). A naive approach to sampling from p(x|D) would be to sample g  p(f |D), and choosing argmaxxX g. Unfortunately, this would require sampling g over an uncountably infinite space, which is infeasible. A slightly less naive method would be to sequentially construct g, whilst optimizing it, instead of evaluating it everywhere in X . However, this approach would have cost O(m3) where m is the number of function evaluations of g necessary
+to find its optimum. We propose as in [13], to sample and optimize an analytic approximation to g.
+
+4
+
+By Bochner's theorem [22], a stationary kernel function, k, has a Fourier dual s(w), which is equal to the spectral density of k. Setting p(w) = s(w)/, a normalized density, we can write
+
+k(x, x ) = Ep(w)[e-iw (x-x )] = 2Ep(w,b)[cos(w x + b) cos(w x + b)],
+
+(6)
+
+where b  U [0, 2]. Let (x) = 2/m cos(Wx + b) denote an m-dimensional feature mapping where W and b consist of m stacked samples from p(w, b), then the kernel k can be approximated
+by the inner product of these features, k(x, x )  (x) (x ) [23]. The linear model g(x) = (x)  +  where |D  N (A-1 (y - 1), 2A-1) is an approximate sample from p(f |D),
+where y is a vector of objective function evaluations, A =   + 2I and  = [(x1)...(xn)]. In fact, limm g is a true sample from p(f |D) [24].
+
+The generative process above suggests the following approach to approximately sampling from p(x|D): (i) sample random features (i) and corresponding posterior weights (i) using the process above, (ii) construct g(i)(x) = (i)(x) (i) + , and (iii) finally compute x (i) = argmaxxX g(i)(x) using gradient based methods.
+
+3.3 Computing and Optimizing the PPES Approximation
+
+Let  denote the set of kernel parameters and the observation noise variance, 2. Our posterior belief about  is summarized by the posterior distribution p(|D)  p()p(D|), where p() is our prior belief about  and p(D|) is the GP marginal likelihood given the parameters . For a fully Bayesian treatment of , we must marginalize aPPES with respect to p(|D). The expectation with respect to the posterior distribution of  is approximated with Monte Carlo samples. A similar
+
+approach is taken in [3, 13]. Combining the EP based method to approximate the predictive entropy
+
+with either of the two methods discussed in the previous section to approximately sample from p(x|D), we can construct aPPES an approximation to (2), defined by
+
+aPPES(St|D)
+
+=
+
+1 2M
+
+M
+
+log[det(K(i) + 2(i)I)] - log[det((i) + 2(i)I)] ,
+
+i=1
+
+(7)
+
+where K(i) is constructed using (i) the ith sample of M from p(|D), (i) is constructed as in
+
+Section 3.1, assuming the global maximizer is x(i)  p(x|D, (i)). The PPES approximation is simple and amenable to gradient based optimization. Our goal is to choose St = {x1, ..., xQ} which maximizes aPPES in (7). Since our kernel function is differentiable, we may consider taking the derivative of aPPES with respect to xq,d, the dth component of xq,
+
+ aPPES  xq,d
+
+=
+
+1 2M
+
+M i=1
+
+trace
+
+(K(i)
+
++
+
+2(i)I)-1
+
+K(i) xq,d
+
+- trace
+
+((i)
+
++
+
+2(i)I)-1
+
+(i) xq,d
+
+. (8)
+
+Computing
+
+ K(i)  xq,d
+
+is simple directly from the definition of the chosen kernel function.
+
+(i) is a
+
+function
+
+of
+
+K(i),
+
+{cq }Qq=+11
+
+and
+
+{q(i)}Qq=+11,
+
+and
+
+we
+
+know
+
+how
+
+to
+
+compute
+
+,K(i)
+ xq,d
+
+and
+
+that
+
+each
+
+cq
+
+is a constant vector. Hence our only concern is how the EP site parameters, {q(i)}Qq=+11, vary with
+
+xq,d. Rather remarkably, we may invoke a result from Section 2.1 of [25], which says that converged
+
+site parameters, {Zq, q, q}Qq=+11, have 0 derivative with respect to parameters of p(f +|D, St, x).
+
+There is a key distinction between explicit dependencies (where  actually depends on K) and
+
+implicit dependencies where a site parameter, q, might depend implicitly on K. A similar approach is taken in [26], and discussed in [7]. We therefore compute
+
+(+i) xq,d
+
+=
+
+(+i)K(+i)-1
+
+K(+i) xq,d
+
+K(+i)-1(+i).
+
+(9)
+
+On first inspection, it may seem computationally too expensive to compute derivatives with respect
+
+to each q and d. However, note that we may compute and store the matrices K+(i)-1+(i), (K(i) +
+
+2(i)I)-1
+
+and
+
+((i)
+
++ 2(i)I)-1
+
+once,
+
+and
+
+that
+
+ K(+i)  xq,d
+
+is
+
+symmetric
+
+with
+
+exactly
+
+one
+
+non-zero
+
+row
+
+and non-zero column, which can be exploited for fast matrix multiplication and trace computations.
+
+5
+
+0.6
+0.6 0.5
+0.4 0.4
+0.3
+0.2 0.2 0.1
+
+0.5 0.6
+0.4
+0.4 0.3
+0.2 0.2
+0.1
+
+00 2
+1.5 1
+0.5 0
+-0.5 -1
+
+0.2 0.4 0.6 0.8
+
+10 1
+0.8 0.6 0.4 0.2
+
+00 1 0.7 0.6 0.8
+0.5 0.6
+0.4
+0.3 0.4
+0.2 0.2
+0.1
+
+0.2 0.4 0.6 0.8
+
+10
+0.8 0.7 0.6 0.5 0.4 0.3 0.2 0.1
+
+-1.5 0
+
+0.2 0.4 0.6 0.8
+
+1
+
+0 0 0.2 0.4 0.6 0.8 1 0
+
+0 0 0.2 0.4 0.6 0.8 1 0
+
+(a) Synthetic function
+
+1
+
+(b) aPPES(x, x )
+
+2 0.8
+
+(c) aPPES(x, x )
+
+1.5
+Figure 1: Assessing the quality1 0o.8f our approximations to the pa0r.7allel predictive entropy search strat-
+
+egy. (a) Synthetic objective function (blue line) defined on [00.6, 1], w1 ith noisy observations (black
+
+squares).
+
+(b)
+
+Ground
+
+truth
+
+a 0.6
+PPES
+
+defined
+
+on
+
+[0, 1]2,
+
+obtained0.5by
+
+r0.e5 jection
+
+sampling.
+
+(c) Our ap-
+
+proximation aPPES using expectation propagation. Dark high utility, whilst faint regions0.c4 orrespond to pairs (x, x )
+
+regi0o.4ns co0 rrespond with0.3low utility.
+
+to
+
+pairs
+
+(x,
+
+x
+
+)
+
+with
+
+-0.5
+
+0.2
+4 Empirical Study
+
+0.2 0.1 -1
+
+00
+
+0.2 0.4 0.6 0.8
+
+1
+
+0
+
+-1.5 0
+
+0.2 0.4 0.6 0.8
+
+1
+
+In this section, we study the perf2ormance of PPES in comparison to aforementioned methods. We
+
+model f as a Gaussian process with constant mean  and covariance kernel k. Observations of the
+
+objective function are considered1.5to be independently drawn from N (f (x), 2). In our experimen1ts,
+
+we choose to use a squared-expo1 nential kernel of the form k(x, x ) = 2 exp - 0.5 d(xd -
+
+xd)2/ld2 . Therefore the set of0.5model hyperparameters is {, , l1, ..., lD, }, a broad Gaussian
+
+hyperprior is placed on  and uni0nformative Gamma priors are used for the other hyperparameters.
+
+It is worth investigating how w-0e.5ll aPPES (7) is able to approximate aPPES (2). In order to test
+
+the approximation in a manner amenable to visualization, we generate a sample f from a Gaussian
+
+process
+
+prior
+
+on
+
+X
+
+=
+
+[0, 1],
+
+-1
+with
+
+
+
+2
+
+=
+
+1,
+
+2
+
+=
+
+10-4
+
+and
+
+l2
+
+=
+
+0.025,
+
+and
+
+consider
+
+batches
+
+of
+
+size
+
+Q = 2. We set M = 200. A-1r.e50jectio0.2n sa0m.4 plin0.6g ba0s.8ed a1pproach is used to compute the ground truth aPPES, defined on X Q = [0, 1]2. We first discretize [0, 1]2, and sample p(x|D) in (2) by evaluating samples from p(f |D) on the discrete points and choosing the input with highest function
+
+value. Given x, we compute H p y1, y2|D, x1, x2, x usin1 g rejection sampling. Samples from
+
+p(f |D) are evaluted on discrete points in [0, 1]2 and rejected if the highest function value occurs not
+
+at x. We add independent Gaussian noise with variance 2 to the non rejected samples from the
+
+previous step and approximate H p y1, y2|D, x1, x2, x using kernel density estimation [27].
+
+Figure 1 includes illustrations of (a) the objective function to be maximized, f , with 5 noisy observations, (b) the aPPES ground truth obtained using the rejection sampling method and finally (c) aPPES using the EP method we develop in the previous section. The black squares on the axes of Figures 1(b) and 1(c) represent the locations in X = [0, 1] where f has been noisily sampled, and
+the darker the shade, the larger the function value. The lightly shaded horizontal and vertical lines
+in these figures along the points The figures representing aPPES and aPPES appear to be symmetric, as is expected, since the set St = {x, x } is not an ordered set, since all points in the set are probed in parallel i.e. St = {x, x } = {x , x}. The surface of aPPES is similar to that of aPPES. In paticular, the aPPES approximation often appeared to be an annealed version of the ground truth aPPES, in the sense that peaks were more pronounced, and non-peak areas were flatter. Since we are interested in argmax{x,x }X 2 aPPES({x, x }), our key concern is that the peaks of aPPES occur at the same input locations as aPPES. This appears to be the case in our experiment, suggesting that the argmax aPPES is a good approximation for argmax aPPES.
+
+We now test the performance of PPES in the task of finding the optimum of various objective functions. For each experiment, we compare PPES (M = 200) to EI-MCMC (with 100 MCMC sam-
+ples), simulated matching with a UCB baseline policy, GP-BUCB and GP-UCB-PE. We use the random features method to sample from p(x|D), rejecting samples which lead to failed EP runs. An experiment of an objective function, f , consists of sampling 5 input points uniformly at random and
+running each algorithm starting with these samples and their corresponding (noisy) function values. We measure performance after t batch evaluations using immediate regret, rt = |f (xt) - f (x)|, where x is the known optimizer of f and xt is the recommendation of an algorithm after t batch evaluations. We perform 100 experiments for each objective function, and report the median of the
+
+6
+
+regret regret regret regret regret regret regret regret
+
+regret regret regret regret
+
+regret regret regret regret
+
+66 0.4 0.4
+4 4 0.3 0.3
+
+0.2 0.2 22
+0.1 0.1
+
+10 10 88 66 44 22
+
+PPESPPES EI-MECIM-MCCMC SMUCSMB UCB
+BUCBBUCB UCBPUECBPE
+
+0.8 0.8 0.7 0.7 0.6 0.6 0.5 0.5 0.4 0.4 0.3 0.3 0.2 0.2 0.1 0.1
+
+00 00 77
+
+5 5 10 10 15 15 20 20 25 25 tt
+
+00 00 33
+
+5 5 10 10 15 15 20 20 25 25 tt
+
+6 6 2.5 2.5
+55 22
+44 1.5 1.5
+33 11
+22
+1 1 0.5 0.5
+
+0 0 0 0 5 510 1015 1520 2025 25
+
+0 0 0 0 5 510 1015 1520 2025 0 0250 0
+
+tt
+
+tt
+
+7 7 (a) Branin
+
+3 3 (b) Cosines
+
+10 10 20 20 tt
+
+30 30
+
+(c) Shekel
+
+0 0 0 0 10 10 20 20 30 30 40 40 50 50 tt
+(d) Hartmann
+
+6
+
+6
+Figure
+
+2:
+
+Median
+
+of
+
+the
+
+i2m.5 m2.e5 diate
+
+regret
+
+of
+
+the
+
+PPES
+
+and
+
+4
+
+other
+
+algorithms
+
+over
+
+100
+
+experiments
+
+5 on5 benchmark synthetic ob2jec2tive functions, using batches of size Q = 3.
+
+44
+immediate regret obtained1.5 fo1.5r each algorithm. The confidence bands represent one standard devia3 tio3n obtained from bootstrapping. The empirical distribution of the immediate regret is heavy tailed, 2 m2aking the median more r1epr1esentative of where most data points lie than the mean.
+
+1 Ou1 r first set of experimen0t.5s i0s.5 on a set of synthetic benchmark objective functions including Branin-
+
+0
+
+0Hano0d0o
+
+[28], a mixture t1h0e 1H0 ta2r0tmt 20an30n-630
+
+offuncocts0ii0onne0s0[102[2819]02]0(,dat2e03fiS0 nht e3e04dk0eol4n05f0u[n05c0,t1io]6n).wWithe
+
+10 modes [30] (each defined choose batches of size Q =
+
+on 3
+
+[0, 1]2) at each
+
+decision time. The plots in Figure 2 illustrate the median immediate regrets found for each algo-
+
+rithm. The results suggest that the PPES algorithm performs close to best if not1th1e best for each
+
+problem considered. EI-MCMC does significantly better on the Hartmann function, which is a rela-
+
+tively smooth function with very few modes, where greedy search appears beneficial. Entropy-based
+
+strategies are more exploratory in higher dimensions. Nevertheless, PPES does significantly better
+
+than GP-UCB-PE on 3 of the 4 problems, suggesting that our non-greedy batch selection procedure
+
+enhances performance versus a greedy entropy based policy.
+
+We now consider maximization of real world objective functions. The first, boston, returns the negative of the prediction error of a neural network trained on a random train/text split of the Boston Housing dataset [31]. The weight-decay parameter and number of training iterations for the neural network are the parameters to be optimized over. The next function, hydrogen, returns the amount of hydrogen produced by particular bacteria as a function of pH and nitrogen levels of a growth medium [32]. Thirdly we con1sid1er a function, rocket, which runs a simulation of a rocket [33] being launched from the Earth's surface and returns the time taken for the rocket to land on the Earth's surface. The variables to be optimized over are the launch height from the surface, the mass of fuel to use and the angle of launch with respect to the Earth's surface. If the rocket does not return, the function returns 0. Finally we consider a function, robot, which returns the walking speed of a bipedal robot [34]. The function's input parameters, which live in [0, 1]8, are the robot's controller. We add Gaussian noise with  = 0.1 to the noiseless function. Note that all of the functions we consider are not available analytically. boston trains a neural network and returns test error, whilst rocket and robot run physical simulations involving differential equations before returning a desired quantity. Since the hydrogen dataset is available only for discrete points, we define hydrogen to return the predictive mean of a Gaussian process trained on the dataset.
+
+Figure 3 show the median values of immediate regret by each method over 200 random initializations. We consider batches of size Q = 2 and Q = 4. We find that PPES consistently outperforms competing methods on the functions considered. The greediness and nonrequirement of MCMC sampling of the SM-UCB, GP-BUCB and GP-UCB-PE algorithms make them amenable to large batch experiments, for example, [17] consider optimization in R45 with batches of size 10. However, these three algorithms all perform poorly when selecting batches of smaller size. The performance on the hydrogen function illustrates an interesting phenemona; whilst the immediate regret of PPES is mediocre initially, it drops rapidly as more batches are evaluated.
+
+This behaviour is likely due to the non-greediness of the approach we have taken. EI-MCMC makes good initial progress, but then fails to explore the input space as well as PPES is able to. Recall that after each batch evaluation, an algorithm is required to output xt, its best estimate for the maximizer of the objective function. We observed that whilst competing algorithms tended to evaluate points which had high objective function values compared to PPES, yet when it came to recommending xt,
+
+7
+
+regretregret regretregret regretregret regretregret rergergertet rergergertet rergergertet rergergertet
+
+regretregret regretregret regretregret regretregret
+rergergertet rergergertet rergergertet rergergertet
+
+*10-2*10-2 *10-2*10-2 44 44 33 33
+
+PPEPSPES
+EI-MECI-MMCCMC SPMPUESCPMSBPUECSB
+EIB-MUECIB-MBMUCCMB C SUMCUBSUCPMCEBUBCPEB BUCBBUCB
+UCBUPCEBPE
+
+22
+
+22
+
+11
+
+11
+
+0 0 0 0 5 5 10 10 15 15 20 20
+
+0 0*100-02*105-2
+
+5
+
+t 10
+
+t 10 15
+
+15 20
+
+20
+
+*10-2*10-2 44
+
+tt
+
+44
+
+33
+
+33
+
+22
+
+22
+
+11
+
+11
+
+00 00 00 00
+
+5 5 10 10 15 15 20 20
+tt 5 5 10 10 15 15 20 20
+(a) btostton
+
+14 14
+
+1142 1142 1120 1120 180 180
+
+33 33 22..55 22..55
+22 22
+
+44 44 33..55 33..55
+33 33 22..55 22..55
+
+86 86
+
+11..55 11..55
+
+22 22
+
+64 64 42 42
+
+11 11
+
+11..55 11..55 11 11
+
+20 0 20 0
+
+10
+
+10
+
+20
+
+20
+
+30
+
+30
+
+00..55 00..55 40 40
+
+00..55 00..55
+
+00 00
+
+10
+
+10
+
+t 20
+
+t 20
+
+30
+
+30
+
+00 40
+
+0040
+
+00 00 1100
+
+tt
+
+1100 22tt00
+
+22tt00 3300
+
+3300 4400
+
+4400
+
+00 00 00 00 1100 1100 22tt00 22tt00 3300 3300 4400 4400
+
+14 14
+
+33 33
+
+44 44
+
+1142 1142 1120 1120 180 180
+
+22..55 22..55 22 22
+
+33..55 33..55 33 33
+22..55 22..55
+
+86 86 64 64 42 42
+
+11..55 11..55 11 11
+00..55 00..55
+
+22 22 11..55 11..55
+11 11 00..55 00..55
+
+20 0 20 0 00 00
+
+10 10
+
+10 10
+
+20
+t 20
+
+20
+t 20
+
+30 30
+
+30 30
+
+4000 0040 00 00 1100 40 40
+
+1100 22tt00
+
+22tt00 3300
+
+3300 4400
+
+(b) hydrt ogt en
+
+(c) rocket
+
+4400
+
+00 00 00 00 1100 1100 22tt00 22tt00 3300 3300 4400 4400
+(d) robot
+
+Figure 3: Median of the immediate regret of the PPES and 4 other algorithms over 100 experiments on real world objective functions. Figures in the top row use batches of size Q = 2, whilst figues on the bottom row use batches of size Q = 4.
+PPES tended to do a better job. Our belief is that this occured exactly because the PPES objective aims to maximize information gain rather than objective function value improvement.
+
+The rocket function has a strong discontinuity making if difficult to maximize. If the fuel mass,
+
+launch height and/or angle are too high, the rocket would not return to the Earth's surface, resulting
+
+in a 0 function value. It can be argued that a stationary kernel Gaussian process is a poor model for
+
+this function, yet it is worth investigating the performance of a GP based models since a practitioner
+
+may not know whether or not 1the1ir black-box function is smooth apriori. PPES seemed to handle this
+
+function methods
+
+best and
+
+and had fewer s1am1ples which resulted in made fewer recommendations which led
+
+0tofuan0ctfiuonncvtiaolunevtahlaune.e11aTchhe11 orfeltahteivceominpcreetiansge
+
+in PPES performance from increasing batch size from Q = 2 to Q = 4 is small for the robot
+
+function compared to the other functions considered. We believe this is a consequence of using a
+
+slightly naive optimization procedure to save computation time. Our optimization procedure first
+
+computes aPPES at 1000 points selected uniformly at random, and performs gradient ascent from the best point. Since aPPES is defined on X Q = [0, 1]32, this method may miss a global optimum. Other methods all select their batches greedily, and hence only need to optimize in X = [0, 1]8.
+
+However, this should easily be avoided by using a more exhaustive gradient based optimizer.
+
+5 Conclusions
+We have developed parallel predictive entropy search, an information theoretic approach to batch Bayesian optimization. Our method is greedy in the sense that it aims to maximize the one-step information gain about the location of x, but it is not greedy in how it selects a set of points to evaluate next. Previous methods are doubly greedy, in that they look one step ahead, and also select a batch of points greedily. Competing methods are prone to under exploring, which hurts their perfomance on multi-modal, noisy objective functions, as we demonstrate in our experiments.
+
+References
+
+[1] G. Wang and S. Shan. Review of Metamodeling Techniques in Support of Engineering Design Optimization. Journal of Mechanical Design, 129(4):370-380, 2007.
+[2] W. Ziemba & R. Vickson. Stochastic Optimization Models in Finance. World Scientific Singapore, 2006.
+
+8
+
+[3] J. Snoek, H. Larochelle, and R. P. Adams. Practical Bayesian Optimization of Machine Learning Algorithms. NIPS, 2012.
+[4] J. Mockus. Bayesian Approach to Global Optimization: Theory and Applications. Kluwer, 1989.
+[5] D. Lizotte, T. Wang, M. Bowling, and D. Schuurmans. Automatic Gait Optimization with Gaussian Process Regression. IJCAI, pages 944-949, 2007.
+[6] D. M. Negoescu, P. I. Frazier, and W. B. Powell. The Knowledge-Gradient Algorithm for Sequencing Experiments in Drug Discovery. INFORMS Journal on Computing, 23(3):346-363, 2011.
+[7] Carl Rasmussen and Chris Williams. Gaussian Processes for Machine Learning. MIT Press, 2006.
+[8] A. Shah, A. G. Wilson, and Z. Ghahramani. Student-t Processes as Alternatives to Gaussian Processes. AISTATS, 2014.
+[9] J. Snoek, O. Rippel, K. Swersky, R. Kiros, N. Satish, N. Sundaram, M. Patwary, Mr Prabat, and R. P. Adams. Scalable Bayesian Optimization Using Deep Neural Networks. ICML, 2015.
+[10] E. Brochu, M. Cora, and N. de Freitas. A Tutorial on Bayesian Optimization of Expensive Cost Functions, with Applications to Active User Modeling and Hierarchical Reinforcement Learning. Technical Report TR-2009-23, University of British Columbia, 2009.
+[11] G. Gutin, A. Yeo, and A. Zverovich. Traveling salesman should not be greedy:domination analysis of greedy-type heuristics for the TSP. Discrete Applied Mathematics, 117:81-86, 2002.
+[12] P. Hennig and C. J. Schuler. Entropy Search for Information-Efficient Global Optimization. JMLR, 2012.
+[13] J. M. Hernandez-Lobato, M. W. Hoffman, and Z. Ghahramani. Predictive Entropy Search for Efficient Global Optimization of Black-box Functions. NIPS, 2014.
+[14] D. Ginsbourger, J. Janusevskis, and R. Le Riche. Dealing with Asynchronicity in Parallel Gaussian Process Based Optimization. 2011.
+[15] J. Azimi, A. Fern, and X. Z. Fern. Batch Bayesian Optimization via Simulation Matching. NIPS, 2010.
+[16] N. Srinivas, A. Krause, S. Kakade, and M. Seeger. Gaussian Process Optimization in the Bandit Setting: No Regret and Experimental Design. ICML, 2010.
+[17] T. Desautels, A. Krause, and J. Burdick. Parallelizing Exploration-Exploitation Tradeoffs with Gaussian Process Bandit Optimization. ICML, 2012.
+[18] E. Contal, D. Buffoni, D. Robicquet, and N. Vayatis. Parallel Gaussian Process Optimization with Upper Confidence Bound and Pure Exploration. In Machine Learning and Knowledge Discovery in Databases, pages 225-240. Springer Berlin Heidelberg, 2013.
+[19] D. J. MacKay. Information-Based Objective Functions for Active Data Selection. Neural Computation, 4(4):590-604, 1992.
+[20] N. Houlsby, J. M. Hernandez-Lobato, F. Huszar, and Z. Ghahramani. Collaborative Gaussian Processes for Preference Learning. NIPS, 2012.
+[21] T. P. Minka. A Family of Algorithms for Approximate Bayesian Inference. PhD thesis, Masachusetts Institute of Technology, 2001.
+[22] S. Bochner. Lectures on Fourier Integrals. Princeton University Press, 1959.
+[23] A. Rahimi and B. Recht. Random Features for Large-Scale Kernel Machines. NIPS, 2007.
+[24] R. M. Neal. Bayesian Learning for Neural Networks. PhD thesis, University of Toronto, 1995.
+[25] M. Seeger. Expectation Propagation for Exponential Families. Technical Report, U.C. Berkeley, 2008.
+[26] J. P. Cunningham, P. Hennig, and S. Lacoste-Julien. Gaussian Probabilities and Expectation Propagation. arXiv, 2013. http://arxiv.org/abs/1111.6832.
+[27] I. Ahmad and P. E. Lin. A Nonparametric Estimation of the Entropy for Absolutely Continuous Distributions. IEEE Trans. on Information Theory, 22(3):372-375, 1976.
+[28] D. Lizotte. Practical Bayesian Optimization. PhD thesis, University of Alberta, 2008.
+[29] B. S. Anderson, A. W. Moore, and D. Cohn. A Nonparametric Approach to Noisy and Costly Optimization. ICML, 2000.
+[30] J. Shekel. Test Functions for Multimodal Search Techniques. Information Science and Systems, 1971.
+[31] K. Bache and M. Lichman. UCI Machine Learning Repository, 2013.
+[32] E. H. Burrows, W. K. Wong, X. Fern, F.W.R. Chaplen, and R.L. Ely. Optimization of ph and nitrogen for enhanced hydrogen production by synechocystis sp. pcc 6803 via statistical and machine learning methods. Biotechnology Progress, 25(4):1009-1017, 2009.
+[33] J. E. Hasbun. In Classical Mechanics with MATLAB Applications. Jones & Bartlett Learning, 2008.
+[34] E. Westervelt and J. Grizzle. Feedback Control of Dynamic Bipedal Robot Locomotion. Control and Automation Series. CRC PressINC, 2007.
+9
+

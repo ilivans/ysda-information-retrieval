@@ -1,0 +1,534 @@
+Regressive Virtual Metric Learning
+Michael Perrot, and Amaury Habrard Universite de Lyon, Universite Jean Monnet de Saint-Etienne, Laboratoire Hubert Curien, CNRS, UMR5516, F-42000, Saint-Etienne, France. {michael.perrot,amaury.habrard}@univ-st-etienne.fr
+Abstract
+We are interested in supervised metric learning of Mahalanobis like distances. Existing approaches mainly focus on learning a new distance using similarity and dissimilarity constraints between examples. In this paper, instead of bringing closer examples of the same class and pushing far away examples of different classes we propose to move the examples with respect to virtual points. Hence, each example is brought closer to a a priori defined virtual point reducing the number of constraints to satisfy. We show that our approach admits a closed form solution which can be kernelized. We provide a theoretical analysis showing the consistency of the approach and establishing some links with other classical metric learning methods. Furthermore we propose an efficient solution to the difficult problem of selecting virtual points based in part on recent works in optimal transport. Lastly, we evaluate our approach on several state of the art datasets.
+1 Introduction
+The goal of a metric learning algorithm is to capture the idiosyncrasies in the data mainly by defining a new space of representation where some semantic constraints between examples are fulfilled. In the previous years the main focus of metric learning algorithms has been to learn Mahalanobis like distances of the form dM(x, x ) = (x - x )T M(x - x ) where M is a positive semi-definite matrix (PSD) defining a set of parameters1. Using a Cholesky decomposition M = LLT , one can see that this is equivalent to learn a linear transformation from the input space.
+Most of the existing approaches in metric learning use constraints of type must-link and cannot-link between learning examples [1, 2]. For example, in a supervised classification task, the goal is to bring closer examples of the same class and to push far away examples of different classes. The idea is that the learned metric should affect a high value to dissimilar examples and a low value to similar examples. Then, this new distance can be used in a classification algorithm like a nearest neighbor classifier. Note that in this case the set of constraints is quadratic in the number of examples which can be prohibitive when the number of examples increases. One heuristic is then to select only a subset of the constraints but selecting such a subset is not trivial. In this paper, we propose to consider a new kind of constraints where each example is associated with an a priori defined virtual point. It allows us to consider the metric learning problem as a simple regression where we try to minimize the differences between learning examples and virtual points. Fig. 1 illustrates the differences between our approach and a classical metric learning approach. It can be noticed that our algorithm only uses a linear number of constraints. However defining these constraints by hand can be tedious and difficult. To overcome this problem, we present two approaches to automatically define them. The first one is based on some recent advances in the field of Optimal Transport while the second one uses a class-based representation space.
+1When M = I, the identity matrix, it corresponds to the Euclidean distance.
+1
+
+(a) Classical must-link cannot-link approach.
+
+(b) Our virtual point-based regression formulation.
+
+Figure 1: Arrows denote the constraints used by each approach for one particular example in a binary classification task. The classical metric learning approach in Fig. 1(a) uses O(n2) constraints
+bringing closer examples of the same class and pushing far away examples of different classes. On
+the contrary, our approach presented in Fig. 1(b) moves the examples to the neighborhood of their corresponding virtual point, in black, using only O(n) constraints. ( Best viewed in color )
+
+Moreover, thanks to its regression-based formulation, our approach can be easily kernelized allowing us to deal efficiently with non linear transformations which is a nice advantage in comparison to some metric learning methods. We also provide a theoretical analysis showing the consistency of our approach and establishing some relationships with a classical metric learning formulation.
+This paper is organized as follows. In Section 2 we identify several related works. Then in Section 3 we present our approach, provide some theoretical results and give two solutions to generate the virtual points. Section 4 is dedicated to an empirical evaluation of our method on several widely used datasets. Finally, we conclude in Section 5.
+2 Related work
+For up-to-date surveys on metric learning see [3] and [4]. In this section we focus on algorithms which are more closely related to our approach. First of all, one of the most famous approach in metric learning is LMNN [5] where the authors propose to learn a PSD matrix to improve the k-nearest-neighbours algorithm. In their work, instead of considering pairs of examples, they use triplets (xi, xj, xk) where xj and xk are in the neighborhood of xi and such that xi and xj are of the same class and xk is of a different class. The idea is then to bring closer xi and xj while pushing xk far away. Hence, if the number of constraints seems to be cubic, the authors propose to only consider triplets of examples which are already close to each other. In contrast, the idea presented in [6] is to collapse all the examples of the same class in a single point and to push infinitely far away examples of different classes. The authors define a measure to estimate the probability of having an example xj given an example xi with respect to a learned PSD matrix M. Then, they minimize, w.r.t. M, the KL divergence between this measure and the best case where the probability is 1 if the two examples are of the same class and 0 otherwise. It can be seen as collapsing all the examples of the same class on an implicit virtual point. In this paper we use several explicit virtual points and we collapse the examples on these points with respect to their classes and their distances to them.
+A recurring issue in Mahalanobis like metric learning is to fulfill the PSD constraint on the learned metric. Indeed, projecting a matrix on the PSD cone is not trivial and generally requires a costly eigenvalues decomposition. To address this problem, in ITML [1] the authors propose to use a LogDet divergence as the regularization term. The idea is to learn a matrix which is close to an a priori defined PSD matrix. The authors then show that if the divergence is finite, then the learned matrix is guaranteed to be PSD. Another approach, as proposed in [2], is to learn a matrix L such that M = LLT , i.e. instead of learning the metric the authors propose to learn the projection. The main drawback is the fact that most of the time the resulting optimization problem is not convex [3, 4, 7] and is thus harder to optimize. In this paper, we are also interested in learning L directly. However, because we are using constraints between examples and virtual points, we obtain a convex problem with a closed form solution allowing us to learn the metric in an efficient way.
+The problem of learning a metric such that the induced space is not linearly dependent of the input space has been addressed in several works before. First, it is possible to directly learn an intrinsically non linear metric as in 2-LMNN [8] where the authors propose to learn a 2 distance rather than a Mahalanobis distance. This distance is particularly relevant for histograms comparisons. Note that this kind of approaches is close to the kernel learning problem which is beyond the scope of this work. Second, another solution used by local metric learning methods is to split the input space
+2
+
+in several regions and to learn a metric in each region to introduce some non linearity, as in MMLMNN [7]. Similarly, in GB-LMNN [8] the authors propose to locally refine the metric learned by LMNN by successively splitting the input space. A third kind of approach tries to project the learning examples in a new space which is non linearly dependent of the input space. It can be done in two ways, either by projecting a priori the learning examples in a new space with a KPCA [9] or by rewriting the optimization problem in a kernelized form [1]. The first approach allows one to include non linearity in most of the metric learning algorithms but imposes to select the interesting features beforehand. The second method can be difficult to use as rewriting the optimization problem is most of the times non trivial [4]. Indeed, if one wants to use the kernel trick it implies that the access to the learning examples should only be done through dot products which is difficult when working with pairs of examples as it is the case in metric learning. In this paper we show that using virtual points chosen in a given target space allows us to kernelize our approach easily and thus to work in a very high dimensional space without using an explicit projection thanks to the kernel trick.
+Our method is based on a regression and can thus be linked, in its kernelized form, to several approaches in kernelized regression for structured output [10, 11, 12]. The idea behind these approaches is to minimize the difference between input examples and output examples using kernels, i.e. working in a high dimensional space. In our case, the learning examples can be seen as input examples and the virtual points as output examples. However, we only project the learning examples in a high dimensional space, the virtual points already belong to the output space. Hence, we do not have the pre-image problem [12]. Furthermore, our goal is not to predict a virtual point but to learn a metric between examples and thus, after the learning step, the virtual points are discarded.
+
+3 Contributions
+
+The main idea behind our algorithm is to bring closer the learning examples to a set of virtual points. We present this idea in three subsections. First we assume that we have access to a set of n learning pairs (x,v) where x is a learning example and v is a virtual point associated to x and we present both the linear and kernelized formulations of our approach called RVML. It boils down to solve a regression in closed form, the main originality being the introduction of virtual points. In the second subsection, we show that it is possible to theoretically link our approach to a classical metric learning one based on [13]. In the last subsection, we propose two automatic methods to generate the virtual points and to associate them with the learning examples.
+
+3.1 Regressive Virtual Metric Learning (RVML)
+
+Given a probability distribution D defined over X x Y where X  Rd and Y is a finite label set, let S = {(xi, yi)}ni=1 be a set of examples drawn i.i.d. from D. Let fv : X x Y  V where V  Rd be the function which associates each example to a virtual point. We consider the learning set Sv = {(xi, vi)}ni=1 where vi = fv(xi, yi). For the sake of simplicity denote by X = (x1, . . . , xn)T and V = (v1, . . . , vn)T the matrices containing respectively one example and
+the associated virtual point on each line. In this section, we consider that the function fv is known. We come back to its definition in Section 3.3. Let * F be the Frobenius norm and * 2 be the l2 vector norm. Our goal is to learn a matrix L such that M = LLT and for this purpose we consider
+the following optimisation problem:
+
+1 min f (L, X, V) = min
+L Ln
+
+XL - V
+
+2 F
+
++
+
+
+
+L
+
+2 F
+
+.
+
+(1)
+
+The idea is to learn a new space of representation where each example is close to its associated virtual point. Note that L is a d x d matrix and if d < d we also perform dimensionality reduction.
+
+Theorem 1. The optimal solution of Problem 1 can be found in closed form. Furthermore, we can derive two equivalent solutions:
+
+L = XT X + nI -1 XT V
+
+(2)
+
+L = XT XXT + nI -1 V.
+
+(3)
+
+Proof. The proof of this theorem can be found in the supplementary material.
+
+3
+
+From Eq. 2 we deduce the matrix M:
+
+M = LLT =
+
+XT X + nI -1 XT VVT X
+
+XT X + nI
+
+-1
+.
+
+(4)
+
+Note that M is PSD by construction: xT Mx = xT LLT x =
+
+LT x
+
+2 2
+
+ 0.
+
+So far, we have focused on the linear setting. We now present a kernelized version, showing that it is possible to learn a metric in a very high dimensional space without an explicit projection.
+
+Let (x) be a projection function and K(x, x ) = (x)T (x ) be its associated kernel. For the sake of readability, let KX = (X)(X)T where (X) = ((x1), . . . , (xn))T . Given the solution matrix L presented in Eq. 3, we have M = XT XXT + nI -1 VVT XXT + nI -1 X. Then, MK the kernelized version of the matrix M is defined such that:
+MK = (X)T (KX + nI)-1 VVT (KX + nI)-1 (X).
+The squared Mahalanobis distance can be written as d2M(x, x ) = xT Mx + x T Mx - 2xT Mx . Thus we can obtain d2MK ((x), (x )) = (x)T MK (x) + (x )T MK (x ) - 2(x)T MK (x ) the kernelized version by considering that:
+(x)T MK (x) = (x)T (X)T (KX + nI)-1 VVT (KX + nI)-1 (X)(x)
+= KX(x)T (KX + nI)-1 VVT (KX + nI)-1 KX(x)
+where KX(x) = (K(x, x1), . . . , K(x, xn))T is the similarity vector to the examples w.r.t. K.
+Note that it is also possible to obtain a kernelized version of L: LK = (X)T (KX + nI)-1 V.
+This result is close to a previous one already derived in [11] in a structured output setting. The main difference is the fact that we do not use a kernel on the output (the virtual points here). Hence, it is possible to compute the projection of an example x of dimension d in a new space of dimension d :
+(x)LK = (x)T (X)T (KX + nI)-1 V = KX(x)T (KX + nI)-1 V.
+Recall that in this work we are interested in learning a distance between examples and not in the prediction of the virtual points which only serve as a way to bring closer similar examples and push far away dissimilar examples.
+
+From a complexity standpoint, we can see that, assuming the kernel function as easy to calculate, the main bottleneck when computing the solution in closed form is the inversion of a n x n matrix.
+
+3.2 Theoretical Analysis
+In this section, we propose to theoretically show the interest of our approach by proving (i) that it is consistent and (ii) that it is possible to link it to a more classical metric learning formulation.
+
+3.2.1 Consistency
+
+Let l(L, (x, v)) =
+
+xT L - vT
+
+2 2
+
+be
+
+our
+
+loss
+
+and
+
+let
+
+Dv
+
+be
+
+the
+
+probability
+
+distribution
+
+over
+
+X
+
+x
+
+V
+
+such that pDv (x, v) = pD(x, y|v = fv(x, y)). Showing the consistency boils down to bound with
+
+high probability the true risk, denoted by R(L), by the empirical risk, denoted by R (L) such that:
+
+R(L) = E(x,v)Dv l(L, (x, v))
+
+and R (L) =
+
+1 n
+
+1 l(L, (x, v)) =
+n
+
+XL - V
+
+2 F
+
+.
+
+(x ,v )Sv
+
+The empirical risk corresponds to the error of the learned matrix L on the learning set Sv. The true risk is the error of L on the unknown distribution Dv. The consistency property ensures that with a sufficient number of examples a low empirical risk implies a low true risk with high probability. To
+show that our approach is consistent, we use the uniform stability framework [14].
+
+Theorem 2. Let v 2  Cv for any v  V and x 2  Cx for any x  X . With probability 1 - , for any matrix L optimal solution of Problem 1, we have:
+
+R(L)  R (L) + 8Cv2Cx2
+
+1 + Cx
+
+2
++
+
+n 
+
+16Cx2 + 1 
+
+Cv2
+
+1 + Cx 
+
+2
+
+ln
+
+1 
+
+.
+
+2n
+
+4
+
+Proof. The proof of this theorem can be found in the supplementary material.
+
+We obtain a rate of convergence in O
+
+1 n
+
+which is standard with this kind of bounds.
+
+3.2.2 Link with a Classical Metric Learning Formulation
+
+In this section we show that it is possible to bound the true risk of a classical metric learning approach
+with the empirical risk of our formulation. Most of the classical metric learning approaches make
+use of a notion of margin between similar and dissimilar examples. Hence, similar examples have to be close to each other, i.e. at a distance smaller than a margin 1, and dissimilar examples have to be far from each other, i.e. at a distance greater than a margin -1. Let (xi, yi) and (xj, yj) be two examples from X x Y, using this notion of margin, we consider the following loss [13]:
+
+l(L, (xi, yi), (xj , yj )) = yij (d2(LT xi, LT xj ) - yij ) +
+
+(5)
+
+where yij = 1 if yi = yj and -1 otherwise, [z]+ = max(0, z) is the hinge loss and yij is the desired margin between examples. As introduced before, we consider that yij takes a big value when the examples are dissimilar, i.e. when yij = -1, and a small value when the examples are similar, i.e. when yij = 1. In the following we show that, relating the notion of margin to the distances between virtual points, it is possible to bound the true risk associated with this loss by the
+empirical risk of our approach with respect to a constant.
+
+Theorem 3. Let D be a distribution over X x Y. Let V  Rd be a finite set of virtual points and
+
+fv is defined as fv(xi, yi) = vi, vi  V. Let v 2  Cv for any v  V and x 2  Cx for any
+
+x
+
+
+
+X.
+
+Let
+
+1
+
+=
+
+2 maxxk,xl,ykl=1 d2(vk, vl)
+
+and
+
+-1
+
+=
+
+1 2
+
+minxk,xl,ykl=-1 d2(vk, vl),
+
+we
+
+have:
+
+E(xi,yi)D,(xj ,yj )D yij (d2(LT xi, LT xj ) - yij ) +
+
+
+
+ 8 R (L) + 8Cv2Cx2
+
+1 + Cx
+
+2
++
+
+n 
+
+16Cx2 + 1 
+
+Cv2
+
+1 + Cx 
+
+2
+
+
+
+ln
+
+1 
+
+)
+
+.
+
+2n
+
+Proof. The proof of this theorem can be found in the supplementary material.
+In Theorem 3, we can notice that the margins are related to the distances between virtual points and correspond to the ideal margins, i.e. the margins that we would like to achieve after the learning step. Aside this remark, we can define 1 and -1 the observed margins obtained after the learning step: All the similar examples are in a sphere centered in their corresponding virtual point and of diameter 1 = 2 max(x,v) xT L - vT 2. Similarly, the distance between hyperspheres of dissimilar examples is -1 = minv,v ,v=v v - v 2 - 1. As a consequence, even if we do not use cannot-link constraints our algorithm is able to push reasonably far away dissimilar examples.
+In the next subsection we present two different methods to select the virtual points.
+3.3 Virtual Points Selection
+Previously, we assumed to have access to the function fv : X x Y  V. In this subsection, we present two methods for generating automatically the set of virtual points and the mapping fv.
+3.3.1 Using Optimal Transport on the Learning Set
+In this first approach, we propose to generate the virtual points by using a recent variation of the Optimal Transport (OT) problem [15] allowing one to transport some examples to new points corresponding to a linear combination of a set of known instances. These new points will actually correspond to our virtual points. Our approach works as follows. We begin by extracting a set of landmarks S from the training set S. For this purpose, we use an adaptation of the landmark selection method proposed in [16] allowing us to take into account some diversity among the landmarks. To avoid to fix the number of landmarks in advance, we have just replaced it by a simple heuristic saying that the number of landmarks must be greater than the number of classes and that the maximum distance between an example and a landmark must be lower than the mean of all pairwise
+
+5
+
+Algorithm 1: Selecting S from a set of examples S.
+
+input : S = {(xi, yi)}ni=1 a set of examples; Y the label set. output: S a subset of S begin
+ = mean of distances between all the examples of S xmax = arg max x - 0 2
+xS
+S = {xmax}; S = S \ S
+ = maxxS minx S x - x 2 while |S | < |Y| or  >  do
+
+xmax = arg max
+
+x-x 2
+
+xS x S
+
+S = S  {xmax}; S = S \ S
+
+ = maxxS minx S x - x 2
+
+distances from the training set -allowing us to have a fully automatic procedure. It is summarized in Algorithm 1.
+Then we compute an optimal transport from the training set S to the landmark set S . For this purpose, we create a real matrix C of size |S| x |S | giving the cost to transport one training instance to a landmark such that C(i, j) = xi - xj 2 with xi  S and xj  S . The optimal transport is found by learning a matrix   R|S|x|S | able to minimize the cost of moving training examples to the landmark points. Let S be the matrix of landmark points (one per line), the transport w.r.t.  of any training instance (xi, yi) gives a new virtual point such that fv(xi, yi) = (i)S , (i) designing the ith line of . Note that this new virtual point is a linear combination of the landmark instances to which the example is transported. The set of virtual points is then defined by V = S . The virtual points are thus not defined a priori but are automatically learned by solving a problem of optimal transport. Note that this transportation mode is potentially non linear since there is no guarantee that there exists a matrix T such that V = XT. Our metric learning approach can, in this case, be seen as a an approximation of the result given by the optimal transport.
+To learn , we use the following optimization problem proposed in [17]:
+
+arg min
+
+
+, C
+
+F
+
+-
+
+1 h() +
+
+
+
+
+j
+
+c
+
+(yi
+
+= c, j)
+
+p q
+
+where h() = - i,j (i, j) log((i, j)) is the entropy of  that allows to solve the transportation
+
+problem efficiently with the Sinkhorn-Knopp algorithm [18]. The second regularization term, where
+
+(yi = c, j) corresponds to the lines of the jth column of  where the class of the input is c, has
+
+been introduced in [17]. The goal of this term is to prevent input examples of different classes to
+
+move toward the same output examples by promoting group sparsity in the matrix  thanks to
+
+*
+
+p q
+
+corresponding
+
+to
+
+a
+
+lq -norm
+
+to
+
+the
+
+power
+
+of
+
+p
+
+used
+
+here
+
+with
+
+q
+
+=
+
+1
+
+and
+
+p
+
+=
+
+1 2
+
+.
+
+3.3.2 Using a Class-based Representation Space
+For this second approach, we propose to define virtual points as the unit vectors of a space of dimension |Y|. Let ej  R|Y| be such a unit vector (1  j  |Y|) -i.e. a vector where all the attributes are 0 except for one attribute j which is set to 1- to which we associate a class label from Y. Then, for any learning example (xi, yi), we define fv(xi, yi) = e#yi where #yi = j if ej is mapped with the class yi. Thus, we have exactly |Y| virtual points, each one corresponding to a unit vector and a class label. We call this approach the class-based representation space method. If the number of classes is smaller than the number of dimensions used to represent the learning examples, then our method will perform dimensionality reduction for free. Furthermore, our approach will try to project all the examples of one class on the same axis while examples of other classes will tend to be projected on different axes. The underlying intuition behind the new space defined by L is to make each attribute discriminant for one class.
+
+6
+
+Table 1: Comparison of our approach with several baselines in the linear setting.
+
+Base
+Amazon Breast Caltech DSLR Ionosphere Isolet Letters Pima Scale Splice Svmguide1 Wine Webcam
+mean
+
+1NN
+41.51  3.24 95.49  0.79 18.04  2.20 29.61  4.38 86.23  1.95
+88.97 94.74  0.27 69.91  1.69 78.68  2.66
+71.17 95.12 96.18  1.59 42.90  4.19
+69.89
+
+Baselines
+LMNN
+65.50  2.28 95.49  0.89 49.68  2.76 76.08  4.79 88.02  3.02
+95.83 96.43  0.28* 70.04  2.20 78.20  1.91
+82.02 95.03 98.36  1.03 85.81  3.75
+82.81
+
+SCML
+71.68  1.86 96.50  0.64* 52.84  1.61 65.10  9.00 90.38  2.55*
+89.61 96.13  0.20 69.22  2.60 93.39  1.70*
+85.43 87.38 96.91  1.93 90.43  2.70
+83.46
+
+Our approach
+
+RVML-Lin-OT RVML-Lin-Class
+
+71.62  1.34 95.24  1.21 52.51  2.41 74.71  5.27 87.36  3.12
+91.40 90.25  0.60 70.48  3.19 90.05  2.13
+84.64 94.83 98.55  1.67 88.60  3.63
+
+73.09  2.49 95.34  0.95 55.41  2.55* 75.29  5.08 82.74  2.81
+94.61 95.51  0.26 69.57  2.85 87.94  1.99
+78.44 85.25 98.18  1.48 88.60  2.69
+
+83.86
+
+83.07
+
+4 Experimental results
+In this section, we evaluate our approach on 13 different datasets coming from either the UCI [19] repository or used in recent works in metric learning [8, 20, 21]. For isolet, splice and svmguide1 we have access to a standard training/test partition, for the other datasets we use a 70% training/30% test partition, we perform the experiments on 10 different splits and we average the result. We normalize the examples with respect to the training set by subtracting for each attribute its mean and dividing by 3 times its standard deviation. We set our regularization parameter  with a 5-fold cross validation. After the metric learning step, we use a 1-nearest neighbor classifier to assess the performance of the metric and report the accuracy obtained.
+We perform two series of experiments. First, we consider our linear formulation used with the two virtual points selection methods presented in this paper: RVML-Lin-OT based on Optimal Transport (Section 3.3.1) and RVML-Lin-Class using the class-based representation space method (Section 3.3.2). We compare them to a 1-nearest neighbor classifier without metric learning (1NN), and with two state of the art linear metric learning methods: LMNN [5] and SCML [20]. In a second series, we consider the kernelized versions of RVML, namely RVML-RBF-OT and RVML-RBF-Class, based respectively on Optimal Transport and class-based representation space methods, with a RBF kernel with the parameter  fixed as the mean of all pairwise training set Euclidean distances [16]. We compare them to non linear methods using a KPCA with a RBF kernel2 as a pre-process: 1NN-KPCA a 1-nearest neighbor classifier without metric learning and LMNNKPCA corresponding to LMNN in the KPCA-space. The number of dimensions is fixed as the one of the original space for high dimensional datasets (more than 100 attributes), to 3 times the original dimension when the dimension is smaller (between 5 and 100 attributes) and to 4 times the original dimension for the lowest dimensional datasets (less than 5 attributes). We also consider some local metric learning methods: GBLMNN [8] a non linear version of LMNN and SCMLLOCAL [20] the local version of SCML. For all these methods, we use the implementations available online letting them handle hyper-parameters tuning.
+The results for linear methods are presented in Table 1 while Table 2 gives the results obtained with the non linear approaches. In each table, the best result on each line is highlighted with a bold font while the second best result is underlined. A star indicates either that the best baseline is significantly better than our best result or that our best result is significantly better than the best baseline according to classical significance tests (the p-value being fixed at 0.05).
+We can make the following remarks. In the linear setting, our approaches are very competitive to the state of the art and RVML-Lin-OT tends to be the best on average even though it must be noticed that SCML is very competitive on some datasets (the average difference is not significant). RVML-LinClass performs slightly less on average. Considering now the non linear methods, our approaches improve their performance and are significantly better than the others on average, RVML-RBF-Class has the best average behavior in this setting. These experiments show that our regressive formulation
+2With the  parameter fixed as previously to the mean of all pairwise training set Euclidean distances.
+7
+
+Table 2: Comparison of our approach with several baselines in the non-linear case.
+
+Base
+Amazon Breast Caltech DSLR Ionosphere Isolet Letter Pima Scale Splice Svmguide1 Wine Webcam
+mean
+
+1NN-KPCA
+20.27  2.42 92.43  2.19 20.82  8.29 64.90  5.81 75.57  2.79
+68.70 95.39  0.27 69.57  2.64 78.36  0.88
+66.99 95.72 92.18  1.23 73.55  4.57
+70.34
+
+Baselines
+
+LMNN-KPCA GBLMNN
+
+53.16  3.73 95.39  1.32 29.88  10.89 73.92  7.57 85.66  2.55
+96.28 97.17*  0.18 69.48  2.04 88.10  2.26
+88.97 95.60 95.82  2.98 84.52  3.83
+
+65.53  2.32 95.58  0.87 49.91  2.80 76.08  4.79 87.36  3.02
+96.02 96.51  0.25 69.52  2.27 77.88  2.43
+82.21 95.00 98.00  1.34 85.81  3.75
+
+81.07
+
+82.72
+
+SCMLLOCAL
+69.14  1.74 96.31  0.66 50.56  1.62 62.55  6.94 90.94  3.02
+91.40 96.63  0.26 68.40  2.75 93.86  1.78
+87.13 87.40 96.55  2.00 88.71  2.83
+83.04
+
+Our approach
+
+RVML-RBF-OT RVML-RBF-Class
+
+73.51  0.83 95.73  0.97 54.39  1.89 70.39  4.48 90.66  3.10
+95.96 91.26  0.50 69.35  2.95 95.19  1.46*
+88.51 95.67 98.91  1.53 88.71  4.28
+
+76.22  2.09* 95.78  0.92 57.98  2.22* 76.67  4.57 93.11  3.30*
+96.73 96.09  0.21 70.74  2.36 94.07  2.02
+88.32 95.05 98.00  1.81 88.92  2.91
+
+85.25
+
+86.74
+
+is very competitive and is even able to improve state of the art performances in a non linear setting and consequently that our virtual point selection methods automatically select correct instances.
+Considering the virtual point selection, we can observe that the OT formulation performs better than the class-based representation space one in the linear case, while it is the opposite in the non-linear case. We think that this can be explained by the fact that the OT approach generates more virtual points in a potentially non linear way which brings more expressiveness for the linear case. On the other hand, in the non linear one, the relative small number of virtual points used by the class-based method seems to induce a better regularization. In Section 4 of the supplementary material, we provide additional experiments showing the interest of using explicit virtual points and the need of a careful association between examples and virtual points. We also provide some graphics showing 2D projections of the space learned by RVML-Lin-Class and RVML-RBF-Class on the Isolet dataset illustrating the capability of these approaches to learn discriminative attributes.
+In terms of computational cost, our approach -implemented in closed form [22]- is competitive with classical methods but does not yield to significant improvements. Indeed, in practice, classical approaches only consider a small number of constraints e.g. c times the number of examples, where c is a small constant, in the case of SCML. Thus, the practical computational complexity of both our approach and classical methods is linearly dependant on the number of examples.
+5 Conclusion
+We present a new metric learning approach based on a regression and aiming at bringing closer the learning examples to some a priori defined virtual points. The number of constraints has the advantage to grow linearly with the size of the learning set in opposition to the quadratic grow of standard must-link cannot-link approaches. Moreover, our method can be solved in closed form and can be easily kernelized allowing us to deal with non linear problems. Additionally, we propose two methods to define the virtual points: One making use of recent advances in the field of optimal transport and one based on unit vectors of a class-based representation space allowing one to perform directly some dimensionality reduction. Theoretically, we show that our approach is consistent and we are able to link our empirical risk to the true risk of a classical metric learning formulation. Finally, we empirically show that our approach is competitive with the state of the art in the linear case and outperforms some classical approaches in the non-linear one.
+We think that this work opens the door to design new metric learning formulations, in particular the definition of the virtual points can bring a way to control some particular properties of the metric (rank, locality, discriminative power, . . . ). As a consequence, this aspect opens new issues which are in part related to landmark selection problems but also to the ability to embed expressive semantic constraints to satisfy by means of the virtual points. Other perspectives include the development of a specific solver, of online versions, the use of low rank-inducing norms or the conception of new local metric learning methods. Another direction would be to study similarity learning extensions to perform linear classification such as in [21, 23].
+8
+
+References
+[1] Jason V. Davis, Brian Kulis, Prateek Jain, Suvrit Sra, and Inderjit S. Dhillon. Informationtheoretic metric learning. In Proc. of ICML, pages 209-216, 2007.
+[2] Jacob Goldberger, Sam T. Roweis, Geoffrey E. Hinton, and Ruslan Salakhutdinov. Neighbourhood components analysis. In Proc. of NIPS, pages 513-520, 2004.
+[3] Aurelien Bellet, Amaury Habrard, and Marc Sebban. Metric Learning. Synthesis Lectures on Artificial Intelligence and Machine Learning. Morgan & Claypool Publishers, 2015.
+[4] Brian Kulis. Metric learning: A survey. Foundations and Trends in Machine Learning, 5(4):287-364, 2013.
+[5] Kilian Q. Weinberger, John Blitzer, and Lawrence K. Saul. Distance metric learning for large margin nearest neighbor classification. In Proc. of NIPS, pages 1473-1480, 2005.
+[6] Amir Globerson and Sam T. Roweis. Metric learning by collapsing classes. In Proc. of NIPS, pages 451-458, 2005.
+[7] Kilian Q. Weinberger and Lawrence K. Saul. Distance metric learning for large margin nearest neighbor classification. JMLR, 10:207-244, 2009.
+[8] Dor Kedem, Stephen Tyree, Kilian Q. Weinberger, Fei Sha, and Gert R. G. Lanckriet. Nonlinear metric learning. In Proc. of NIPS, pages 2582-2590, 2012.
+[9] Bernhard Scholkopf, Alex J. Smola, and Klaus-Robert Muller. Kernel principal component analysis. In Proc. of ICANN, pages 583-588, 1997.
+[10] Jason Weston, Olivier Chapelle, Andre Elisseeff, Bernhard Scholkopf, and Vladimir Vapnik. Kernel dependency estimation. In Proc. of NIPS, pages 873-880, 2002.
+[11] Corinna Cortes, Mehryar Mohri, and Jason Weston. A general regression technique for learning transductions. In Proc. of ICML, pages 153-160, 2005.
+[12] Hachem Kadri, Mohammad Ghavamzadeh, and Philippe Preux. A generalized kernel approach to structured output learning. In Proc. of ICML, pages 471-479, 2013.
+[13] Rong Jin, Shijun Wang, and Yang Zhou. Regularized distance metric learning: Theory and algorithm. In Proc. of NIPS, pages 862-870, 2009.
+[14] Olivier Bousquet and Andre Elisseeff. Stability and generalization. JMLR, 2:499-526, 2002. [15] Cedric Villani. Optimal transport: old and new, volume 338. Springer Science & Business
+Media, 2008. [16] Purushottam Kar and Prateek Jain. Similarity-based learning via data driven embeddings. In
+Proc. of NIPS, pages 1998-2006, 2011. [17] Nicolas Courty, Remi Flamary, and Devis Tuia. Domain adaptation with regularized optimal
+transport. In Proc. of ECML/PKDD, pages 274-289, 2014. [18] Marco Cuturi. Sinkhorn distances: Lightspeed computation of optimal transport. In Proc. of
+NIPS, pages 2292-2300, 2013. [19] M. Lichman. UCI machine learning repository, 2013. [20] Yuan Shi, Aurelien Bellet, and Fei Sha. Sparse compositional metric learning. In Proc. of
+AAAI Conference on Artificial Intelligence, pages 2078-2084, 2014. [21] Aurelien Bellet, Amaury Habrard, and Marc Sebban. Similarity learning for provably accurate
+sparse linear classification. In Proc. of ICML, 2012. [22] The closed-form implementation of RVML is freely available on the authors' website. [23] Maria-Florina Balcan, Avrim Blum, and Nathan Srebro. Improved guarantees for learning via
+similarity functions. In Proc. of COLT, pages 287-298, 2008.
+9
+

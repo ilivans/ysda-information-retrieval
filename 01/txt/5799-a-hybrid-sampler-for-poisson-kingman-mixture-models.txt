@@ -1,0 +1,1002 @@
+A hybrid sampler for Poisson-Kingman mixture models
+
+Maria Lomeli Gatsby Unit University College London mlomeli@gatsby.ucl.ac.uk
+
+Stefano Favaro Department of Economics and Statistics University of Torino and Collegio Carlo Alberto
+stefano.favaro@unito.it
+
+Yee Whye Teh Department of Statistics
+University of Oxford y.w.teh@stats.ox.ac.uk
+
+Abstract
+This paper concerns the introduction of a new Markov Chain Monte Carlo scheme for posterior sampling in Bayesian nonparametric mixture models with priors that belong to the general Poisson-Kingman class. We present a novel compact way of representing the infinite dimensional component of the model such that while explicitly representing this infinite component it has less memory and storage requirements than previous MCMC schemes. We describe comparative simulation results demonstrating the efficacy of the proposed MCMC algorithm against existing marginal and conditional MCMC samplers.
+1 Introduction
+According to Ghahramani [9], models that have a nonparametric component give us more flexiblity that could lead to better predictive performance. This is because their capacity to learn does not saturate hence their predictions should continue to improve as we get more and more data. Furthermore, we are able to fully consider our uncertainty about predictions thanks to the Bayesian paradigm. However, a major impediment to the widespread use of Bayesian nonparametric models is the problem of inference. Over the years, many MCMC methods have been proposed to perform inference which usually rely on a tailored representation of the underlying process [5, 4, 18, 20, 28, 6]. This is an active research area since dealing with this infinite dimensional component forbids the direct use of standard simulation-based methods for posterior inference. These methods usually require a finite-dimensional representation. There are two main sampling approaches to facilitate simulation in the case of Bayesian nonparametric models: random truncation and marginalization. These two schemes are known in the literature as conditional and marginal samplers.
+In conditional samplers, the infinite-dimensional prior is replaced by a finite-dimensional representation chosen according to a truncation level. In marginal samplers, the need to represent the infinite-dimensional component can be bypassed by marginalising it out. Marginal samplers have less storage requirements than conditional samplers but could potentially have worst mixing properties. However, not integrating out the infinite dimensional compnent leads to a more comprehensive representation of the random probability measure, useful to compute expectations of interest with respect to the posterior.
+In this paper, we propose a novel MCMC sampler for Poisson-Kingman mixture models, a very large class of Bayesian nonparametric mixture models that encompass all previously explored ones in the literature. Our approach is based on a hybrid scheme that combines the main strengths of
+1
+
+both conditional and marginal samplers. In the flavour of probabilistic programming, we view our contribution as a step towards wider usage of flexible Bayesian nonparametric models, as it allows automated inference in probabilistic programs built out of a wide variety of Bayesian nonparametric building blocks.
+
+2 Poisson-Kingman processes
+
+Poisson-Kingman random probability measures (RPMs) have been introduced in Pitman [23] as a
+generalization of homogeneous Normalized Random Measures (NRMs) [25, 13]. Let X be a complete and separable metric space endowed with the Borel -field BpXq, let   CRMp, H0q be a homogeneous Completely Random Measure (CRM) with Levy measure  and base distribution H0, see Kingman [15] for a good overview about CRMs and references therein. Then, the corresponding
+total mass of  is T " pXq and let it be finite, positive almost surely, and absolutely continuous with respect to Lebesgue measure. For any t P R, let us consider the conditional distribution of {t given that the total mass T P dt. This distribution is denoted by PKp, t, H0q, it is the distribution of a RPM, where t denotes the usual Dirac delta function. Poisson-Kingman RPMs form a class of RPMs whose distributions are obtained by mixing PKp, t, H0q, over t, with respect to some distribution  on the positive real line. Specifically, a Poisson-Kingman RPM has following
+the hierarchical representation
+
+T  P |T " t  PKp, t, H0q.
+
+(1)
+
+The RPM P is referred to as the Poisson-Kingman RPM with Levy measure , base distribution H0
+
+and mixing distribution . Throughout the paper we denote by PKp, , H0q the distribution of P
+
+and, without loss of generality, we will assume that pdtq9hptqfptqdt where f is the density of
+
+the total mass T under the CRM and h is a non-negative function. Note that, when pdtq " fptqdt
+
+then the distribution PKp, f, H0q coincides with NRMp, H0q.
+
+The resulting P
+
+"
+
+
+k1
+
+pk
+
+k
+
+is almost surely discrete and since  is homogeneous, the atoms pkqk1 of P are independent of
+
+their masses ppkqk1 and form a sequence of independent random variables identically distributed
+
+according to H0. Finally, the masses of P have distribution governed by the Levy measure  and
+
+the distribution .
+
+One nice property is that P is almost surely discrete: if we obtain a sample tYiuni"1 from it, there is a positive probability of Yi " Yj for each pair of indexes i  j. Hence, it induces a random partition  on N, where i and j are in the same block in  if and only if Yi " Yj. Kingman [16] showed that  is exchangeable, this property will be one of the main tools for the derivation of our hybrid
+sampler.
+
+2.1 Size-biased sampling Poisson-Kingman processes
+
+A second object induced by a Poisson-Kingman RPM is a size-biased permutation of its atoms.
+
+Specifically, order the blocks in  by increasing order of the least element in each block, and for
+
+each k P N let Zk be the least element of the kth block. Zk is the index among pYiqi1 of the
+
+first appearance of the kth unique value in the sequence. Let Jk " ptYZk uq be the mass of the
+
+corresponding atom in . Then pJkqk1 is a size-biased permutation of the masses of atoms in ,
+
+with
+
+larger
+
+masses
+
+tending
+
+to
+
+appear
+
+earlier
+
+in
+
+the
+
+sequence.
+
+It
+
+is
+
+easy
+
+to
+
+see
+
+that
+
+
+k1
+
+Jk
+
+"
+
+T,
+
+and
+
+that the sequence can be understood as a stick-breaking construction: starting with a stick of length
+
+T0 " T ; break off the first piece of length J1; the surplus length of stick is T1 " T0  J1; then the second piece with length J2 is broken off, etc.
+
+Theorem 2.1 of Perman et al. [21] states that the sequence of surplus masses pTkqk0 forms a Markov chain and gives the corresponding initial distribution and transition kernels. The corre-
+sponding generative process for the sequence pYiqi1 is as follows:
+
+i) Start with drawing the total mass from its distribution P,h,H0 pT P dtq9hptqfptqdt.
+ii) The first draw Y1 from P is a size-biased pick from the masses of . The actual value of Y1 is simply Y1  H0, while the mass of the corresponding atom in  is J1, with conditional
+
+2
+
+distribution
+
+P,h,H0 pJ1
+
+P
+
+ds1|T
+
+P
+
+dtq
+
+"
+
+s1 t
+
+pds1q
+
+fpt  s1 fptq
+
+q
+
+,
+
+with surplus mass
+
+T1 " T  J1.
+
+iii) For subsequent draws i  2:
+
+- Let K be the current number of distinct values among Y1, . . . , Yi1, and Y1, . . . , YK the unique values, i.e., atoms in . The masses of these first K atoms are denoted by
+
+J1, . . . , JK
+
+and
+
+the
+
+surplus
+
+mass
+
+is
+
+TK
+
+"
+
+T
+
+
+
+K
+k"1
+
+Jk .
+
+- For each k  K, with probability Jk{T , we set Yi " Yk.
+
+- With probability TK{T , Yi takes on the value of an atom in  besides the first K
+
+atoms. The actual value YK1 is drawn from H0, while its mass is drawn from
+
+P,h,H0 pJK1
+
+P
+
+dsK1|TK
+
+P
+
+dtK q
+
+"
+
+sK1 tK
+
+pdsK
+
+1q
+
+fptK f
+
+ sK1 ptK q
+
+q
+
+,
+
+TK1 " TK JK1.
+
+By multiplying the above infinitesimal probabilities, one obtains the joint distribution of the random elements T , , pJiqi1 and pYiqi1
+
+P,h,H0 pn " pckqkPrKs, Yk P dyk, Jk P dsk for k P rKs, T P dtq
+
+K
+
+"
+
+tnfpt
+
+
+
+K
+k"1
+
+skqhptqdt
+
+
+
+s|kck | pdsk qH0 pdyk q,
+
+k"1
+
+(2)
+
+where pckqkPrKs denotes a particular partition of rns with K blocks, c1, . . . , cK , ordered by increasing least element and |ck| is the cardinality of block ck. The distribution (2) is invariant to the size-biased order. Such a joint distribution was first obtained in Pitman [23] , see also Pitman [24]
+for further details.
+
+2.2 Relationship to the usual Stick-breaking construction
+
+In the generative process above, we mentioned that it is reminiscent of the well known stick breaking
+
+construction from Ishwaran & James [12], where you break a stick of length one but it is not the
+
+same. However, we can effectively reparameterize the model, starting with Equation (2), due to
+
+two useful identities in distribution:
+
+Pj
+
+d
+"
+
+Jj T  j J
+
+and Vj
+
+d
+"
+
+Pj 1 j P
+
+for j " 1, . . . , K.
+
+Indeed, using this reparameterization, we obtain the corresponding joint in terms of K p0, 1q-valued
+
+stick-breaking weights tVjuKj"1 which correspond to a stick-breaking representation. Note that this joint distribution is for a general Levy measure , density f and it is conditioned on the valued
+of the random variable T . We can recover the well known Stick breaking representations for the
+
+Dirichlet and Pitman-Yor processes, for a specific choice of  and if we integrate out T , see the
+
+supplementary material for further details about the latter. However, in general, these stick-breaking
+
+random variables form a sequence of dependent random variables with a complicated distribution,
+
+except for the two previously mentioned processes, see Pitman [22] for details.
+
+2.3 Poisson-Kingman mixture model
+We are mainly interested in using Poisson-Kingman RPMs as a building block for an infinite mixture model. Indeed, we can use Equation (1) as the top level of the following hierarchical specification
+
+T  P |T  PKp, T , H0q Yi | P iid P Xi | Yi ind F p | Yiq
+3
+
+(3)
+
+X1
+
+J1, Y1
+
+X2
+
+X3
+
+X4 J2, Y2
+X5
+
+J3, Y3 X6
+
+X1 J4, Y1e
+X8
+
+T-
+
+4 =1
+
+J
+
+Y1 e, Y2e
+
+Figure 1: Varying table size Chinese restaurant representation for observations tXiu9i"1
+
+where F p | Y q is the likelihood term for each mixture component, and our dataset consists of n observations pxiqiPrns of the corresponding variables pXiqiPrns. We will assume that F p | Y q is smooth. After specifying the model we would like to carry out inference for clustering and/or density estimation tasks. We can do it exactly and more efficiently than with known MCMC samplers with our novel approach. In the next section, we present our main contribution and in the following one we show how it outperforms other samplers.
+3 Hybrid Sampler
+
+Equation's (2) joint distribution is written in terms of the first K size-biased weights. In order to obtain a complete representation of the RPM, we need to size-bias sample from it a countably infinite number of times. Succesively, devise some way of representing this object exactly in a computer with finite memory and storage is needed.
+
+We introduce the following novel strategy: starting from equation (2), we exploit the generative
+
+process of section 2.1 when reassigning observations to clusters. In addition to this, we reparame-
+
+terize the model in terms of a surplus mass random variable V
+
+"T
+
+
+
+K
+k"1
+
+Jk
+
+and
+
+end
+
+up
+
+with
+
+the
+
+following joint distribution
+
+K
+P,h,H0 pn " pckqkPrKs, Yk P dyk, Jk P dsk for k P rKs, T  y Jk P dv, Xi P dxi for i P rnsq
+k"1
+(4)
+
+K
+
+ K
+
+K
+
+" pv  y skqnh
+
+y v  sk
+
+fpvq  s|kck|pdskqH0pdykq  F pdxi|ykq.
+
+k"1
+
+k"1
+
+k"1
+
+iPck
+
+For this reason, while having a complete representation of the infinite dimensional part of the model we only need to explicitly represent those size-biased weights associated to occupied clusters plus a surplus mass term which is associated to the rest of the empty clusters, as Figure 1 shows. The cluster reassignment step can be seen as a lazy sampling scheme: we explicitly represent and update the weights associated to occupied clusters and create a size-biased weight only when a new cluster appears. To make this possible we use the induced partition and we call Equation (4) the varying table size Chinese restaurant representation because the size-biased weights can be thought as the sizes of the tables in our restaurant. In the next subsection, we compute the complete conditionals of each random variable of interest to implement an overall Gibbs sampling MCMC scheme.
+
+3.1 Complete conditionals
+
+Starting from equation (4), we obtain the following complete conditionals for the Gibbs sampler
+
+ K n
+
+ K
+
+yy
+
+P pV P dv | Restq9 v  sk fpvqh v  sk dv
+
+(5)
+
+k"1
+
+k"1
+
+ n  
+
+ P Ji P dsi | Rest 9
+
+y v  si  sk
+
+h
+
+y v  si  sk
+
+s|ici|pdsiqIp0,Surpmassiqpsiqdsi
+
+ki ki
+
+4
+
+where
+
+Surpmassi
+
+"
+
+V
+
+
+
+k
+j"1
+
+Jj
+
+
+
+
+ji
+
+Jj .
+
+#
+
+Ppci " c | ci, Restq9
+
+scF pdxi | tXj ujPc Ycq
+
+v M
+
+F pdxi
+
+|
+
+Ycq
+
+if i is assigned to existing cluster c if i is assigned to a new cluster c
+
+According to the rule above, the ith observation will be either reassigned to an existing cluster or to one of the M new clusters in the ReUse algorithm as in Favaro & Teh [6]. If it is assigned to a new cluster, then we need to sample a new size-biased weight from the following
+
+P Jk1
+
+P
+
+dsk1
+
+|
+
+ Rest 9fpv
+
+
+
+sk1qpsk1qsk1Ip0,vqpsk1qdsk1.
+
+(6)
+
+Every time a new cluster is created we need to obtain its corresponding size-biased weight which could happen 1  R  n times per iteration hence, it has a significant contribution to the overall computational cost. For this reason, an independent and identically distributed (i.i.d.) draw from
+its corresponding complete conditional (6) is highly desirable. In the next subsection we present a way to achieve this. Finally, for updating cluster parameters tYkukPrKs, in the case where H0 is non-conjugate to the likelihood, we use an extension of Favaro & Teh [6]'s ReUse algorithm, see
+Algorithm 3 in the supplementary material for details.
+
+The complete conditionals in Equation (5) do not have a standard form but a generic MCMC method can be applied to sample from each within the Gibbs sampler. We use slice sampling from Neal [19] to update the size-biased weights and the surplus mass. However, there is a class of priors where the total mass's density is intractable so an additional step needs to be introduced to sample the surplus mass. In the next subsection we present two alternative ways to overcome this issue.
+
+3.2 Example of classes of Poisson-Kingman priors
+
+a) -Stable Poisson-Kingman processes [23]. For any  P p0, 1q, let fptq "
+
+1 
+
+8
+j"0
+
+p1qj1 j!
+
+sinp
+
+j
+
+q
+
+pj1q tj1
+
+be
+
+the
+
+density
+
+function
+
+of
+
+a
+
+positive
+
+-Stable
+
+random
+
+variable
+
+and
+
+pdxq
+
+"
+
+ pdxq
+
+:"
+
+ p1q
+
+x1
+
+dx.
+
+This
+
+class
+
+of
+
+RPMs
+
+is
+
+denoted
+
+by
+
+PKp, hT , H0q
+
+where
+
+h
+
+is a function that indexes each member of the class. For example, in the experimental section, we
+
+picked 3 choices of the h function that index the following processes: Pitman-Yor, Normalized Sta-
+
+ble and Normalized Generalized Gamma processes. This class includes all Gibbs type priors with
+
+parameter  P p0, 1q, so other choices of h are possible, see Gnedin & Pitman [10] and De Blasi
+
+et al. [1] for a noteworthy account of this class of Bayesian nonparametric priors. In this case, the
+
+total mass's density is intractable and we propose two ways of dealing with this. Firstly, we used
+
+Kanter [14]'s integral representation for the -Stable density as in Lomeli et al. [17], introduce an
+
+auxiliary variable Z and slice sample each variable
+
+ k n
+
+ k
+
+y P pV P dv | Restq9 v  si
+
+v
+
+ 1
+
+"  exp v 1
+
+i Apzq h
+
+y v  si
+
+dv
+
+i"1 i"1
+
+P
+
+pZ
+
+P
+
+dz
+
+|
+
+Restq9Apz
+
+q
+
+exp
+
+"vp
+
+ 1
+
+q
+
+Apz
+
+i q dz
+
+,
+
+see Algorithm 1 in the supplementary material for details. Alternatively, we can completely bypass the evaluation of the total mass's density by updating the surplus mass with a Metropolis-Hastings step with an independent proposal from a Stable or from an Exponentially Tilted Stable(). It is straight forward to obtain i.i.d draws from these proposals, see Devroye [3] and Hofert [11] for an improved rejection sampling method for the Exponentially tilted case. This leads to the following acceptance ratio
+
+P pV 1 P dv1 P pV P dv |
+
+| Restq fpvq exp pvq Restq fpv1q exp pv1q
+
+"
+
+ v1
+ v
+
+
+
+k
+i"1
+
+n si
+
+h
+
+ v1
+
+
+
+k
+i"1
+
+ si
+
+dv1
+
+exp
+
+pvq
+
+
+
+k
+i"1
+
+n si
+
+ hv
+
+
+
+k
+i"1
+
+ si dv
+
+exp pv1q
+
+,
+
+see Algorithm 2 in the supplementary material for details. Finally, to sample a new size-biased weight
+
+P Jk1
+
+P
+
+dsk1
+
+|
+
+ Rest 9fpv
+
+
+
+sk1qsk1Ip0,vqpsk1qdsk1.
+
+5
+
+Fortunately, we can get an i.i.d. draw from the above due to an identity in distribution given by
+
+Favaro et al.
+
+[8] for the usual stick breaking weights for any prior in this class such that  "
+
+u v
+
+where u  v are coprime integers. Then we just reparameterize it back to obtain the new size-biased
+
+weight, see Algorithm 4 in the supplementary material for details.
+
+b)  logBeta-Poisson-Kingman processes [25, 27].
+
+Let fptq
+
+"
+
+pabq paqpbq
+
+exp
+
+patq
+
+p1
+
+
+
+expptqqb1
+
+be
+
+the
+
+density
+
+of
+
+a
+
+positive
+
+random
+
+variable
+
+X
+
+"d
+
+ log Y ,
+
+where Y
+
+ Betapa, bq and pxq "
+
+exppaxqp1exppbxqq xp1exppxqq
+
+.
+
+This class of RPMs generalises the
+
+Gamma process but has similar properties. Indeed, if we take b " 1 and the density function for
+
+T is ptq " fptq we recover the Levy measure and total mass's density function of a Gamma
+
+process. Finally, to sample a new size-biased weight
+
+P
+
+ Jk1
+
+P
+
+dsk1
+
+|
+
+ Rest 9
+
+p1
+
+
+
+exppsk1 1
+
+ 
+
+vqqb1 p1  exppsk1
+
+exppbsk1qq q
+
+dsk1Ip0,vqpsk1
+
+q.
+
+If b  1, this complete conditional is a monotone decreasing unnormalised density with maximum at b. We can easily get an i.i.d. draw with a simple rejection sampler [2] where the rejection constant is bv and the proposal is U p0, vq. There is no other known sampler for this process.
+
+3.3 Relationship to marginal and conditional MCMC samplers
+Starting from equation (2), another strategy would be to reparameterize the model in terms of the usual stick breaking weights. Next, we could choose a random truncation level and represent finitely many sticks as in Favaro & Walker [7]. Alternatively, we could integrate out the random probability measure and sample only the partition induced by it as in Lomeli et al. [17]. Conditional samplers have large memory requirements as often, the number of sticks needed can be very large. Furthermore, the conditional distributions of the stick lengths are quite involved so they tend to have slow running times. Marginal samplers have less storage requirements than conditional samplers but could potentially have worst mixing properties. For example, Lomeli et al. [17] had to introduce a number of auxiliary variables which worsen the mixing.
+Our novel hybrid sampler exploits marginal and conditional samplers advantages. It has less memory requirements since it just represents the size-biased weights of occupied as opposed to conditional samplers which represent both empty and occupied clusters. Also, it does not integrate out the size-biased weights thus, we obtain a more comprehensive representation of the RPM.
+
+4 Performance assesssment
+
+We illustrate the performance of our hybrid sampler on a range of Bayesian nonparametric mixture models, obtained by different specifications of  and , as in Equation (3). At the top level of this hierarchical specification, different Bayesian nonparametric priors were chosen from both classes presented in the examples section. We chose the base distribution H0 and the likelihood term F for the kth cluster to be
+
+H0pdkq " N dk | 0, 02
+
+and
+
+F pdx1, . . . , dxnk
+
+|
+
+k, 1q
+
+"
+
+nk
+i"1
+
+N
+
+xi
+
+|
+
+k, 12 ,
+
+where tXjunj"k 1 are the nk observations assigned to the kth cluster at some iteration. N denotes a Normal distribution with mean k and variance 12, a common parameter among all clusters. The mean's prior distribution is Normal, centered at 0 and with variance 02. Although the base distribution is conjugate to the likelihood we treated it as non-conjugate case and sampled the parameters
+
+at each iteration rather than integrating them out.
+
+We used the dataset from Roeder [26] to test the algorithmic performance in terms of running time and effective sample size (ESS), as Table 1 shows. The dataset consists of measurements of velocities in km/sec of n " 82 galaxies from a survey of the Corona Borealis region. For the -Stable Poisson-Kingman class, we compared it against our implementation of Favaro & Walker [7]'s conditional sampler and against the marginal sampler of Lomeli et al. [17]. We chose to compare our hybrid sampler against these existing approaches which follow the same general purpose paradigm.
+
+6
+
+Algorithm
+
+ Running time
+
+ESS(std)
+
+Pitman-Yor process ( " 10)
+
+Hybrid
+
+0.3 7135.1(28.316) 2635.488(187.335)
+
+Hybrid-MH ( " 0)
+
+0.3 5469.4(186.066) 2015.625(152.030)
+
+Conditional
+
+0.3 NA
+
+NA
+
+Marginal
+
+0.3 4685.7(84.104) 2382.799(169.359)
+
+Hybrid
+
+0.5 3246.9(24.894) 3595.508(174.075)
+
+Hybrid-MH ( " 50)
+
+0.5 4902.3(6.936) 3579.686(135.726)
+
+Conditional
+
+0.5 10141.6(237.735) 905.444(41.475)
+
+Marginal
+
+0.5 4757.2(37.077) 2944.065(195.011)
+
+Normalized Stable process
+
+Hybrid
+
+0.3 5054.7(70.675) 5324.146(167.843)
+
+Hybrid-MH ( " 0)
+
+0.3 7866.4(803.228) 5074.909(100.300)
+
+Conditional
+
+0.3 NA
+
+NA
+
+Marginal
+
+0.3 7658.3(193.773) 2630.264(429.877)
+
+Hybrid
+
+0.5 5382.9(57.561) 4877.378(469.794)
+
+Hybrid-MH ( " 50)
+
+0.5 4537.2(37.292) 4454.999(348.356)
+
+Conditional
+
+0.5 10033.1(22.647) 912.382(167.089)
+
+Marginal
+
+0.5 8203.1(106.798) 3139.412(351.788)
+
+Normalized Generalized Gamma process ( " 1)
+
+Hybrid
+
+0.3 4157.8(92.863) 5104.713(200.949)
+
+Hybrid-MH ( " 0)
+
+0.3 4745.5(187.506) 4848.560(312.820)
+
+Conditional
+
+0.3 NA
+
+NA
+
+Marginal
+
+0.3 7685.8(208.98) 3587.733(569.984)
+
+Hybrid
+
+0.5 6299.2(102.853) 4646.987(370.955)
+
+Hybrid-MH ( " 50)
+
+0.5 4686.4(35.661) 4343.555(173.113)
+
+Conditional
+
+0.5 10046.9(206.538) 1000.214(70.148)
+
+Marginal
+
+0.5 8055.6(93.164) 4443.905(367.297)
+
+-logBeta (a " 1, b " 2)
+
+Hybrid
+
+- 2520.6(121.044) 3068.174(540.111)
+
+Conditional
+
+- NA
+
+NA
+
+Marginal
+
+- NA
+
+NA
+
+Table 1: Running times in seconds and ESS averaged over 10 chains, 30,000 iterations, 10,000 burn in.
+
+Table 1 shows that different choices of  result in differences in the algorithm's running times and ESS. The reason for this is that in the  " 0.5 case there are readily available random number generators which do not increase the computational cost. In contrast, in the  " 0.3 case, a rejection sampler method is needed every time a new size-biased weight is sampled which increases the computational cost, see Favaro et al. [8] for details. Even so, in most cases, we outperform both marginal and conditional MCMC schemes in terms of running times and in all cases, in terms of ESS. In the Hybrid-MH case, even thought the ESS and running times are competitive, we found that the acceptance rate is not optimal, we are currently exploring other choices of proposals. Finally, in Example b), our approach is the only one available and it has good running times and ESS. This qualitative comparison confirms our previous statements about our novel approach.
+5 Discussion
+Our main contribution is our Hybrid MCMC sampler as a general purpose tool for inference with a very large class of infinite mixture models. We argue in favour of an approach in which a generic algorithm can be applied to a very large class of models, so that the modeller has a lot of flexibility in choosing specific models suitable for his/her problem of interest. Our method is a hybrid approach since it combines the perks of the conditional and marginal schemes. Indeed, our experiments confirm that our hybrid sampler is more efficient since it outperforms both marginal and conditional samplers in running times in most cases and in ESS in all cases.
+We introduced a new compact way of representing the infinite dimensional component such that it is feasible to perform inference and how to deal with the corresponding intractabilities. However, there are still various challenges that remain when dealing with these type of models. For instance, there are some values for  which we are unable to perform inference with our novel sampler. Secondly, when a Metropolis-Hastings step is used, there could be other ways to improve the mixing in terms of better proposals. Finally, all BNP MCMC methods can be affected by the dimensionality and size of the dataset when dealing with an infinite mixture model. Indeed, all methods rely on the same way of dealing with the likelihood term. When adding a new cluster, all methods sample its
+7
+
+corresponding parameter from the prior distribution. In a high dimensional scenario, it could be very difficult to sample parameter values close to the existing data points. We consider these points to be an interesting avenue of future research.
+Acknowledgments
+We thank Konstantina Palla for her insightful comments. Maria Lomeli is funded by the Gatsby Charitable Foundation, Stefano Favaro is supported by the European Research Council through StG N-BNP 306406 and Yee Whye Teh is supported by the European Research Council under the European Unions Seventh Framework Programme (FP7/2007-2013) ERC grant agreement no. 617071.
+References
+[1] De Blasi, P., Favaro, S., Lijoi, A., Mena, R. H., Pruenster, I., & Ruggiero, M. 2015. Are Gibbs-type priors the most natural generalization of the Dirichlet process? Pages 212-229 of: IEEE Transactions on Pattern Analysis & Machine Intelligence, vol. 37.
+[2] Devroye, L. 1986. Non-Uniform Random Variate Generation. Springer-Verlag.
+[3] Devroye, L. 2009. Random variate generation for exponentially and polynomially tilted Stable distributions. ACM Transactions on Modelling and Computer Simulation, 19, 1-20.
+[4] Escobar, M. D. 1994. Estimating normal means with a Dirichlet process prior. Journal of the American Statistical Association, 89, 268-277.
+[5] Escobar, M. D., & West, M. 1995. Bayesian density estimation and inference using mixtures. Journal of the American Statistical Association, 90, 577-588.
+[6] Favaro, S., & Teh, Y. W. 2013. MCMC for Normalized Random Measure Mixture Models. Statistical Science, 28(3), 335-359.
+[7] Favaro, S., & Walker, S. G. 2012. Slice sampling -Stable Poisson-Kingman mixture models. Journal of Computational and Graphical Statistics, 22, 830-847.
+[8] Favaro, S., Lomeli, M., Nipoti, B., & Teh, Y. W. 2014. On the Stick-Breaking representation of -Stable Poisson-Kingman models. Electronic Journal of Statistics, 8, 1063-1085.
+[9] Ghahramani, Z. 2015. Probabilistic Machine Learning and Artificial Inteligence. Nature, 521, 452459.
+[10] Gnedin, A., & Pitman, J. 2006. Exchangeable Gibbs partitions and Stirling triangles. Journal of Mathematical Sciences, 138, 5674-5684.
+[11] Hofert, M. 2011. Efficiently sampling nested Archimedean copulas. Comput. Statist. Data Anal., 55, 5770.
+[12] Ishwaran, H., & James, L. F. 2001. Gibbs Sampling Methods for Stick-Breaking Priors. Journal of the American Statistical Association, 96(453), 161-173.
+[13] James, L. F. 2002. Poisson process partition calculus with applications to exchangeable models and Bayesian nonparametrics. ArXiv:math/0205093.
+[14] Kanter, M. 1975. Stable densities under change of scale and total variation inequalities. Annals of Probability, 3, 697-707.
+[15] Kingman, J. F. C. 1967. Completely Random Measures. Pacific Journal of Mathematics, 21, 59-78.
+[16] Kingman, J. F. C. 1978. The representation of partition structures. Journal of the London Mathematical Society, 18, 374-380.
+[17] Lomeli, M., Favaro, S., & Teh, Y. W. 2015. A marginal sampler for -stable Poisson-Kingman mixture models. Journal of Computational and Graphical Statistics (To appear).
+[18] Neal, R. M. 1998. Markov Chain Sampling Methods for Dirichlet Process Mixture Models. Tech. rept. 9815. Department of Statistics, University of Toronto.
+[19] Neal, R. M. 2003. Slice sampling. Annals of Statistics, 31, 705-767.
+[20] Papaspiliopoulos, O., & Roberts, G. O. 2008. Retrospective Markov chain Monte Carlo methods for Dirichlet process hierarchical models. Biometrika, 95, 169-186.
+[21] Perman, M., Pitman, J., & Yor, M. 1992. Size-biased sampling of Poisson point processes and excursions. Probability Theory and Related Fields, 92, 21-39.
+[22] Pitman, J. 1996. Random discrete distributions invariant under size-biased permutation. Advances in Applied Probability, 28, 525-539.
+8
+
+[23] Pitman, J. 2003. Poisson-Kingman Partitions. Pages 1-34 of: Goldstein, D. R. (ed), Statistics and Science: a Festschrift for Terry Speed. Institute of Mathematical Statistics.
+[24] Pitman, J. 2006. Combinatorial Stochastic Processes. Lecture Notes in Mathematics. Springer-Verlag, Berlin.
+[25] Regazzini, E., Lijoi, A., & Pruenster, I. 2003. Distributional results for means of normalized random measures with independent increments. Annals of Statistics, 31, 560-585.
+[26] Roeder, K. 1990. Density estimation with confidence sets exemplified by super-clusters and voids in the galaxies. Journal of the American Statistical Association, 85, 617-624.
+[27] von Renesse, M., Yor, M., & Zambotti, L. 2008. Quasi-invariance properties of a class of subordinators. Stochastic Processes and their Applications, 118, 2038-2057.
+[28] Walker, Stephen G. 2007. Sampling the Dirichlet Mixture Model with Slices. Communications in Statistics - Simulation and Computation, 36, 45.
+9
+

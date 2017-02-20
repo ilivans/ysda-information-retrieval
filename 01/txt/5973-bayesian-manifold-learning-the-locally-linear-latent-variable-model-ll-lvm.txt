@@ -1,0 +1,622 @@
+Bayesian Manifold Learning: The Locally Linear Latent Variable Model
+Mijung Park, Wittawat Jitkrittum, Ahmad Qamar, Zoltan Szabo, Lars Buesing, Maneesh Sahani
+Gatsby Computational Neuroscience Unit University College London
+{mijung, wittawat, zoltan.szabo}@gatsby.ucl.ac.uk atqamar@gmail.com, lbuesing@google.com, maneesh@gatsby.ucl.ac.uk
+Abstract
+We introduce the Locally Linear Latent Variable Model (LL-LVM), a probabilistic model for non-linear manifold discovery that describes a joint distribution over observations, their manifold coordinates and locally linear maps conditioned on a set of neighbourhood relationships. The model allows straightforward variational optimisation of the posterior distribution on coordinates and locally linear maps from the latent space to the observation space given the data. Thus, the LL-LVM encapsulates the local-geometry preserving intuitions that underlie non-probabilistic methods such as locally linear embedding (LLE). Its probabilistic semantics make it easy to evaluate the quality of hypothesised neighbourhood relationships, select the intrinsic dimensionality of the manifold, construct out-of-sample extensions and to combine the manifold model with additional probabilistic models that capture the structure of coordinates within the manifold.
+1 Introduction
+Many high-dimensional datasets comprise points derived from a smooth, lower-dimensional manifold embedded within the high-dimensional space of measurements and possibly corrupted by noise. For instance, biological or medical imaging data might reflect the interplay of a small number of latent processes that all affect measurements non-linearly. Linear multivariate analyses such as principal component analysis (PCA) or multidimensional scaling (MDS) have long been used to estimate such underlying processes, but cannot always reveal low-dimensional structure when the mapping is non-linear (or, equivalently, the manifold is curved). Thus, there has been substantial recent interest in algorithms to identify non-linear manifolds in data.
+Many more-or-less heuristic methods for non-linear manifold discovery are based on the idea of preserving the geometric properties of local neighbourhoods within the data, while embedding, unfolding or otherwise transforming the data to occupy fewer dimensions. Thus, algorithms such as locally-linear embedding (LLE) and Laplacian eigenmap attempt to preserve local linear relationships or to minimise the distortion of local derivatives [1, 2]. Others, like Isometric feature mapping (Isomap) or maximum variance unfolding (MVU) preserve local distances, estimating global manifold properties by continuation across neighbourhoods before embedding to lower dimensions by classical methods such as PCA or MDS [3]. While generally hewing to this same intuitive path, the range of available algorithms has grown very substantially in recent years [4, 5].
+Current affiliation: Thread Genius Current affiliation: Google DeepMind
+1
+
+However, these approaches do not define distributions over the data or over the manifold properties. Thus, they provide no measures of uncertainty on manifold structure or on the low-dimensional locations of the embedded points; they cannot be combined with a structured probabilistic model within the manifold to define a full likelihood relative to the high-dimensional observations; and they provide only heuristic methods to evaluate the manifold dimensionality. As others have pointed out, they also make it difficult to extend the manifold definition to out-of-sample points in a principled way [6].
+An established alternative is to construct an explicit probabilistic model of the functional relationship between low-dimensional manifold coordinates and each measured dimension of the data, assuming that the functions instantiate draws from Gaussian-process priors. The original Gaussian process latent variable model (GP-LVM) required optimisation of the low-dimensional coordinates, and thus still did not provide uncertainties on these locations or allow evaluation of the likelihood of a model over them [7]; however a recent extension exploits an auxiliary variable approach to optimise a more general variational bound, thus retaining approximate probabilistic semantics within the latent space [8]. The stochastic process model for the mapping functions also makes it straightforward to estimate the function at previously unobserved points, thus generalising out-of-sample with ease. However, the GP-LVM gives up on the intuitive preservation of local neighbourhood properties that underpin the non-probabilistic methods reviewed above. Instead, the expected smoothness or other structure of the manifold must be defined by the Gaussian process covariance function, chosen a priori.
+Here, we introduce a new probabilistic model over high-dimensional observations, low-dimensional embedded locations and locally-linear mappings between high and low-dimensional linear maps within each neighbourhood, such that each group of variables is Gaussian distributed given the other two. This locally linear latent variable model (LL-LVM) thus respects the same intuitions as the common non-probabilistic manifold discovery algorithms, while still defining a full-fledged probabilistic model. Indeed, variational inference in this model follows more directly and with fewer separate bounding operations than the sparse auxiliary-variable approach used with the GP-LVM. Thus, uncertainty in the low-dimensional coordinates and in the manifold shape (defined by the local maps) is captured naturally. A lower bound on the marginal likelihood of the model makes it possible to select between different latent dimensionalities and, perhaps most crucially, between different definitions of neighbourhood, thus addressing an important unsolved issue with neighbourhooddefined algorithms. Unlike existing probabilistic frameworks with locally linear models such as mixtures of factor analysers (MFA)-based and local tangent space analysis (LTSA)-based methods [9, 10, 11], LL-LVM does not require an additional step to obtain the globally consistent alignment of low-dimensional local coordinates.1
+This paper is organised as follows. In section 2, we introduce our generative model, LL-LVM, for which we derive the variational inference method in section 3. We briefly describe out-of-sample extension for LL-LVM and mathematically describe the dissimilarity between LL-LVM and GPLVM at the end of section 3. In section 4, we demonstrate the approach on several real world problems.
+Notation: In the following, a diagonal matrix with entries taken from the vector v is written diag(v). The vector of n ones is 1n and the n x n identity matrix is In. The Euclidean norm of a vector is v , the Frobenius norm of a matrix is M F . The Kronecker delta is denoted by ij (= 1 if i = j, and 0 otherwise). The Kronecker product of matrices M and N is M  N. For a random vector w, we denote the normalisation constant in its probability density function by Zw. The expectation of a random vector w with respect to a density q is w q.
+2 The model: LL-LVM
+Suppose we have n data points {y1, . . . , yn}  Rdy , and a graph G on nodes {1 . . . n} with edge set EG = {(i, j) | yi and yj are neighbours}. We assume that there is a low-dimensional (latent) representation of the high-dimensional data, with coordinates {x1, . . . , xn}  Rdx , dx < dy. It will be helpful to concatenate the vectors to form y = [y1 , . . . , yn ] and x = [x1 , . . . , xn ] .
+1This is also true of one previous MFA-based method [12] which finds model parameters and global coordinates by variational methods similar to our own.
+2
+
+high-dimensional space
+
+yj
+
+TyiMy yi
+
+Figure 1: Locally linear mapping Ci
+
+for ith data point transforms the tan-
+
+gent space, Txi Mx at xi in the low-
+
+low-dimensional space dimensional space to the tangent space,
+
+Ci TxiMx xi xj
+
+Tyi My at the corresponding data point yi in the high-dimensional space. A
+neighbouring data point is denoted by yj
+
+and the corresponding latent variable by
+
+xj .
+
+Our key assumption is that the mapping between high-dimensional data and low-dimensional co-
+ordinates is locally linear (Fig. 1). The tangent spaces are approximated by {yj - yi}(i,j)EG and {xj - xi}(i,j)EG , the pairwise differences between the ith point and neighbouring points j. The matrix Ci  Rdyxdx at the ith point linearly maps those tangent spaces as
+
+yj - yi  Ci(xj - xi).
+
+(1)
+
+Under this assumption, we aim to find the distribution over the linear maps C = [C1, * * * , Cn]  Rdyxndx and the latent variables x that best describe the data likelihood given the graph G:
+
+log p(y|G) = log p(y, C, x|G) dx dC.
+
+(2)
+
+The joint distribution can be written in terms of priors on C, x and the likelihood of y as
+
+p(y, C, x|G) = p(y|C, x, G)p(C|G)p(x|G).
+
+(3)
+
+In the following, we highlight the essential components the Locally Linear Latent Variable Model (LL-LVM). Detailed derivations are given in the Appendix.
+
+Adjacency matrix and Laplacian matrix The edge set of G for n data points specifies a n x n
+symmetric adjacency matrix G. We write ij for the i, jth element of G, which is 1 if yj and yi are neighbours and 0 if not (including on the diagonal). The graph Laplacian matrix is then L = diag(G 1n) - G.
+
+Prior on x We assume that the latent variables are zero-centered with a bounded expected scale, and that latent variables corresponding to neighbouring high-dimensional points are close (in Euclidean distance). Formally, the log prior on the coordinates is then
+
+nn
+
+log
+
+p({x1
+
+.
+
+.
+
+.
+
+xn}|G,
+
+)
+
+=
+
+-
+
+1 2
+
+( xi 2 +
+
+ij xi - xj 2) - log Zx,
+
+i=1 j=1
+
+where the parameter  controls the expected scale ( > 0). This prior can be written as multivariate normal distribution on the concatenated x:
+
+p(x|G, ) = N (0, ), where -1 = 2L  Idx , -1 = Indx + -1.
+
+Prior on C We assume that the linear maps corresponding to neighbouring points are similar in terms of Frobenius norm (thus favouring a smooth manifold of low curvature). This gives
+
+log p({C1 . . . Cn}|G) = - 2
+
+n
+
+Ci
+
+2 -1 F2
+
+n
+
+n
+
+ij
+
+Ci - Cj
+
+2 F
+
+-
+
+log Zc
+
+i=1 i=1 j=1
+
+=
+
+-
+
+1 Tr
+
+( JJ
+
+2
+
++ -1)C C - log Zc,
+
+(4)
+
+where J := 1n  MN (C|0, Idy , (
+
+Idx . JJ
+
+The second line + -1)-1) as
+
+corresponds the prior on
+
+to the matrix normal density, giving C. In our implementation, we fix
+
+p(C|G) = to a small
+
+value2, since the magnitude of the product Ci(xi - xj) is determined by optimising the hyper-
+
+parameter  above.
+
+2 sets the scale of the average linear map, ensuring the prior precision matrix is invertible.
+
+3
+
+CG
+
+x
+
+Figure 2: Graphical representation of generative process in LLLVM. Given a dataset, we construct a neighbourhood graph G. The
+
+distribution over the latent variable x is controlled by the graph G
+
+as well as the parameter . The distribution over the linear map
+
+y
+
+V
+
+C is also governed by the graph G. The latent variable x and the linear map C together determine the data likelihood.
+
+Likelihood Under the local-linearity assumption, we penalise the approximation error of Eq. (1), which yields the log likelihood
+
+n nn
+
+log p(y|C, x, V, G) = - 2
+
+yi
+
+2
+
+-
+
+1 2
+
+ij (yj,i - Cixj,i ) V-1(yj,i - Cixj,i ) - log Zy,
+
+i=1
+
+i=1 j=1
+
+(5)
+
+where yj,i = yj - yi and xj,i = xj - xi.3 Thus, y is drawn from a multivariate normal distribution given by
+
+p(y|C, x, V, G) = N (y, y),
+
+with -y 1 = ( 1n1n )  Idy + 2L  V-1, y = ye, and e = [e1 , * * * , en ]  Rndy ;
+
+ei = -
+
+n j=1
+
+ji
+
+V-1
+
+(Cj
+
++ Ci)xj,i
+
+.
+
+For computational simplicity,
+
+we assume V-1
+
+=
+
+Idy .
+
+The graphical representation of the generative process underlying the LL-LVM is given in Fig. 2.
+
+3 Variational inference
+
+Our goal is to infer the latent variables (x, C) as well as the parameters  = {, } in LL-LVM. We infer them by maximising the lower bound L of the marginal likelihood of the observations
+
+log p(y|G, ) 
+
+q(C, x)
+
+p(y, C, x|G, ) log dxdC
+
+:= L(q(C, x), ).
+
+q(C, x)
+
+(6)
+
+Following the common treatment for computational tractability, we assume the posterior over (C, x) factorises as q(C, x) = q(x)q(C) [13]. We maximise the lower bound w.r.t. q(C, x) and  by the variational expectation maximization algorithm [14], which consists of (1) the variational expectation step for computing q(C, x) by
+
+q(x)  exp q(C) log p(y, C, x|G, )dC ,
+
+(7)
+
+q(C)  exp q(x) log p(y, C, x|G, )dx ,
+
+(8)
+
+then (2) the maximization step for estimating  by  = arg max L(q(C, x), ).
+
+Variational-E step Computing q(x) from Eq. (7) requires rewriting the likelihood in Eq. (5) as a quadratic function in x
+
+p(y|C, x, , G)
+
+=
+
+1 Zx
+
+exp
+
+-
+
+1 2
+
+(x
+
+Ax - 2x
+
+b)
+
+,
+
+where the 2L)-1.
+
+normaliser The matrix
+
+Zx A
+
+has all the terms that do not depend on x from Eq. (5). Let is given by A := AE yAE = [Aij ]ni,j=1  Rndxxndx
+
+L := ( where
+
+1n the
+
+1n i, j
+
++ th
+
+dx x dx block is Aij =
+
+n p=1
+
+n q=1
+
+L(p,
+
+q)AE
+
+(p,
+
+i)
+
+AE(q, j) and each i, jth (dy x dx) block of
+
+AE  Rndyxndx is given by AE (i, j) = -ij V-1(Cj + Ci) + ij k ikV-1(Ck + Ci) . The
+
+vector b is defined as b = [b1 , * * * , bn ]  Rndx with the component dx-dimensional vectors
+
+given by bi =
+
+n j=1
+
+ij
+
+(Cj
+
+V-1(yi - yj ) - Ci
+
+V-1(yj - yi)). The likelihood combined with
+
+the prior on x gives us the Gaussian posterior over x (i.e., solving Eq. (7))
+
+q(x) = N (x|x, x), where -x 1 = A q(C) + -1, x = x b q(C).
+
+(9)
+
+3The term centers the data and ensures the distribution can be normalised. It applies in a subspace orthogonal to that modelled by x and C and so its value does not affect the resulting manifold model.
+
+4
+
+A 400 datapoints
+
+C posterior mean of C
+
+E
+1000
+
+average lwbs
+
+BD
+
+900
+6 7 8 9 10 11 k
+
+true x
+
+post mean of x
+
+Figure 3: A simulated example. A: 400 data points drawn from Swiss Roll. B: true latent points (x) in 2D used for generating the data. C: Posterior mean of C and D: posterior mean of x after 50 EM iterations given k = 9, which was chosen by maximising the lower bound across different k's. E: Average lower bounds as a function of k. Each point is an average across 10 random seeds.
+
+Similarly, computing q(C) from Eq. (8) requires rewriting the likelihood in Eq. (5) as a quadratic
+
+function in C
+
+p(y|C, x, G, )
+
+=
+
+1 ZC
+
+exp[-
+
+1 2
+
+Tr(C
+
+C - 2C
+
+V-1H)],
+
+(10)
+
+where the normaliser ZC has all the terms that do not depend on C from Eq. (5), and  := QLQ .
+
+The matrix Q = [q1 q2 * * * qn]  Rndxxn where the jth subvector of the ith column is qi(j) =
+
+ij V-1(xi - xj ) + ij k ikV-1(xi - xk)  Rdx . We define H = [H1, * * * , Hn]  Rdyxndx
+
+whose ith block is Hi =
+
+n j=1
+
+ij (yj
+
+-
+
+yi)(xj
+
+-
+
+xi)
+
+.
+
+The likelihood combined with the prior on C gives us the Gaussian posterior over C (i.e., solving Eq. (8))
+
+q(C) = MN (C, I, C), where -C1 :=  q(x) + JJ + -1 and C = V-1 H q(x)C. (11)
+
+The expected values of A, b,  and H are given in the Appendix.
+
+Variational-M step We set the parameters by maximising L(q(C, x), ) w.r.t.  which is split into two terms based on dependence on each parameter: (1) expected log-likelihood for updating V by arg maxV Eq(x)q(C)[log p(y|C, x, V, G)]; and (2) negative KL divergence between the prior and the posterior on x for updating  by arg max Eq(x)q(C)[log p(x|G, ) - log q(x)]. The update rules for each hyperparameter are given in the Appendix.
+The full EM algorithm4 starts with an initial value of . In the E-step, given q(C), compute q(x) as in Eq. (9). Likewise, given q(x), compute q(C) as in Eq. (11). The parameters  are updated in the M-step by maximising Eq. (6). The two steps are repeated until the variational lower bound in Eq. (6) saturates. To give a sense of how the algorithm works, we visualise fitting results for a simulated example in Fig. 3. Using the graph constructed from 3D observations given different k, we run our EM algorithm. The posterior means of x and C given the optimal k chosen by the maximum lower bound resemble the true manifolds in 2D and 3D spaces, respectively.
+
+Out-of-sample extension In the LL-LVM model one can formulate a computationally efficient out-of-sample extension technique as follows. Given n data points denoted by D = {y1, * * * , yn}, the variational EM algorithm derived in the previous section converts D into the posterior q(x, C): D  q(x)q(C). Now, given a new high-dimensional data point y, one can first find the neighbourhood of y without changing the current neighbourhood graph. Then, it is possible to compute the distributions over the corresponding locally linear map and latent variable q(C, x) via simply performing the E-step given q(x)q(C) (freezing all other quantities the same) as D  {y}  q(x)q(C)q(x)q(C).
+4An implementation is available from http://www.gatsby.ucl.ac.uk/resources/lllvm.
+
+5
+
+A 400 samples (in 3D)
+
+B 2D representation
+
+C posterior mean of x in 2D space
+
+G without shortcut
+
+G with shortcut
+
+29 28
+
+29
+
+28 LB: 1151.5
+
+LB: 1119.4
+
+Figure 4: Resolving short-circuiting problems using variational lower bound. A: Visualization of 400 samples drawn from a Swiss Roll in 3D space. Points 28 (red) and 29 (blue) are close to each other (dotted grey) in 3D. B: Visualization of the 400 samples on the latent 2D manifold. The distance between points 28 and 29 is seen to be large. C: Posterior mean of x with/without shortcircuiting the 28th and the 29th data points in the graph construction. LLLVM achieves a higher lower bound when the shortcut is absent. The red and blue parts are mixed in the resulting estimate in 2D space (right) when there is a shortcut. The lower bound is obtained after 50 EM iterations.
+
+Comparison to GP-LVM A closely related probabilistic dimensionality reduction algorithm to
+
+LL-LVM is GP-LVM [7]. GP-LVM defines the mapping from the latent space to data space using Gaussian processes. The likelihood of the observations Y = [y1, . . . , ydy ]  Rnxdy (yk is the vector formed by the kth element of all n high dimensional vectors) given latent variables
+
+X = [x1, . . . , xdx ]  Rnxdx is defined by p(Y|X) =
+
+dy k=1
+
+N
+
+(yk
+
+|0,
+
+Knn
+
++
+
+-1In),
+
+where
+
+the i, jth element of the covariance matrix is of the exponentiated quadratic form: k(xi, xj) =
+
+f2 exp
+
+-
+
+1 2
+
+dx q=1
+
+q (xi,q
+
+-
+
+xj,q )2
+
+with smoothness-scale parameters {q} [8]. In LL-LVM, once
+
+we integrate out C from Eq. (5), we also obtain the Gaussian likelihood given x,
+
+p(y|x, G, ) =
+
+p(y|C, x, G, )p(C|G, ) dC =
+
+1 ZYy
+
+exp
+
+-
+
+1 2
+
+y
+
+K-LL1 y .
+
+In contrast to GP-LVM, the precision matrix K-LL1 = (2L  V-1) - (W  V-1)  (W  V-1) depends on the graph Laplacian matrix through W and . Therefore, in LL-LVM, the graph structure directly determines the functional form of the conditional precision.
+
+4 Experiments
+4.1 Mitigating the short-circuit problem
+Like other neighbour-based methods, LL-LVM is sensitive to misspecified neighbourhoods; the prior, likelihood, and posterior all depend on the assumed graph. Unlike other methods, LLLVM provides a natural way to evaluate possible short-circuits using the variational lower bound of Eq. (6). Fig. 4 shows 400 samples drawn from a Swiss Roll in 3D space (Fig. 4A). Two points, labelled 28 and 29, happen to fall close to each other in 3D, but are actually far apart on the latent (2D) surface (Fig. 4B). A k-nearest-neighbour graph might link these, distorting the recovered coordinates. However, evaluating the model without this edge (the correct graph) yields a higher variational bound (Fig. 4C). Although it is prohibitive to evaluate every possible graph in this way, the availability of a principled criterion to test specific hypotheses is of obvious value.
+In the following, we demonstrate LL-LVM on two real datasets: handwritten digits and climate data.
+4.2 Modelling USPS handwritten digits
+As a first real-data example, we test our method on a subset of 80 samples each of the digits 0, 1, 2, 3, 4 from the USPS digit dataset, where each digit is of size 16x16 (i.e., n = 400, dy = 256). We follow [7], and represent the low-dimensional latent variables in 2D.
+
+6
+
+A variational lower bound
+x 10 4 5
+4
+
+k=n/80 k=n/100 k=n/50 k=n/40
+
+3
+
+0
+
+# EM iterations
+
+30
+
+C GP-LVM
+
+D ISOMAP
+
+B posterior mean of x (k=n/80)
+digit 0 digit 1 digit 2 digit 3 digit 4 query (1)
+
+query (4)
+query (2) query (3)
+
+query (0)
+
+true Y* estimate
+
+E LLE
+
+F Classi cation error
+
+0.4
+0.2
+0 LLLVM ISOMAP GPLVM LLE
+Figure 5: USPS handwritten digit dataset described in section 4.2. A: Mean (in solid) and variance (1 standard n deviation shading) of the variational lower bound across 10 different random starts of EM algorithm with different k's. The highest lower bound is achieved when k = n/80. B: The posterior mean of x in 2D. Each digit is colour coded. On the right side are reconstructions of y for randomly chosen query points x. Using neighbouring y and posterior means of C we can recover y successfully (see text). C: Fitting results by GP-LVM using the same data. D: ISOMAP (k = 30) and E: LLE (k=40). Using the extracted features (in 2D), we evaluated a 1-NN classifier for digit identity with 10-fold cross-validation (the same data divided into 10 training and test sets). The classification error is shown in F. LL-LVM features yield the comparably low error with GP-LVM and ISOMAP.
+
+Fig. 5A shows variational lower bounds for different values of k, using 9 different EM initialisations.
+
+The posterior mean of x obtained from LL-LVM using the best k is illustrated in Fig. 5B. Fig. 5B
+
+also shows reconstructions of one randomly-selected example of each digit, using its 2D coordinates x as well as the posterior mean coordinates xi, tangent spaces C i and actual images yi of its k = n/80 closest neighbours. The reconstruction is based on the assumed tangent-space structure
+
+of the generative model (Eq. (5)), that is:
+
+y
+
+=
+
+1 k
+
+k i=1
+
+yi + C i(x - xi) .
+
+A similar process
+
+could be used to reconstruct digits at out-of-sample locations. Finally, we quantify the relevance
+
+of the recovered subspace by computing the error incurred using a simple classifier to report digit
+
+identity using the 2D features obtained by LL-LVM and various competing methods (Fig. 5C-F).
+
+Classification with LL-LVM coordinates performs similarly to GP-LVM and ISOMAP (k = 30),
+
+and outperforms LLE (k = 40).
+
+4.3 Mapping climate data
+In this experiment, we attempted to recover 2D geographical relationships between weather stations from recorded monthly precipitation patterns. Data were obtained by averaging month-by-month annual precipitation records from 2005-2014 at 400 weather stations scattered across the US (see Fig. 6) 5. Thus, the data set comprised 400 12-dimensional vectors. The goal of the experiment is to recover the two-dimensional topology of the weather stations (as given by their latitude and longi-
+5The dataset is made available by the National Climatic Data Center at http://www.ncdc.noaa. gov/oa/climate/research/ushcn/. We use version 2.5 monthly data [15].
+
+7
+
+Latitude
+
+45 40 35 30
+-120 -110 -100 -90 -80 -70 Longitude
+(a) 400 weather stations
+
+(b) LLE
+
+(c) LTSA
+
+(d) ISOMAP
+
+(e) GP-LVM
+
+(f) LL-LVM
+
+Figure 6: Climate modelling problem as described in section 4.3. Each example corresponding to a weather station is a 12-dimensional vector of monthly precipitation measurements. Using only the measurements, the projection obtained from the proposed LL-LVM recovers the topological arrangement of the stations to a large degree.
+
+tude) using only these 12-dimensional climatic measurements. As before, we compare the projected points obtained by LL-LVM with several widely used dimensionality reduction techniques. For the graph-based methods LL-LVM, LTSA, ISOMAP, and LLE, we used 12-NN with Euclidean distance to construct the neighbourhood graph.
+The results are presented in Fig. 6. LL-LVM identified a more geographically-accurate arrangement for the weather stations than the other algorithms. The fully probabilistic nature of LL-LVM and GPLVM allowed these algorithms to handle the noise present in the measurements in a principled way. This contrasts with ISOMAP which can be topologically unstable [16] i.e. vulnerable to shortcircuit errors if the neighbourhood is too large. Perhaps coincidentally, LL-LVM also seems to respect local geography more fully in places than does GP-LVM.
+5 Conclusion
+We have demonstrated a new probabilistic approach to non-linear manifold discovery that embodies the central notion that local geometries are mapped linearly between manifold coordinates and high-dimensional observations. The approach offers a natural variational algorithm for learning, quantifies local uncertainty in the manifold, and permits evaluation of hypothetical neighbourhood relationships.
+In the present study, we have described the LL-LVM model conditioned on a neighbourhood graph. In principle, it is also possible to extend LL-LVM so as to construct a distance matrix as in [17], by maximising the data likelihood. We leave this as a direction for future work.
+Acknowledgments
+The authors were funded by the Gatsby Charitable Foundation.
+8
+
+References
+[1] S. T. Roweis and L. K. Saul. Nonlinear Dimensionality Reduction by Locally Linear Embedding. Science, 290(5500):2323-2326, 2000.
+[2] M. Belkin and P. Niyogi. Laplacian eigenmaps and spectral techniques for embedding and clustering. In NIPS, pages 585-591, 2002.
+[3] J. B. Tenenbaum, V. Silva, and J. C. Langford. A Global Geometric Framework for Nonlinear Dimensionality Reduction. Science, 290(5500):2319-2323, 2000.
+[4] L.J.P. van der Maaten, E. O. Postma, and H. J. van den Herik. Dimensionality reduction: A comparative review, 2008. http://www.iai.uni-bonn.de/jz/ dimensionality_reduction_a_comparative_review.pdf.
+[5] L. Cayton. Algorithms for manifold learning. Univ. of California at San Diego Tech. Rep, pages 1-17, 2005. http://www.lcayton.com/resexam.pdf.
+[6] J. Platt. Fastmap, metricmap, and landmark MDS are all Nystrom algorithms. In Proceedings of 10th International Workshop on Artificial Intelligence and Statistics, pages 261-268, 2005.
+[7] N. Lawrence. Gaussian process latent variable models for visualisation of high dimensional data. In NIPS, pages 329-336, 2003.
+[8] M. K. Titsias and N. D. Lawrence. Bayesian Gaussian process latent variable model. In AISTATS, pages 844-851, 2010.
+[9] S. Roweis, L. Saul, and G. Hinton. Global coordination of local linear models. In NIPS, pages 889-896, 2002.
+[10] M. Brand. Charting a manifold. In NIPS, pages 961-968, 2003. [11] Y. Zhan and J. Yin. Robust local tangent space alignment. In NIPS, pages 293-301. 2009. [12] J. Verbeek. Learning nonlinear image manifolds by global alignment of local linear models.
+IEEE Transactions on Pattern Analysis and Machine Intelligence, 28(8):1236-1250, 2006. [13] C. Bishop. Pattern recognition and machine learning. Springer New York, 2006. [14] M. J. Beal. Variational Algorithms for Approximate Bayesian Inference. PhD thesis, Gatsby
+Unit, University College London, 2003. [15] M. Menne, C. Williams, and R. Vose. The U.S. historical climatology network monthly tem-
+perature data, version 2.5. Bulletin of the American Meteorological Society, 90(7):993-1007, July 2009. [16] Mukund Balasubramanian and Eric L. Schwartz. The isomap algorithm and topological stability. Science, 295(5552):7-7, January 2002. [17] N. Lawrence. Spectral dimensionality reduction via maximum entropy. In AISTATS, pages 51-59, 2011.
+9
+

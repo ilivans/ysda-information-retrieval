@@ -1,0 +1,1020 @@
+Reflection, Refraction, and Hamiltonian Monte Carlo
+
+Hadi Mohasel Afshar Dept. Computer Science & Engineering
+Australian National University Canberra, ACT 0200
+hadi.afshar@anu.edu.au
+
+Justin Domke National ICT Australia (NICTA) &
+Australian National University Canberra, ACT 0200
+Justin.Domke@nicta.com.au
+
+Abstract
+Hamiltonian Monte Carlo (HMC) is a successful approach for sampling from continuous densities. However, it has difficulty simulating Hamiltonian dynamics with non-smooth functions, leading to poor performance. This paper is motivated by the behavior of Hamiltonian dynamics in physical systems like optics. We introduce a modification of the Leapfrog discretization of Hamiltonian dynamics on piecewise continuous energies, where intersections of the trajectory with discontinuities are detected, and the momentum is reflected or refracted to compensate for the change in energy. We prove that this method preserves the correct stationary distribution when boundaries are affine. Experiments show that by reducing the number of rejected samples, this method improves on traditional HMC.
+1 Introduction
+Markov chain Monte Carlo sampling is among the most general methods for probabilistic inference. When the probability distribution is smooth, Hamiltonian Monte Carlo (HMC) (originally called hybrid Monte Carlo [4]) uses the gradient to simulate Hamiltonian dynamics and reduce random walk behavior. This often leads to a rapid exploration of the distribution [7, 2]. HMC has recently become popular in Bayesian statistical inference [13], and is often the algorithm of choice.
+Some problems display piecewise smoothness, where the density is differentiable except at certain boundaries. Probabilistic models may intrinsically have finite support, being constrained to some region. In Bayesian inference, it might be convenient to state a piecewise prior. More complex and highly piecewise distributions emerge in applications where the distributions are derived from other distributions (e.g. the distribution of the product of two continuous random variables [5]) as well as applications such as preference learning [1], or probabilistic programming [8].
+While HMC is motivated by smooth distributions, the inclusion of an acceptance probability means HMC does asymptotically sample correctly from piecewise distributions1. However, since leapfrog numerical integration of Hamiltonian dynamics (see [9]) relies on the assumption that the corresponding potential energy is smooth, such cases lead to high rejection probabilities, and poor performance. Hence, traditional HMC is rarely used for piecewise distributions.
+In physical systems that follow Hamiltonian dynamics [6], a discontinuity in the energy can result in two possible behaviors. If the energy decreases across a discontinuity, or the momentum is large enough to overcome an increase, the system will cross the boundary with an instantaneous change in momentum, known as refraction in the context of optics [3]. If the change in energy is too large to be overcome by the momentum, the system will reflect off the boundary, again with an instantaneous change in momentum.
+1Technically, here we assume the total measure of the non-differentiable points is zero so that, with probability one, none is ever encountered
+1
+
+q
+2
+0.95 0.8 0.25
+q
+2
+q2
+
+6
+0.2
+4
+2
+
+0.25
+0.25 0.75 0.8 0.85
+0.9
+
+6
+0.2
+4
+2
+
+6 refraction
+4 2
+
+reflection
+
+0.75
+0.75 0.25
+
+0
+0.9
+
+0
+
+0
+
+-2 0.8 0.85
+0.75
+
+-2
+
+-2
+
+-4 -4
+0.25
+
+-4
+
+0.2 0.2
+
+-6 -6 -6 -6 -4 -2 0 2 4 6 -6 -4 -2 0 2 4 6 -6 -4 -2 0 2 4 6
+q1 q1 q1
+
+(a) (b) (c)
+Figure 1: Example trajectories of baseline and reflective HMC. (a) Contours of the target distribution in two dimensions, as defined in Eq. 18. (b) Trajectories of the rejected (red crosses) and accepted (blue dots) proposals using baseline HMC. (c) The same with RHMC. Both use leapfrog parameters L = 25 and = 0.1 In RHMC, the trajectory reflects or refracts on the boundaries of the internal and external polytope boundaries and thus has far fewer rejected samples than HMC, leading to faster mixing in practice. (More examples in supplementary material.)
+
+Recently, Pakman and Paninski [11, 10] proposed methods for HMC-based sampling from piecewise Gaussian distributions by exactly solving the Hamiltonian equations, and accounting for what we refer to as refraction and reflection above. However, since Hamiltonian equations of motion can rarely be solved exactly, the applications of this method are restricted to distributions whose logdensity is piecewise quadratic.
+In this paper, we generalize this work to arbitrary piecewise continuous distributions, where each region is a polytope, i.e. is determined by a set of affine boundaries. We introduce a modification to the leapfrog numerical simulation of Hamiltonian dynamics, called Reflective Hamiltonian Monte Carlo (RHMC), by incorporating reflection and refraction via detecting the first intersection of a linear trajectory with a boundary. We prove that our method has the correct stationary distribution, where the main technical difficulty is proving volume preservation of our dynamics to establish detailed balance. Numerical experiments confirm that our method is more efficient than baseline HMC, due to having fewer rejected proposal trajectories, particularly in high dimensions. As mentioned, the main advantage of this method over [11] and [10] is that it can be applied to arbitrary piecewise densities, without the need for a closed-form solution to the Hamiltonian dynamics, greatly increasing the scope of applicability.
+
+2 Exact Hamiltonian Dynamics
+
+Consider a distribution P (q)  exp(-U (q)) over Rn, where U is the potential energy. HMC [9] is based on considering a joint distribution on momentum and position space P (q, p)  exp(-H(q, p)), where H(q, p) = U (q) + K(p), and K is a quadratic, meaning that P (p)  exp(-K(p)) is a normal distribution. If one could exactly simulate the dynamics, HMC would proceed by (1) iteratively sampling p  P (p), (2) simulating the Hamiltonian dynamics
+
+dqi dt
+
+=
+
+H pi
+
+=
+
+pi
+
+(1)
+
+dpi = - H = - U dt qi qi
+
+(2)
+
+for some period of time , and (3) reversing the final value p. (Only needed for the proof of correctness, since this will be immediately discarded at the start of the next iteration in practice.) Since steps (1) and (2-3) both leave the distribution P (p, q) invariant, so does a Markov chain that alternates between the two steps. Hence, the dynamics have P (p, q) as a stationary distribution. Of course, the above differential equations are not well-defined when U has discontinuities, and are typically difficult to solve in closed-form.
+
+2
+
+3 Reflection and Refraction with Exact Hamiltonian Dynamics
+
+Take a potential function U (q) which is differentiable in all points except at some boundaries of
+
+partitions. Suppose that, when simulating the Hamiltonian dynamics, (q, p) evolves over time as in
+
+the above equations whenever these equations are differentiable. However, when the state reaches a
+
+boundary, decompose the momentum vector p into a component p perpendicular to the boundary and a component p parallel to the boundary. Let U be the (signed) difference in potential energy
+
+on the two sides of the discontinuity. If p 2 > 2U then p is instantaneously replaced by
+
+p :=
+
+p 2 - 2U *
+
+p p
+
+. That is, the discontinuity is passed, but the momentum is changed
+
+in the direction perpendicular to the boundary (refraction). (If U is positive, the momentum will
+
+decrease, and if it is negative, the momentum will increase.) On the other hand, if p 2  2U ,
+
+then p is instantaneously replaced by -p. That is, if the particle's momentum is insufficient
+
+to climb the potential boundary, it bounces back by reversing the momentum component which is
+
+perpendicular to the boundary.
+
+Pakman and Paninski [11, 10] present an algorithm to exactly solve these dynamics for quadratic U . However, for non-quadratic U , the Hamiltonian dynamics rarely have a closed-form solution, and one must resort to numerical integration, the most successful method for which is known as the leapfrog dynamics.
+
+4 Reflection and Refraction with Leapfrog Dynamics
+Informally, HMC with leapfrog dynamics iterates three steps. (1) Sample p  P (p). (2) Perform leapfrog simulation, by discretizing the Hamiltonian equations into L steps using some small stepsize . Here, one interleaves a position step q  q + p between two half momentum steps p  p - U (q)/2. (3) Reverse the sign of p. If (q, p) is the starting point of the leapfrog dynamics, and (q , p ) is the final point, accept the move with probability min(1, exp(H(p, q) - H(p , q ))) See Algorithm 1.
+It can be shown that this baseline HMC method has detailed balance with respect to P (p), even if U (q) is discontinuous. However, discontinuities mean that large changes in the Hamiltonian may occur, meaning many steps can be rejected. We propose a modification of the dynamics, namely, reflective Hamiltonian Monte Carlo (RHMC), which is also shown in Algorithm 1.
+The only modification is applied to the position steps: In RHMC, the first intersection of the trajectory with the boundaries of the polytope that contains q must be detected [11, 10]. The position step is only taken up to this boundary, and reflection/refraction occurs, depending on the momentum and change of energy at the boundary. This process continues until the entire amount of time has been simulated. Note that if there is no boundary in the trajectory to time , this is equivalent to baseline HMC. Also note that several boundaries might be visited in one position step.
+As with baseline HMC, there are two alternating steps, namely drawing a new momentum variable p from P (p)  exp(-K(p)) and proposing a move (p, q)  (p , q ) and accepting or rejecting it with a probability determined by a Metropolis-Hastings ratio. We can show that both of these steps leave the joint distribution P invariant, and hence a Markov chain that also alternates between these steps will also leave P invariant.
+As it is easy to see, drawing p from P (p) will leave P (q, p) invariant, we concentrate on the second step i.e. where a move is proposed according to the piecewise leapfrog dynamics shown in Alg. 1. Firstly, it is clear that these dynamics are time-reversible, meaning that if the simulation takes state (q, p) to (q , p ) it will also take state (q , p ) to (q, p). Secondly, we will show that these dynamics are volume preserving. Formally, if D denotes the leapfrog dynamics, we will show that the absolute value of the determinant of the Jacobian of D is one. These two properties together show that the probability density of proposing a move from (q, p) to (q , p ) is the same of that proposing a move from (q , p ) to (q, p). Thus, if the move (q, p)  (q , p ) is accepted according to the standard Metropolis-Hastings ratio, R ((q, p)  (q , p )) = min(1, exp(H(q, p) - H(q , p )), then detailed balance will be satisfied. To see this, let Q denote the proposal distribution, Then, the usual proof of correctness for Metropolis-Hastings applies, namely that
+3
+
+P (q, p)Q ((q, p)  (q , p )) R ((q, p)  (q , p )) P (q , p )Q((q , p )  (q, p))R((q , p )  (q, p))
+P (q, p) min(1, exp(H(q, p) - H(q , p )) = P (q , p ) min(1, exp(H(q , p ) - H(q, p)) = 1.
+
+(3)
+
+(The final equality is easy to establish, considering the cases where H(q, p)  H(q , p ) and H(q , p )  H(q, p) separately.) This means that detailed balance holds, and so P is a stationary dis-
+tribution.
+
+q p
+
+The major difference in the analysis of RHMC, relative to traditional HMC is that showing conservation of volume is more difficult. With standard HMC and leapfrog steps, volume conservation is easy to show by observing that each part of a leapfrog step is a shear transformation. This is not the case with RHMC, and so we must resort to a full analysis of the determinant of the Jacobian, as explored in the following section.
+
+p q
+
+x
+
+q1 = c
+Figure 2: Transformation T : q,p  q ,p described by Lemma 1 (Refraction).
+
+Algorithm 1: BASELINE & REFLECTIVE HMC ALGORITHMS
+input : q0, current sample; U , potential function, L, # leapfrog steps; , leapfrog step size output: next sample
+
+1 begin
+2 q  q0; p  N (0, 1) 3 H0  p 2/2 + U (q) 4 for l = 1 to L do
+5 p  p - U (q)/2
+
+# Half-step evolution of momentum
+
+6 if BASELINEHMC then
+
+# Full-step evolution of position:
+
+7 qq+ p
+
+8 else
+
+# i.e. if REFLECTIVEHMC:
+
+9 t0  0
+
+10 while x, tx, U,   FIRSTDISCONTINUITY(q, p, - t0, U ) =  do
+
+11 q  x
+
+12 t0  t0 + tx
+
+13 p, p = DECOMPOSE(p, ) # Perpendicular/ parallel to boundary plane 
+
+14 if p 2 > 2U then
+
+15
+
+p 
+
+p 2 - 2U *
+
+p p
+
+16 else
+
+# Refraction
+
+17 p  -p
+
+# Reflection
+
+18
+
+19 p  p + p
+
+20 q  q + ( - t0)p
+
+21 p  p - U (q)/2
+
+# Half-step evolution of momentum
+
+22 p  -p
+
+# Not required in practice; for reversibility proof
+
+23 H  p 2/2 + U (q); H  H - H0
+
+24 if s  U (0, 1) < e-H return q else return q0
+
+25 end
+
+note : FIRSTDISCONTINUITY(*) returns x, the position of the first intersection of a boundary plain with line segment [q, q + ( - t0)p]; tx, the time it is visited; U , the change in energy at the discontinuity, and , the visited partition boundary. If no such point exists,  is returned.
+
+4
+
+5 Volume Conservation
+
+5.1 Refraction
+In our first result, we assume without loss of generality, that there is a boundary located at the hyperplane q1 = c. This Lemma shows that, in the refractive case, volume is conserved. The setting is visualized in Figure 2. Lemma 1. Let T : q, p  q , p be a transformation in Rn that takes a unit mass located at q := (q1, . . . , qn) and moves it with constant momentum p := (p1, . . . , pn) till it reaches a plane q1 = c (at some point x := (c, x2, . . . , xn) where c is a constant). Subsequently the momentum is changed to p = p21 - 2U (x), p2, . . . , pn (where U (*) is a function of x s.t. p21 > 2U (x)). The move is carried on for the total time period  till it ends in q . For all n  N, T satisfies the volume preservation property.
+
+Proof. Since for i > 1, the momentum is not affected by the collision, qi = qi +  * pi and pi = pi.
+
+Thus,
+
+j  {2, . . . , n}s.t. j = i,
+
+qi = qi = pi = pi = 0. qj pj qj pj
+
+Therefore, if we explicitly write out the Jacobian determinant |J| of the transformation T , it is
+
+q1 q1
+p1 q1
+q2 q1
+...
+
+q1 p1
+
+***
+
+q1  pk-1
+
+q1 qk
+
+p1 p1
+
+***
+
+p1  pk-1
+
+p1 qk
+
+q2 p1
+
+***
+
+q2  pk-1
+
+q2 qk
+
+. . . ...
+
+q1 pk
+p1 pk
+q2 pk
+...
+
+q1 q1
+
+q1 p1
+
+***
+
+q1  pk-1
+
+p1 q1
+
+p1 p1
+
+***
+
+p1  pk-1
+
+0
+
+0
+
+***
+
+q2  pk-1
+
+= ...
+
+. . . ...
+
+q1 qk p1 qk q2 qk
+
+q1 pk
+p1 pk
+q2 pk
+...
+
+ pk-1
+q1 qk q1 pk q1
+
+ pk-1
+p1 qk p1 pk p1
+
+***
+
+ pk-1  pk-1
+
+***
+
+qk  pk-1
+
+***
+
+pk  pk-1
+
+ pk-1
+qk qk qk pk qk
+
+ pk-1
+pk qk pk pk pk
+
+0
+
+0 ***
+
+1
+
+ pk-1 qk
+
+ pk-1 pk
+
+0 0 *** 0
+
+1
+
+qk pk
+
+0 0 *** 0 0 1
+
+(4)
+
+q1 q1
+
+Now, using standard properties of the determinant, we have that |J| =
+
+q1 p1
+
+p1 p1
+
+.
+
+q1 p1
+
+We will now explicitly calculate these four derivatives. Due to the significance of the result, we carry out the computations in detail. Nonetheless, as this is a largely mechanical process, for brevity, we do not comment on the derivation.
+
+Let t1 be the time to reach x and t2 be the period between reaching x and the last point q . Then:
+
+t1
+
+d=ef
+
+c - q1 p1
+
+(5)
+
+q1 = c + p1 * t2 (8)
+
+x = q + t1p (6) p1 d=ef p21 - 2U (x) (9)
+
+t2
+
+d=ef
+
+
+
+-
+
+t1
+
+=
+
+
+
++
+
+q1 - p1
+
+c
+
+t2 by=(7) 1 q1 p1
+
+(7) (10)
+
+q1 q1
+
+=
+
+q1 p1
+
+*
+
+p1 q1
+
++
+
+q1 t2
+
+*
+
+t2 q1
+
+(8 &=10) t2
+
+*
+
+p1 q1
+
++ p1
+
+*
+
+1 p1
+
+q1 p1
+
+=
+
+q1 p1
+
+*
+
+p1 p1
+
++
+
+q1 t2
+
+*
+
+t2 p1
+
+(7=& 8)
+
+t2
+
+*
+
+p1 p1
+
++ p1 *
+
+c - q1 p21
+
+p1 (=9)
+
+1
+
+ *
+
+p21 - 2U (x)
+
+= p1 - U (x)/p1
+
+p1 2 p21 - 2U (x)
+
+p1
+
+p1
+
+(11) (12) (13)
+
+5
+
+p1 =
+
+1
+
+ *
+
+p21 - 2U (x)
+
+= 1 * -U (x)
+
+q1 2 p21 - 2U (x)
+
+q1
+
+p1 q1
+
+(14)
+
+x
+
+ (5=, 6)
+
+p1
+
+q
+
++
+
+c-q1 p1
+
+p
+
+p1
+
+=
+
+q p1
+
++ (c -
+
+q1)
+
+*
+
+(p/p1) p1
+
+=
+
+(c -
+
+-1 q1) p21
+
+* (0, p2, p3, . . . , pn)
+
+(15)
+
+x q1
+
+(5=, 6)
+
+q q1
+
++
+
+p p1
+
+*
+
+(c - q1) q1
+
+=
+
+q q1
+
+-
+
+p p1
+
+=
+
+(1, 0, . . . , 0) - (1,
+
+p2 , . . . , p1
+
+pn ) p1
+
+=
+
+-1 p1 (0, p2, . . . , pn)
+
+(16)
+
+Substituting
+
+the
+
+appropriate
+
+terms
+
+into
+
+|J |
+
+=
+
+|
+
+ 
+
+q1 q1
+
+p1 p1
+
+-
+
+p1 q1
+
+q1 p1
+
+|,
+
+we
+
+get
+
+that
+
+|J | (=4) q1 * p1 - q1 * p1 (11=& 12) q1 p1 p1 q1
+
+t2
+
+p1 q1
+
++
+
+p1 p1
+
+* p1 - p1
+
+t2
+
+p1 p1
+
++
+
+c p1
+
+- q1 p21
+
+* p1 q1
+
+= p1 p1
+
+p1 + q1 - c * p1 p1 p1 q1
+
+(13=& 14) 1 p1
+
+p1
+
+-
+
+U (x) p1
+
+-
+
+q1 - p1
+
+c
+
+*
+
+U (x) q1
+
+= 1 - 1 U (x) * x + q1 - c * U (x) * x
+
+p1 x p1 p1
+
+x q1
+
+(15=& 16) 1 - 1 * U (x) p1 x
+
+q1 - p21
+
+c
+
+*
+
+(0, p2,
+
+p3,
+
+.
+
+..
+
+,
+
+pn)
+
++
+
+q1 - p1
+
+c
+
+*
+
+-1 (0,
+p1
+
+p2,
+
+.
+
+.
+
+.
+
+, pn)
+
+= 1.
+
+5.2 Reflection
+Now, we turn to the reflective case, and again show that volume is conserved. Again, we assume without loss of generality that there is a boundary located at the hyperplane q1 = c.
+Lemma 2. Let T : q, p  q , p be a transformation in Rn that takes a unit mass located at q := (q1, . . . , qn) and moves it with the constant momentum p := (p1, . . . , pn) till it reaches a plane q1 = c (at some point x := (c, x2, . . . , xn) where c is a constant). Subsequently the mass is bounced back (reflected) with momentum p = (-p1, p2, . . . , pn) The move is carried on for a total time period  till it ends in q . For all n  N, T satisfies the volume preservation property.
+
+Proof. Similar to Lemma 1, for i > 1, qi = qi + *pi and pi = pi. Therefore, for any j  {2, . . . , n}
+
+s.t. j = i,
+
+qi qj
+
+=
+
+qi pj
+
+=
+
+pi qj
+
+=
+
+pi pj
+
+= 0. Consequently, by equation (4), and since p1
+
+= -p1,
+
+|J| =
+
+q1
+q1 p1
+q1
+
+q1
+p1 p1
+p1
+
+=
+
+q1
+q1
+0
+
+q1 p1
+-1
+
+= -q1 q1
+
+(17)
+
+As before, let t1 be the time to reach x and t2 be the period between reaching x and the last point
+
+q
+
+.
+
+That
+
+is, t1
+
+d=ef
+
+c-q1 p1
+
+and t2
+
+d=ef
+
+
+
+- t1.
+
+It follows
+
+that
+
+q1
+
+d=ef
+
+c + p1
+
+* t2
+
+is equal to 2c -  p1
+
+- q1.
+
+Hence, |J| = 1.
+
+5.3 Reflective Leapfrog Dynamics
+Theorem 1. In RHMC (Algorithm 1) for sampling from a continuous and piecewise distribution P which has affine partitioning boundaries, leapfrog simulation preserves volume in (q, p) space.
+
+Proof. We split the algorithm into several atomic transformations Ti. Each transformation is either (a) a momentum step, (b) a full position step with no reflection/refraction or (c) a full or partial
+position step where exactly one reflection or refraction occurs.
+
+6
+
+To prove that the total algorithm preserves volume, it is sufficient to show that the volume is preserved under each Ti (i.e. |JTi (q, p)| = 1) since:
+|JT1oT2o***oTm | = |JT1 | * |JT2 | * * * |JTm |
+Transformations of kind (a) and (b) are shear mappings and therefore they preserve the volume [9]. Now consider a (full or partial) position step where a single refraction occurs. If the reflective plane is in form q1 = c, by lemma 1, the volume preservation property holds. Otherwise, as long as the reflective plane is affine, via a rotation of basis vectors, the problem is reduced to the former case. Since volume is conserved under rotation, in this case the volume is also conserved. With similar reasoning, by lemma 2, reflection on a affine reflective boundary preserves volume. Thus, since all component transformations of RHMC leapfrog simulation preserve volume, the proof is complete.
+
+Along with the fact that the leapfrog dynamics are time-reversible, this shows that the algorithm satisfies detailed balance, and so has the correct stationary distribution.
+
+6 Experiment
+
+Compared to baseline HMC, we expect that RHMC will simulate Hamiltonian dynamics more accurately and therefore leads to fewer rejected samples. On the other hand, this comes at the expense of slower leapfrog position steps since intersections, reflections and refractions must be computed. To test the trade off, we compare the RHMC to baseline HMC [9] and tuned Metroplis-Hastings (MH) with a simple isotropic Normal proposal distribution. MH is automatically tuned after [12] by testing 100 equidistant proposal variances in interval (0, 1] and accepting a variance for which the acceptance rate is closest to 0.24. The baseline HMC and RHMC number of steps L and step size are chosen to be 100 and 0.1 respectively. (Many other choices are in the Appendix.) While HMC performance is highly standard to these parameters [7] RHMC is consistently faster.
+
+The comparison takes place on a heavy tail piecewise model with (non-normalized) negative log
+
+probability
+
+  q Aq  U (q) = 1 + q A q
++,
+
+if q   3 if 3 < q   6 otherwise
+
+(18)
+
+where A is a positive definite matrix. We carry out the experiment on three choices of (position space) dimensionalites, n = 2, 10 and 50.
+
+Due to the symmetry of the model, the ground truth expected value of q is known to be 0. Therefore,
+
+the absolute error of the expected value (estimated by a chain q(1), . . . , q(k) of MCMC samples) in
+
+each dimension d = 1, . . . , n is the absolute value of the mean of d-th element of the sample vectors.
+
+The worst mean absolute error (WMAE) over all dimensions is taken as the error measurement of
+
+the chain.
+
+WMAE q(1), . . . , q(k)
+
+1 = max
+k d=1,...n
+
+k
+qds
+
+s=1
+
+(19)
+
+For each algorithm, 20 Markov chains are run and the mean WMAE and 99% confidence intervals (as error bars) versus the number of iterations (i.e. Markov chain sizes) are time (milliseconds) are depicted in figure 2. All algorithms are implemented in java and run on a single thread of a 3.40GHz CPU.
+
+For each of the 20 repetitions, some random starting point is chosen uniformly and used for all three of the algorithms. We use a diagonal matrix for A where, for each repetition, each entry on the main diagonal is either exp(-5) or exp(5) with equal probabilities.
+
+As the results show, even in low dimensions, the extra cost of the position step is more or less compensated by its higher effective sample size but as the dimensionality increases, the RHMC significantly outperforms both baseline HMC and tuned MH.
+
+7
+
+Error Error Error Error Error Error
+
+66
+Baseline.HMC
+
+Tuned.MH
+
+5
+
+Reflective.HMC
+
+5
+
+44
+
+Baseline.HMC Tuned.MH Reflective.HMC
+
+33
+
+22
+
+11
+
+0 100
+
+101
+
+102
+
+103
+
+104
+
+0 101
+
+Iteration (dim=2, L=100,  =0.1)
+
+(a)
+
+66
+Baseline.HMC
+
+Tuned.MH
+
+5
+
+Reflective.HMC
+
+5
+
+44
+
+102
+Time (dim=2, L=100,  =0.1)
+(d)
+
+103
+
+Baseline.HMC Tuned.MH Reflective.HMC
+
+33
+
+22
+
+11
+
+0 100
+
+101
+
+102
+
+103
+
+104
+
+0 101
+
+Iteration (dim=10, L=100,  =0.1)
+
+(b)
+
+66
+
+102 103
+Time (dim=10, L=100,  =0.1)
+(e)
+
+55
+
+44
+
+Baseline.HMC
+
+3
+
+Tuned.MH
+
+3
+
+Reflective.HMC
+
+22
+
+1 1 Baseline.HMC
+
+Tuned.MH
+
+Reflective.HMC
+
+0 100
+
+101
+
+102
+
+103
+
+104
+
+0 101
+
+102
+
+103
+
+104
+
+Iteration (dim=50, L=100,  =0.1)
+
+Time (dim=50, L=100,  =0.1)
+
+(c) (f)
+
+Figure 3: Error (worst mean absolute error per dimension) versus (a-c) iterations and (e-f) time (ms). Tuned.HM is Metropolis Hastings with a tuned isotropic Gaussian proposal distribution. (Many more examples in supplementary material.)
+
+7 Conclusion
+We have presented a modification of the leapfrog dynamics for Hamiltonian Monte Carlo for piecewise smooth energy functions with affine boundaries (i.e. each region is a polytope), inspired by physical systems. Though traditional Hamiltonian Monte Carlo can in principle be used on such functions, the fact that the Hamiltonian will often be dramatically changed by the dynamics can result in a very low acceptance ratio, particularly in high dimensions. By better preserving the Hamiltonian, reflective Hamiltonian Monte Carlo (RHMC) accepts more moves and thus has a higher effective sample size, leading to much more efficient probabilistic inference. To use this method, one must be able to detect the first intersection of a position trajectory with polytope boundaries.
+
+Acknowledgements
+NICTA is funded by the Australian Government through the Department of Communications and the Australian Research Council through the ICT Centre of Excellence Program.
+
+8
+
+References
+[1] Hadi Mohasel Afshar, Scott Sanner, and Ehsan Abbasnejad. Linear-time gibbs sampling in piecewise graphical models. In Association for the Advancement of Artificial Intelligence, pages 665-673, 2015.
+[2] Steve Brooks, Andrew Gelman, Galin Jones, and Xiao-Li Meng. Handbook of Markov Chain Monte Carlo. CRC press, 2011.
+[3] Hans Adolph Buchdahl. An introduction to Hamiltonian optics. Courier Corporation, 1993. [4] Simon Duane, Anthony D Kennedy, Brian J Pendleton, and Duncan Roweth. Hybrid monte
+carlo. Physics letters B, 195(2):216-222, 1987. [5] Andrew G Glen, Lawrence M Leemis, and John H Drew. Computing the distribution of
+the product of two continuous random variables. Computational statistics & data analysis, 44(3):451-464, 2004. [6] Donald T Greenwood. Principles of dynamics. Prentice-Hall Englewood Cliffs, NJ, 1988. [7] Matthew D Homan and Andrew Gelman. The no-u-turn sampler: Adaptively setting path lengths in hamiltonian monte carlo. The Journal of Machine Learning Research, 15(1):1593- 1623, 2014. [8] David Lunn, David Spiegelhalter, Andrew Thomas, and Nicky Best. The bugs project: evolution, critique and future directions. Statistics in medicine, 28(25):3049-3067, 2009. [9] Radford M Neal. Mcmc using hamiltonian dynamics. Handbook of Markov Chain Monte Carlo, 2, 2011. [10] Ari Pakman and Liam Paninski. Auxiliary-variable exact hamiltonian monte carlo samplers for binary distributions. In Advances in Neural Information Processing Systems, pages 2490- 2498, 2013. [11] Ari Pakman and Liam Paninski. Exact hamiltonian monte carlo for truncated multivariate gaussians. Journal of Computational and Graphical Statistics, 23(2):518-542, 2014. [12] Gareth O Roberts, Andrew Gelman, Walter R Gilks, et al. Weak convergence and optimal scaling of random walk metropolis algorithms. The annals of applied probability, 7(1):110- 120, 1997. [13] Stan Development Team. Stan Modeling Language Users Guide and Reference Manual, Version 2.5.0, 2014.
+9
+

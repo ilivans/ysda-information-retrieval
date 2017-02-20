@@ -1,0 +1,594 @@
+Sparse Local Embeddings for Extreme Multi-label Classification
+Kush Bhatia, Himanshu Jain, Purushottam Kar, Manik Varma, and Prateek Jain Microsoft Research, India
+Indian Institute of Technology Delhi, India Indian Institute of Technology Kanpur, India {t-kushb,prajain,manik}@microsoft.com himanshu.j689@gmail.com, purushot@cse.iitk.ac.in
+Abstract
+The objective in extreme multi-label learning is to train a classifier that can automatically tag a novel data point with the most relevant subset of labels from an extremely large label set. Embedding based approaches attempt to make training and prediction tractable by assuming that the training label matrix is low-rank and reducing the effective number of labels by projecting the high dimensional label vectors onto a low dimensional linear subspace. Still, leading embedding approaches have been unable to deliver high prediction accuracies, or scale to large problems as the low rank assumption is violated in most real world applications. In this paper we develop the SLEEC classifier to address both limitations. The main technical contribution in SLEEC is a formulation for learning a small ensemble of local distance preserving embeddings which can accurately predict infrequently occurring (tail) labels. This allows SLEEC to break free of the traditional low-rank assumption and boost classification accuracy by learning embeddings which preserve pairwise distances between only the nearest label vectors. We conducted extensive experiments on several real-world, as well as benchmark data sets and compared our method against state-of-the-art methods for extreme multi-label classification. Experiments reveal that SLEEC can make significantly more accurate predictions then the state-of-the-art methods including both embedding-based (by as much as 35%) as well as tree-based (by as much as 6%) methods. SLEEC can also scale efficiently to data sets with a million labels which are beyond the pale of leading embedding methods.
+1 Introduction
+In this paper we develop SLEEC (Sparse Local Embeddings for Extreme Classification), an extreme multi-label classifier that can make significantly more accurate and faster predictions, as well as scale to larger problems, as compared to state-of-the-art embedding based approaches.
+eXtreme Multi-label Learning (XML) addresses the problem of learning a classifier that can automatically tag a data point with the most relevant subset of labels from a large label set. For instance, there are more than a million labels (categories) on Wikipedia and one might wish to build a classifier that annotates a new article or web page with the subset of most relevant Wikipedia categories. It should be emphasized that multi-label learning is distinct from multi-class classification where the aim is to predict a single mutually exclusive label.
+Challenges: XML is a hard problem that involves learning with hundreds of thousands, or even millions, of labels, features and training points. Although, some of these problems can be ameliorated
+This work was done while P.K. was a postdoctoral researcher at Microsoft Research India.
+1
+
+using a label hierarchy, such hierarchies are unavailable in many applications [1, 2]. In this setting, an obvious baseline is thus provided by the 1-vs-All technique which seeks to learn an an independent classifier per label. As expected, this technique is infeasible due to the prohibitive training and prediction costs given the large number of labels.
+Embedding-based approaches: A natural way of overcoming the above problem is to reduce the effective number of labels. Embedding based approaches try to do so by projecting label vectors onto a low dimensional space, based on an assumption that the label matrix is low-rank. More specifically, given a set of n training points {(xi, yi)ni=1} with d-dimensional feature vectors xi  Rd and Ldimensional label vectors yi  {0, 1}L, state-of-the-art embedding approaches project the label vectors onto a lower L-dimensional linear subspace as zi = Uyi. Regressors are then trained to predict zi as Vxi. Labels for a novel point x are predicted by post-processing y = UVx where U is a decompression matrix which lifts the embedded label vectors back to the original label space.
+Embedding methods mainly differ in the choice of their compression and decompression techniques such as compressed sensing [3], Bloom filters [4], SVD [5], landmark labels [6, 7], output codes [8], etc. The state-of-the-art LEML algorithm [9] directly optimizes for U, V using a regularized least squares objective. Embedding approaches have many advantages including simplicity, ease of implementation, strong theoretical foundations, the ability to handle label correlations, as well as adapt to online and incremental scenarios. Consequently, embeddings have proved to be the most popular approach for tackling XML problems [6, 7, 10, 4, 11, 3, 12, 9, 5, 13, 8, 14].
+Embedding approaches also have limitations - they are slow at training and prediction even for small embedding dimensions L. For instance, on WikiLSHTC [15, 16], a Wikipedia based challenge data set, LEML with L = 500 takes  12 hours to train even with early termination whereas prediction takes nearly 300 milliseconds per test point. In fact, for text applications with d-sparse feature vectors such as WikiLSHTC (where d = 42 L = 500), LEML's prediction time (L(d + L))
+can be an order of magnitude more than even 1-vs-All's prediction time O(dL).
+More importantly, the critical assumption made by embedding methods, that the training label matrix is low-rank, is violated in almost all real world applications. Figure 1(a) plots the approximation error in the label matrix as L is varied on the WikiLSHTC data set. As is clear, even with a 500dimensional subspace the label matrix still has 90% approximation error. This happens primarily due to the presence of hundreds of thousands of "tail" labels (Figure 1(b)) which occur in at most 5 data points each and, hence, cannot be well approximated by any linear low dimensional basis.
+The SLEEC approach: Our algorithm SLEEC extends embedding methods in multiple ways to address these limitations. First, instead of globally projecting onto a linear low-rank subspace, SLEEC learns embeddings zi which non-linearly capture label correlations by preserving the pairwise distances between only the closest (rather than all) label vectors, i.e. d(zi, zj)  d(yi, yj) only if i  kNN(j) where d is a distance metric. Regressors V are trained to predict zi = Vxi. We propose a novel formulation for learning such embeddings that can be formally shown to consistently preserve nearest neighbours in the label space. We build an efficient pipeline for training these embeddings which can be orders of magnitude faster than state-of-the-art embedding methods.
+During prediction, rather than using a decompression matrix, SLEEC uses a k-nearest neighbour (kNN) classifier in the embedding space, thus leveraging the fact that nearest neighbours have been preserved during training. Thus, for a novel point x, the predicted label vector is obtained using y = i:VxikNN(Vx) yi. The use of a kNN classifier is well motivated as kNN outperforms discriminative methods in acutely low training data regimes [17] as is the case with tail labels.
+The superiority of SLEEC's proposed embeddings over traditional low-rank embeddings can be seen by looking at Figure 1, which shows that the relative approximation error in learning SLEEC's embeddings is significantly smaller as compared to the low-rank approximation error. Moreover, we also find that SLEEC can improve the prediction accuracy of state-of-the-art embedding methods by as much as 35% (absolute) on the challenging WikiLSHTC data set. SLEEC also significantly outperforms methods such as WSABIE [13] which also use kNN classification in the embedding space but learn their embeddings using the traditional low-rank assumption.
+Clustering based speedup: However, kNN classifiers are known to be slow at prediction. SLEEC therefore clusters the training data into C clusters, learning a separate embedding per cluster and performing kNN classification within the test point's cluster alone. This allows SLEEC to be more
+2
+
+Approximation Error Active Documents Precision@1
+
+1 1e5
+
+Global SVD
+
+1e4
+
+0.5
+
+Local SVD SLEEC NN Obj
+
+1e3
+
+1e2
+
+Wiki10
+90
+85 SLEEC
+80 LocalLEML
+
+1e1 75
+
+1000 200 300 400 500 Approximation Rank
+
+1e00
+
+1234
+
+Label ID
+
+x 105
+
+2468 Number of Clusters
+
+10
+
+(a) (b) (c)
+
+Figure 1: (a) error
+
+Y
+
+- YL
+
+2 F
+
+/
+
+Y
+
+2 F
+
+in approximating the label matrix Y .
+
+Global SVD denotes the error
+
+incurred by computing the rank L SVD of Y . Local SVD computes rank L SVD of Y within each cluster.
+
+SLEEC NN objective denotes SLEEC's objective function. Global SVD incurs 90% error and the error is
+
+decreasing at most linearly as well. (b) shows the number of documents in which each label is present for the
+
+WikiLSHTC data set. There are about 300K labels which are present in < 5 documents lending it a `heavy
+
+tailed' distribution. (c) shows Precision@1 accuracy of SLEEC and localLEML on the Wiki-10 data set as we
+
+vary the number of clusters.
+
+than two orders of magnitude faster at prediction than LEML and other embedding methods on the WikiLSHTC data. In fact, SLEEC also scales well to the Ads1M data set involving a million labels which is beyond the pale of leading embedding methods. Moreover, the clustering trick does not significantly benefit other state-of-the-art methods (see Figure 1(c), thus indicating that SLEEC's embeddings are key to its performance boost.
+Since clustering can be unstable in large dimensions, SLEEC compensates by learning a small ensemble where each individual learner is generated by a different random clustering. This was empirically found to help tackle instabilities of clustering and significantly boost prediction accuracy with only linear increases in training and prediction time. For instance, on WikiLSHTC, SLEEC's prediction accuracy was 55% with an 8 millisecond prediction time whereas LEML could only manage 20% accuracy while taking 300 milliseconds for prediction per test point.
+Tree-based approaches: Recently, tree based methods [1, 15, 2] have also become popular for XML as they enjoy significant accuracy gains over the existing embedding methods. For instance, FastXML [15] can achieve a prediction accuracy of 49% on WikiLSHTC using a 50 tree ensemble. However, using SLEEC, we are now able to extend embedding methods to outperform tree ensembles, achieving 49.8% with 2 learners and 55% with 10. Thus, SLEEC obtains the best of both worlds - achieving the highest prediction accuracies across all methods on even the most challenging data sets, as well as retaining all the benefits of embeddings and eschewing the disadvantages of large tree ensembles such as large model size and lack of theoretical understanding.
+2 Method
+Let D = {(x1, y1) . . . (xn, yn)} be the given training data set, xi  X  Rd be the input feature vector, yi  Y  {0, 1}L be the corresponding label vector, and yij = 1 iff the j-th label is turned on for xi. Let X = [x1, . . . , xn] be the data matrix and Y = [y1, . . . , yn] be the label matrix. Given D, the goal is to learn a multi-label classifier f : Rd  {0, 1}L that accurately predicts the label vector for a given test point. Recall that in XML settings, L is very large and is of the same order as n and d, ruling out several standard approaches such as 1-vs-All.
+We now present our algorithm SLEEC which is designed primarily to scale efficiently for large L. Our algorithm is an embedding-style algorithm, i.e., during training we map the label vectors yi to L-dimensional vectors zi  RL and learn a set of regressors V  RLxd s.t. zi  V xi, i. During the test phase, for an unseen point x, we first compute its embedding V x and then perform kNN over the set [V x1, V x2, . . . , V xn]. To scale our algorithm, we perform a clustering of all the training points and apply the above mentioned procedures in each of the cluster separately. Below, we first discuss our method to compute the embeddings zis and the regressors V . Section 2.2 then discusses our approach for scaling the method to large data sets.
+
+2.1 Learning Embeddings
+As mentioned earlier, our approach is motivated by the fact that a typical real-world data set tends to have a large number of tail labels that ensure that the label matrix Y cannot be well-approximated using a low-dimensional linear subspace (see Figure 1). However, Y can still be accurately modeled
+
+3
+
+Algorithm 1 SLEEC: Train Algorithm
+
+Sub-routine 3 SLEEC: SVP
+
+Require: D = {(x1, y1) . . . (xn, yn)}, embedding Require: Observations: G, index set: , dimension-
+
+dimensionality: L, no. of neighbors: n, no. of ality: L
+
+clusters: C, regularization parameter: , , L1 1: M1 := 0,  = 1
+
+smoothing parameter 
+
+2: repeat
+
+1: Partition X into Q1, .., QC using k-means
+
+3: M  M + (G - P(M ))
+
+2: for each partition Qj do
+
+4: [U ]  Top-EigenDecomp(M , L)
+
+3: Form  using n nearest neighbors of each label 5: ii  max(0, ii), i
+
+vector yi  Qj
+
+6: M  U *  * U T
+
+4: [U ]  SVP(P(Y j Y jT ), L)
+
+7: until Convergence
+
+5:
+
+Zj
+
+
+
+1
+U2
+
+8: Output: U , 
+
+6: V j  ADM M (Xj, Zj, , , )
+
+7: Zj = V j Xj
+
+Sub-routine 4 SLEEC: ADMM
+
+8: end for 9: Output: {(Q1, V 1, Z1), . . . , (QC , V C , ZC }
+
+Require: Data Matrix : X, Embeddings : Z, Regularization Parameter : , , Smoothing Parameter : 
+
+Algorithm 2 SLEEC: Test Algorithm
+
+1:  := 0,  := 0 2: repeat
+
+Require: Test point: x, no. of NN: n, no. of desired
+labels: p
+1: Q : partition closest to x 2: z  V  x 3: Nz  n nearest neighbors of z in Z 4: Px  empirical label dist. for points  Nz 5: ypred  T opp(Px)
+
+3: Q  (Z + ( - ))X
+
+4: V  Q(XX (1 + ) + I)-1
+
+5:   (V X + )
+
+6:
+
+i
+
+=
+
+sign(i)
+
+*
+
+max(0,
+
+|i|
+
+-
+
+ 
+
+),
+
+i
+
+7:    + V X - alpha
+
+8: until Convergence
+
+9: Output: V
+
+using a low-dimensional non-linear manifold. That is, instead of preserving distances (or inner products) of a given label vector to all the training points, we attempt to preserve the distance to
+only a few nearest neighbors. That is, we wish to find a L-dimensional embedding matrix Z = [z1, . . . , zn]  RLxn which minimizes the following objective:
+
+min
+
+P(Y T Y ) - P(ZT Z)
+
+2 F
+
++
+
+Z
+
+1,
+
+Z RLxn
+
+(1)
+
+where the index set  denotes the set of neighbors that we wish to preserve, i.e., (i, j)   iff j  Ni. Ni denotes a set of nearest neighbors of i. We select Ni = arg maxS,|S|*n jS(yTi yj), which is the set of  * n points with the largest inner products with yi. |N | is always chosen large enough so that distances (inner products) to a few far away points are also preserved while optimiz-
+ing for our objective function. This prohibits non-neighboring points from entering the immediate neighborhood of any given point. P : Rnxn  Rnxn is defined as:
+
+(P(Y T Y ))ij =
+
+yi, yj , 0,
+
+if (i, j)  , otherwise.
+
+(2)
+
+Also, we add L1 regularization, Z 1 = i zi 1, to the objective function to obtain sparse embeddings. Sparse embeddings have three key advantages: a) they reduce prediction time, b) reduce the
+size of the model, and c) avoid overfitting. Now, given the embeddings Z = [z1, . . . , zn]  RLxn, we wish to learn a multi-regression model to predict the embeddings Z using the input features.
+That is, we require that Z  V X where V  RLxd. Combining the two formulations and adding an L2-regularization for V , we get:
+
+min
+
+P(Y T Y ) - P(XT V T V X)
+
+2 F
+
++
+
+V
+
+2 F
+
++
+
+VX
+
+1.
+
+V RLxd
+
+(3)
+
+Note that the above problem formulation is somewhat similar to a few existing methods for nonlinear dimensionality reduction that also seek to preserve distances to a few near neighbors [18, 19]. However, in contrast to our approach, these methods do not have a direct out of sample generalization, do not scale well to large-scale data sets, and lack rigorous generalization error bounds.
+
+Optimization: We first note that optimizing (3) is a significant challenge as the objective function is non-convex as well as non-differentiable. Furthermore, our goal is to perform optimization for data
+
+4
+
+sets where L, n, d 100, 000. To this end, we divide the optimization into two phases. We first
+learn embeddings Z = [z1, . . . , zn] and then learn regressors V in the second stage. That is, Z is obtained by directly solving (1) but without the L1 penalty term:
+
+min
+
+P(Y T Y ) - P(ZT Z)
+
+2 F
+
+
+
+Z,Z RLxn
+
+min
+M 0,
+
+P(Y T Y ) - P(M )
+
+2 F
+
+,
+
+rank(M )L
+
+(4)
+
+where M = ZT Z. Next, V is obtained by solving the following problem:
+
+min
+
+Z -VX
+
+2 F
+
++
+
+V
+
+2 F
+
++
+
+VX
+
+1.
+
+V RLxd
+
+(5)
+
+Note that the Z matrix obtained using (4) need not be sparse. However, we store and use V X as our embeddings, so that sparsity is still maintained.
+
+Optimizing (4): Note that even the simplified problem (4) is an instance of the popular low-rank matrix completion problem and is known to be NP-hard in general. The main challenge arises due to the non-convex rank constraint on M . However, using the Singular Value Projection (SVP) method [20], a popular matrix completion method, we can guarantee convergence to a local minima.
+
+SVP is a simple projected gradient descent method where the projection is onto the set of low-rank matrices. That is, the t-th step update for SVP is given by:
+
+Mt+1 = PL(Mt + P(Y T Y - Mt)),
+
+(6)
+
+where Mt is the t-th step iterate,  > 0 is the step-size, and PL(M ) is the projection of M onto the set of rank-L positive semi-definite definite (PSD) matrices. Note that while the set of rank-
+L PSD matrices is non-convex, we can still project onto this set efficiently using the eigenvalue decomposition of M . That is, if M = UM M UMT be the eigenvalue decomposition of M . Then,
+
+PL(M ) = UM (1 : r) * M (1 : r) * UM (1 : r)T ,
+
+where r = min(L, L+M ) and L+M is the number of positive eigenvalues of M . M (1 : r) denotes the top-r eigenvalues of M and UM (1 : r) denotes the corresponding eigenvectors.
+
+While the above update restricts the rank of all intermediate iterates Mt to be at most L, computing
+rank-L eigenvalue decomposition can still be fairly expensive for large n. However, by using special structure in the update (6), one can significantly reduce eigenvalue decomposition's computation
+complexity as well. In general, the eigenvalue decomposition can be computed in time O(L) where  is the time complexity of computing a matrix-vector product. Now, for SVP update (6), matrix has special structure of M = Mt + P(Y T Y - Mt). Hence  = O(nL + nn) where n = ||/n2 is the average number of neighbors preserved by SLEEC. Hence, the per-iteration time complexity reduces to O(nL2 + nLn) which is linear in n, assuming n is nearly constant.
+
+Optimizing (5): (5) contains an L1 term which makes the problem non-smooth. Moreover, as the L1 term involves both V and X, we cannot directly apply the standard prox-function based algorithms. Instead, we use the ADMM method to optimize (5). See Sub-routine 4 for the updates and [21] for a detailed derivation of the algorithm.
+Generalization Error Analysis: Let P be a fixed (but unknown) distribution over X x Y. Let each training point (xi, yi)  D be sampled i.i.d. from P. Then, the goal of our non-linear embedding method (3) is to learn an embedding matrix A = V T V that preserves nearest neighbors (in terms of label distance/intersection) of any (x, y)  P. The above requirements can be formulated as the following stochastic optimization problem:
+
+min L(A) = E (A; (x, y), (x, y)),
+
+A0
+
+(x,y),(x,y)P
+
+rank(A)k
+
+(7)
+
+where the loss function (A; (x, y), (x, y)) = g( y, y )( y, y - xT Ax)2, and g( y, y ) = I [ y, y   ], where I [*] is the indicator function. Hence, a loss is incurred only if y and y have a large inner product. For an appropriate selection of the neighborhood selection operator , (3)
+indeed minimizes a regularized empirical estimate of the loss function (7), i.e., it is a regularized
+ERM w.r.t. (7).
+
+5
+
+We now show that the optimal solution A to (3) indeed minimizes the loss (7) upto an additive approximation error. The existing techniques for analyzing excess risk in stochastic optimization require the empirical loss function to be decomposable over the training set, and as such do not apply to (3) which contains loss-terms with two training points. Still, using techniques from the AUC maximization literature [22], we can provide interesting excess risk bounds for Problem (7).
+
+Theorem 1. With probability at least 1 -  over the sampling of the dataset D, the solution A to the
+
+optimization problem (3) satisfies
+
+E-Risk(n)
+
+L(A)  inf
+A A
+
+L(A) + C
+
+L2 +
+
+r2 +
+
+A
+
+2 F
+
+R4
+
+11 log ,
+n
+
+where
+
+A
+
+is
+
+the
+
+minimizer
+
+of
+
+(3),
+
+r
+
+=
+
+L 
+
+and
+
+A
+
+:=
+
+A  Rdxd : A
+
+0, rank(A)  L .
+
+See Appendix A for a proof of the result. Note that the generalization error bound is independent of both d and L, which is critical for extreme multi-label classification problems with large d, L. In fact, the error bound is only dependent on L L, which is the average number of positive labels per data point. Moreover, our bound also provides a way to compute best regularization parameter  that minimizes the error bound. However, in practice, we set  to be a fixed constant.
+Theorem 1 only preserves the population neighbors of a test point. Theorem 7, given in Appendix A, extends Theorem 1 to ensure that the neighbors in the training set are also preserved. We would also like to stress that our excess risk bound is universal and hence holds even if A does not minimize (3), i.e., L(A)  L(A) + E-Risk(n) + (L(A) - L((A)), where E-Risk(n) is given in Theorem 1.
+
+2.2 Scaling to Large-scale Data sets
+For large-scale data sets, one might require the embedding dimension L to be fairly large (say a few hundreds) which might make computing the updates (6) infeasible. Hence, to scale to such large data sets, SLEEC clusters the given datapoints into smaller local region. Several text-based data sets indeed reveal that there exist small local regions in the feature-space where the number of points as well as the number of labels is reasonably small. Hence, we can train our embedding method over such local regions without significantly sacrificing overall accuracy.
+We would like to stress that despite clustering datapoints in homogeneous regions, the label matrix of any given cluster is still not close to low-rank. Hence, applying a state-of-the-art linear embedding method, such as LEML, to each cluster is still significantly less accurate when compared to our method (see Figure 1). Naturally, one can cluster the data set into an extremely large number of regions, so that eventually the label matrix is low-rank in each cluster. However, increasing the number of clusters beyond a certain limit might decrease accuracy as the error incurred during the cluster assignment phase itself might nullify the gain in accuracy due to better embeddings. Figure 1 illustrates this phenomenon where increasing the number of clusters beyond a certain limit in fact decreases accuracy of LEML.
+Algorithm 1 provides a pseudo-code of our training algorithm. We first cluster the datapoints into C partitions. Then, for each partition we learn a set of embeddings using Sub-routine 3 and then compute the regression parameters V  , 1    C using Sub-routine 4. For a given test point x, we first find out the appropriate cluster  . Then, we find the embedding z = V  x. The label vector is then predicted using k-NN in the embedding space. See Algorithm 2 for more details.
+Owing to the curse-of-dimensionality, clustering turns out to be quite unstable for data sets with large d and in many cases leads to some drop in prediction accuracy. To safeguard against such instability, we use an ensemble of models generated using different sets of clusters. We use different initialization points in our clustering procedure to obtain different sets of clusters. Our empirical results demonstrate that using such ensembles leads to significant increase in accuracy of SLEEC (see Figure 2) and also leads to stable solutions with small variance (see Table 4).
+
+3 Experiments
+Experiments were carried out on some of the largest XML benchmark data sets demonstrating that SLEEC could achieve significantly higher prediction accuracies as compared to the state-of-the-art. It is also demonstrated that SLEEC could be faster at training and prediction than leading embedding techniques such as LEML.
+
+6
+
+WikiLSHTC [L= 325K, d = 1.61M, n = 1.77M] 60
+
+WikiLSHTC [L= 325K, d = 1.61M, n = 1.77M] 60
+
+Wiki10 [L= 30K, d = 101K, n = 14K] 90
+
+Precision@1 Precision@1 Precision@1
+
+50 50 80
+
+40
+
+SLEEC FastXML
+
+LocalLEML-Ens
+
+300 5 10 Model Size (GB)
+
+40 SLEEC
+FastXML LocalLEML-ENS
+300 5 10 15 Number of Learners
+
+SLEEC
+70 FastXML
+LocalLEML-Ens
+600 5 10 15 Number of Learners
+
+(a) (b) (c) Figure 2: Variation in Precision@1 accuracy with model size and the number of learners on large-scale data sets. Clearly, SLEEC achieves better accuracy than FastXML and LocalLEML-Ensemble at every point of the curve. For WikiLSTHC, SLEEC with a single learner is more accurate than LocalLEML-Ensemble with even 15 learners. Similarly, SLEEC with 2 learners achieves more accuracy than FastXML with 50 learners.
+
+Data sets: Experiments were carried out on multi-label data sets including Ads1M [15] (1M labels), Amazon [23] (670K labels), WikiLSHTC (320K labels), DeliciousLarge [24] (200K labels) and Wiki10 [25] (30K labels). All the data sets are publically available except Ads1M which is proprietary and is included here to test the scaling capabilities of SLEEC.
+Unfortunately, most of the existing embedding techniques do not scale to such large data sets. We therefore also present comparisons on publically available small data sets such as BibTeX [26], MediaMill [27], Delicious [28] and EURLex [29]. (Table 2 in the appendix lists their statistics).
+Baseline algorithms: This paper's primary focus is on comparing SLEEC to state-of-the-art methods which can scale to the large data sets such as embedding based LEML [9] and tree based FastXML [15] and LPSR [2]. Naive Bayes was used as the base classifier in LPSR as was done in [15]. Techniques such as CS [3], CPLST [30], ML-CSSP [7], 1-vs-All [31] could only be trained on the small data sets given standard resources. Comparisons between SLEEC and such techniques are therefore presented in the supplementary material. The implementation for LEML and FastXML was provided by the authors. We implemented the remaining algorithms and ensured that the published results could be reproduced and were verified by the authors wherever possible.
+Hyper-parameters: Most of SLEEC's hyper-parameters were kept fixed including the number of clusters in a learner NTrain/6000 , embedding dimension (100 for the small data sets and 50 for the large), number of learners in the ensemble (15), and the parameters used for optimizing (3). The remaining two hyper-parameters, the k in kNN and the number of neighbours considered during SVP, were both set by limited validation on a validation set.
+The hyper-parameters for all the other algorithms were set using fine grained validation on each data set so as to achieve the highest possible prediction accuracy for each method. In addition, all the embedding methods were allowed a much larger embedding dimension (0.8L) than SLEEC (100) to give them as much opportunity as possible to outperform SLEEC.
+Evaluation Metrics: We evaluated algorithms using metrics that have been widely adopted for XML and ranking tasks. Precision at k (P@k) is one such metric that counts the fraction of correct predictions in the top k scoring labels in y, and has been widely utilized [1, 3, 15, 13, 2, 9]. We use the ranking measure nDCG@k as another evaluation metric. We refer the reader to the supplementary material - Appendix B.1 and Tables 5 and 6 - for further descriptions of the metrics and results.
+Results on large data sets with more than 100K labels: Table 1a compares SLEEC's prediction accuracy, in terms of P@k (k= {1, 3, 5}), to all the leading methods that could be trained on five such data sets. SLEEC could improve over the leading embedding method, LEML, by as much as 35% and 15% in terms of P@1 and P@5 on WikiLSHTC. Similarly, SLEEC outperformed LEML by 27% and 22% in terms of P@1 and P@5 on the Amazon data set which also has many tail labels. The gains on the other data sets are consistent, but smaller, as the tail label problem is not so acute. SLEEC also outperforms the leading tree method, FastXML, by 6% in terms of both P@1 and P@5 on WikiLSHTC and Wiki10 respectively. This demonstrates the superiority of SLEEC's overall pipeline constructed using local distance preserving embeddings followed by kNN classification.
+SLEEC also has better scaling properties as compared to all other embedding methods. In particular, apart from LEML, no other embedding approach could scale to the large data sets and, even LEML could not scale to Ads1M with a million labels. In contrast, a single SLEEC learner could be learnt on WikiLSHTC in 4 hours on a single core and already gave  20% improvement in P@1 over LEML (see Figure 2 for the variation in accuracy vs SLEEC learners). In fact, SLEEC's training
+
+7
+
+Table 1: Precision Accuracies (a) Large-scale data sets : Our proposed method SLEEC is as much as 35% more accurate in terms of P@1 and 22% in terms of P@5 than LEML, a leading embedding method. Other embedding based methods do not scale to the large-scale data sets; we compare against them on small-scale data sets in Table 3. SLEEC is also 6% more accurate (w.r.t. P@1 and P@5) than FastXML, a state-of-theart tree method. `-' indicates LEML could not be run with the standard resources. (b) Small-scale data sets : SLEEC consistently outperforms state of the art approaches. WSABIE, which also uses kNN classifier on its embeddings is significantly less accurate than SLEEC on all the data sets, showing the superiority of our embedding learning algorithm.
+(a) (b)
+
+Data set
+
+SLEEC LEML FastXML LPSR-NB
+
+Wiki10
+
+P@1 85.54 73.50 P@3 73.59 62.38 P@5 63.10 54.30
+
+82.56 66.67 56.70
+
+72.71 58.51 49.40
+
+P@1 47.03 40.30 Delicious-Large P@3 41.67 37.76
+P@5 38.88 36.66
+
+42.81 38.76 36.34
+
+18.59 15.43 14.07
+
+P@1 55.57 19.82 WikiLSHTC P@3 33.84 11.43
+P@5 24.07 8.39
+
+49.35 32.69 24.03
+
+27.43 16.38 12.01
+
+Amazon
+
+P@1 35.05 P@3 31.25 P@5 28.56
+
+8.13 6.83 6.03
+
+33.36 29.30 26.12
+
+28.65 24.88 22.37
+
+Ads-1m
+
+P@1 21.84 P@3 14.30 P@5 11.01
+
+-
+
+23.11 13.86 10.12
+
+17.08 11.38 8.83
+
+Data set
+
+SLEEC LEML FastXML WSABIE OneVsAll
+
+P@1 65.57 62.53 BibTex P@3 40.02 38.4
+P@5 29.30 28.21
+
+63.73 39.00 28.54
+
+54.77 32.38 23.98
+
+61.83 36.44 26.46
+
+P@1 68.42 65.66 Delicious P@3 61.83 60.54
+P@5 56.80 56.08
+
+69.44 63.62 59.10
+
+64.12 58.13 53.64
+
+65.01 58.90 53.26
+
+P@1 87.09 84.00 MediaMill P@3 72.44 67.19
+P@5 58.45 52.80
+
+84.24 67.39 53.14
+
+81.29 64.74 49.82
+
+83.57 65.50 48.57
+
+P@1 80.17 61.28 EurLEX P@3 65.39 48.66
+P@5 53.75 39.91
+
+68.69 57.73 48.00
+
+70.87 56.62 46.2
+
+74.96 62.92 53.42
+
+time on WikiLSHTC was comparable to that of tree based FastXML. FastXML trains 50 trees in 7 hours on a single core to achieve a P@1 of 49.37% whereas SLEEC could achieve 49.98% by training 2 learners in 8 hours. Similarly, SLEEC's training time on Ads1M was 6 hours per learner on a single core.
+SLEEC's predictions could also be up to 300 times faster than LEMLs. For instance, on WikiLSHTC, SLEEC made predictions in 8 milliseconds per test point as compared to LEML's 279. SLEEC therefore brings the prediction time of embedding methods to be much closer to that of tree based methods (FastXML took 0.5 milliseconds per test point on WikiLSHTC) and within the acceptable limit of most real world applications.
+Effect of clustering and multiple learners: As mentioned in the introduction, other embedding methods could also be extended by clustering the data and then learning a local embedding in each cluster. Ensembles could also be learnt from multiple such clusterings. We extend LEML in such a fashion, and refer to it as LocalLEML, by using exactly the same 300 clusters per learner in the ensemble as used in SLEEC for a fair comparison. As can be seen in Figure 2, SLEEC significantly outperforms LocalLEML with a single SLEEC learner being much more accurate than an ensemble of even 10 LocalLEML learners. Figure 2 also demonstrates that SLEEC's ensemble can be much more accurate at prediction as compared to the tree based FastXML ensemble (the same plot is also presented in the appendix depicting the variation in accuracy with model size in RAM rather than the number of learners in the ensemble). The figure also demonstrates that very few SLEEC learners need to be trained before accuracy starts saturating. Finally, Table 4 shows that the variance in SLEEC s prediction accuracy (w.r.t. different cluster initializations) is very small, indicating that the method is stable even though clustering in more than a million dimensions.
+Results on small data sets: Table 3, in the appendix, compares the performance of SLEEC to several popular methods including embeddings, trees, kNN and 1-vs-All SVMs. Even though the tail label problem is not acute on these data sets, and SLEEC was restricted to a single learner, SLEEC's predictions could be significantly more accurate than all the other methods (except on Delicious where SLEEC was ranked second). For instance, SLEEC could outperform the closest competitor on EurLex by 3% in terms of P1. Particularly noteworthy is the observation that SLEEC outperformed WSABIE [13], which performs kNN classification on linear embeddings, by as much as 10% on multiple data sets. This demonstrates the superiority of SLEEC's local distance preserving embeddings over the traditional low-rank embeddings.
+Acknowledgments
+We are grateful to Abhishek Kadian for helping with the experiments. Himanshu Jain is supported by a Google India PhD Fellowship at IIT Delhi
+
+8
+
+References
+[1] R. Agrawal, A. Gupta, Y. Prabhu, and M. Varma. Multi-label learning with millions of labels: Recommending advertiser bid phrases for web pages. In WWW, pages 13-24, 2013.
+[2] J. Weston, A. Makadia, and H. Yee. Label partitioning for sublinear ranking. In ICML, 2013.
+[3] D. Hsu, S. Kakade, J. Langford, and T. Zhang. Multi-label prediction via compressed sensing. In NIPS, 2009.
+[4] M. Cisse, N. Usunier, T. Artieres, and P. Gallinari. Robust bloom filters for large multilabel classification tasks. In NIPS, pages 1851-1859, 2013.
+[5] F. Tai and H.-T. Lin. Multi-label classification with principal label space transformation. In Workshop proceedings of learning from multi-label data, 2010.
+[6] K. Balasubramanian and G. Lebanon. The landmark selection method for multiple output prediction. In ICML, 2012.
+[7] W. Bi and J.T.-Y. Kwok. Efficient multi-label classification with many labels. In ICML, 2013.
+[8] Y. Zhang and J. G. Schneider. Multi-label output codes using canonical correlation analysis. In AISTATS, pages 873-882, 2011.
+[9] H.-F. Yu, P. Jain, P. Kar, and I. S. Dhillon. Large-scale multi-label learning with missing labels. ICML, 2014.
+[10] Y.-N. Chen and H.-T. Lin. Feature-aware label space dimension reduction for multi-label classification. In NIPS, pages 1538-1546, 2012.
+[11] C.-S. Feng and H.-T. Lin. Multi-label classification with error-correcting codes. JMLR, 20, 2011.
+[12] S. Ji, L. Tang, S. Yu, and J. Ye. Extracting shared subspace for multi-label classification. In KDD, 2008.
+[13] J. Weston, S. Bengio, and N. Usunier. Wsabie: Scaling up to large vocabulary image annotation. In IJCAI, 2011.
+[14] Z. Lin, G. Ding, M. Hu, and J. Wang. Multi-label classification via feature-aware implicit label space encoding. In ICML, pages 325-333, 2014.
+[15] Y. Prabhu and M. Varma. FastXML: a fast, accurate and stable tree-classifier for extreme multi-label learning. In KDD, pages 263-272, 2014.
+[16] Wikipedia dataset for the 4th large scale hierarchical text classification challenge, 2014.
+[17] A. Ng and M. Jordan. On Discriminative vs. Generative classifiers: A comparison of logistic regression and naive Bayes. In NIPS, 2002.
+[18] K. Q. Weinberger and L. K. Saul. An introduction to nonlinear dimensionality reduction by maximum variance unfolding. In AAAI, pages 1683-1686, 2006.
+[19] B. Shaw and T. Jebara. Minimum volume embedding. In AISTATS, pages 460-467, 2007.
+[20] P. Jain, R. Meka, and I. S. Dhillon. Guaranteed rank minimization via singular value projection. In NIPS, pages 937-945, 2010.
+[21] P. Sprechmann, R. Litman, T. B. Yakar, A. Bronstein, and G. Sapiro. Efficient Supervised Sparse Analysis and Synthesis Operators. In NIPS, 2013.
+[22] P. Kar, K. B. Sriperumbudur, P. Jain, and H. Karnick. On the Generalization Ability of Online Learning Algorithms for Pairwise Loss Functions. In ICML, 2013.
+[23] J. Leskovec and A. Krevl. SNAP Datasets: Stanford large network dataset collection, 2014.
+[24] R. Wetzker, C. Zimmermann, and C. Bauckhage. Analyzing social bookmarking systems: A del.icio.us cookbook. In Mining Social Data (MSoDa) Workshop Proceedings, ECAI, pages 26-30, July 2008.
+[25] A. Zubiaga. Enhancing navigation on wikipedia with social tags, 2009.
+[26] I. Katakis, G. Tsoumakas, and I. Vlahavas. Multilabel text classification for automated tag suggestion. In Proceedings of the ECML/PKDD 2008 Discovery Challenge, 2008.
+[27] C. Snoek, M. Worring, J. van Gemert, J.-M. Geusebroek, and A. Smeulders. The challenge problem for automated detection of 101 semantic concepts in multimedia. In ACM Multimedia, 2006.
+[28] G. Tsoumakas, I. Katakis, and I. Vlahavas. Effective and effcient multilabel classification in domains with large number of labels. In ECML/PKDD, 2008.
+[29] J. Mencia E. L.and Furnkranz. Efficient pairwise multilabel classification for large-scale problems in the legal domain. In ECML/PKDD, 2008.
+[30] Y.-N. Chen and H.-T. Lin. Feature-aware label space dimension reduction for multi-label classification. In NIPS, pages 1538-1546, 2012.
+[31] B. Hariharan, S. V. N. Vishwanathan, and M. Varma. Efficient max-margin multi-label classification with applications to zero-shot learning. ML, 2012.
+9
+

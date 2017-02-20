@@ -1,0 +1,778 @@
+SGD Algorithms based on Incomplete U -statistics: Large-Scale Minimization of Empirical Risk
+
+Guillaume Papa, Stephan Clemencon LTCI, CNRS, Telecom ParisTech
+Universite Paris-Saclay, 75013 Paris, France first.last@telecom-paristech.fr
+
+Aurelien Bellet Magnet Team, INRIA Lille - Nord Europe
+59650 Villeneuve d'Ascq, France aurelien.bellet@inria.fr
+
+Abstract
+In many learning problems, ranging from clustering to ranking through metric learning, empirical estimates of the risk functional consist of an average over tuples (e.g., pairs or triplets) of observations, rather than over individual observations. In this paper, we focus on how to best implement a stochastic approximation approach to solve such risk minimization problems. We argue that in the largescale setting, gradient estimates should be obtained by sampling tuples of data points with replacement (incomplete U -statistics) instead of sampling data points without replacement (complete U -statistics based on subsamples). We develop a theoretical framework accounting for the substantial impact of this strategy on the generalization ability of the prediction model returned by the Stochastic Gradient Descent (SGD) algorithm. It reveals that the method we promote achieves a much better trade-off between statistical accuracy and computational cost. Beyond the rate bound analysis, experiments on AUC maximization and metric learning provide strong empirical evidence of the superiority of the proposed approach.
+1 Introduction
+In many machine learning problems, the statistical risk functional is an expectation over d-tuples (d  2) of observations, rather than over individual points. This is the case in supervised metric learning [3], where one seeks to optimize a distance function such that it assigns smaller values to pairs of points with the same label than to those with different labels. Other popular examples include bipartite ranking (see [27] for instance), where the goal is to maximize the number of concordant pairs (i.e. AUC maximization), and more generally multi-partite ranking (cf [12]), as well as pairwise clustering (see [7]). Given a data sample, the most natural empirical risk estimate (which is known to have minimal variance among all unbiased estimates) is obtained by averaging over all tuples of observations and thus takes the form of a U -statistic (an average of dependent variables generalizing the means, see [19]). The Empirical Risk Minimization (ERM) principle, one of the main paradigms of statistical learning theory, has been extended to the case where the empirical risk of a prediction rule is a U -statistic [5], using concentration properties of U -processes (i.e. collections of U -statistics). The computation of the empirical risk is however numerically unfeasible in large and even moderate scale situations due to the exploding number of possible tuples.
+In practice, the minimization of such empirical risk functionals is generally performed by means of stochastic optimization techniques such as Stochastic Gradient Descent (SGD), where at each iteration only a small number of randomly selected terms are used to compute an estimate of the gradient (see [27, 24, 16, 26] for instance). A drawback of the original SGD learning method, introduced in the case where empirical risk functionals are computed by summing over independent observations (sample mean statistics), is its slow convergence due to the variance of the gradient estimates, see [15]. This has recently motivated the development of a wide variety of SGD variants implementing a variance reduction method in order to improve convergence. Variance reduction is
+1
+
+achieved by occasionally computing the exact gradient (see SAG [18], SVRG [15], MISO [20] and SAGA [9] among others) or by means of nonuniform sampling schemes (see [21, 28] for instance). However, such ideas can hardly be applied to the case under study here: due to the overwhelming number of possible tuples, computing even a single exact gradient or maintaining a probability distribution over the set of all tuples is computationally unfeasible in general.
+In this paper, we leverage the specific structure and statistical properties of the empirical risk functional when it is of the form of a U -statistic to design an efficient implementation of the SGD learning method. We study the performance of the following sampling scheme for the gradient estimation step involved in the SGD algorithm: drawing with replacement a set of tuples directly (in order to build an incomplete U -statistic gradient estimate), rather than drawing a subset of observations without replacement and forming all possible tuples based on these (the corresponding gradient estimate is then a complete U -statistic based on a subsample). While [6] has investigated maximal deviations between U -processes and their incomplete approximations, the performance analysis carried out in the present paper is inspired from [4] and involves both the optimization error of the SGD algorithm and the estimation error induced by the statistical finite-sample setting. We first provide non-asymptotic rate bounds and asymptotic convergence rates for the SGD procedure applied to the empirical minimization of a U -statistic. These results shed light on the impact of the conditional variance of the gradient estimators on the speed of convergence of SGD. We then derive a novel generalization bound which depends on the variance of the sampling strategies. This bound establishes the indisputable superiority of the incomplete U -statistic estimation approach over the complete variant in terms of the trade-off between statistical accuracy and computational cost. Our experimental results on AUC maximization and metric learning tasks on large-scale datasets are consistent with our theoretical findings and show that the use of the proposed sampling strategy can provide spectacular performance gains in practice. We conclude this paper with promising lines for future research, in particular regarding the trade-offs involved in a possible implementation of nonuniform sampling strategies to further improve convergence.
+The rest of this paper is organized as follows. In Section 2, we briefly review the theory of U statistics and their approximations, together with elementary notions of gradient-based stochastic approximation. Section 3 provides a detailed description of the SGD implementation we propose, along with a performance analysis conditional upon the data sample. In Section 4, based on these results, we derive a generalization bound based on a decomposition into optimization and estimation errors. Section 5 presents our numerical experiments, and we conclude in Section 6. Technical proofs are sketched in the Appendix, and further details can be found in the Supplementary Material.
+
+2 Background and Problem Setup
+
+Here and throughout, the indicator function of any event E is denoted by I{E} and the variance of any square integrable r.v. Z by 2(Z).
+
+2.1 U -statistics: Definition and Examples
+
+Generalized U -statistics are extensions of standard sample mean statistics, as defined below.
+
+Definition 1. Let K  1 and (d1, . . . , dK )  NK . Let X{1, ..., nk} = (X1(k), . . . , Xn(kk)), 1  k  K, be K independent samples of sizes nk  dk and composed of i.i.d. random variables taking their values in some measurable space Xk with distribution Fk(dx) respectively. Let H : X1d1 x* * *x XKdK  R be a measurable function, square integrable with respect to the probability distribution  = F1d1  * * *  FKdK . Assume in addition (without loss of generality) that H(x(1), . . . , x(K)) is symmetric within each block of arguments x(k) (valued in Xkdk ), 1  k  K. The generalized (or K-sample) U -statistic of degrees (d1, . . . , dK) with kernel H, is then defined as
+
+Un(H) =
+
+1
+K nk k=1 dk
+
+. . . H X(I11); X(I22); . . . ; XI(KK ) ,
+I1 IK
+
+(1)
+
+where n = (n1, . . . , nK ), the symbol I1 * * * IK refers to summation over all elements of ,
+
+the set of the
+
+K k=1
+
+nk dk
+
+index vectors (I1, . . . , IK ), Ik being a set of dk indexes 1  i1 < . . . <
+
+idk  nk and X(Ikk) = (Xi(1k), . . . , Xi(dkk)) for 1  k  K.
+
+2
+
+In the above definition, standard mean statistics correspond to the case where K = 1 = d1. More generally when K = 1, Un(H) is an average over all d1-tuples of observations. Finally, K  2 corresponds to the multi-sample situation where a dk-tuple is used for each sample k  {1, . . . , K}.
+
+The key property of the statistic (1) is that it has minimum variance among all unbiased estimates of
+(H) = E H X1(1), . . . , Xd(11), . . . , X1(K), . . . , Xd(Kk ) = E [Un(H)] .
+One may refer to [19] for further results on the theory of U -statistics. In machine learning, generalized U -statistics are used as performance criteria in various problems, such as those listed below.
+
+Clustering. Given a distance D : X1 x X1  R+, the quality of a partition P of X1 with respect to the clustering of an i.i.d. sample X1, . . . , Xn drawn from F1(dx) can be assessed through the within cluster point scatter:
+
+Wn (P )
+
+=
+
+2 n(n -
+
+1)
+
+D(Xi, Xj) *
+
+I (Xi, Xj)  C2 .
+
+i<j CP
+
+(2)
+
+It is a one sample U -statistic of degree 2 with kernel HP (x, x ) = D(x, x ) * CP I{(x, x )  C2}.
+
+Multi-partite ranking. Suppose that K independent i.i.d. samples X1(k), . . . , Xn(kk) with nk  1 and 1  k  K on X1  Rp have been observed. The accuracy of a scoring function s : X1  R with respect to the K-partite ranking is empirically estimated by the rate of concordant K-tuples
+(sometimes referred to as the Volume Under the ROC Surface):
+
+1 K nk
+
+VUSn(s)
+
+=
+
+n1
+
+x
+
+***
+
+x
+
+nK
+
+I
+k=1 ik=1
+
+s(Xi(11)) < * * * < s(Xi(KK))
+
+.
+
+The quantity above is a K-sample U -statistic with degrees d1 = . . . = dK = 1 and kernel Hs(x1, . . . , xK ) = I{s(x1) < * * * < s(xK )}.
+
+Metric learning. Based on an i.i.d. sample of labeled data (X1, Y1), . . . , (Xn, Yn) on X1 = Rp x{1, . . . , J}, the empirical pairwise classification performance of a distance D : X1 xX1  R+ can be evaluated by:
+
+6 Rn(D) = n(n - 1)(n - 2)
+
+I {D(Xi, Xj) < D(Xi, Xk), Yi = Yj = Yk} ,
+
+i<j<k
+
+(3)
+
+which is a one sample U -statistic of degree three with kernel HD((x, y), (x , y ), (x , y )) = I {D(x, x ) < D(x, x ), y = y = y }.
+
+2.2 Gradient-based minimization of U -statistics
+
+Let   Rq with q  1 be some parameter space and consider the risk minimization problem min L() with
+
+L() = E[H(X1(1), . . . , Xd(11), . . . , X1(K), . . . , Xd(KK ); )] = (H(.; )),
+
+where H :
+
+K k=1
+
+Xkdk
+
+x
+
+
+
+R is a convex loss function, the (X1(k),
+
+...,
+
+Xd(kk))'s, 1
+
+
+
+k
+
+
+
+K,
+
+are K independent random variables with distribution Fkdk (dx) on Xkdk respectively so that H is
+
+square integrable for any   . Based on K independent i.i.d. samples X1(k), . . . , Xn(kk) with
+
+1  k  K, the empirical version of the risk function is     Ln() = Un(H(.; )). We
+
+denote by  the gradient operator w.r.t. .
+
+Many learning algorithms are based on gradient descent, following the iterations t+1 = t -
+
+tLn(t), with an arbitrary initial value 0   and a learning rate (step size) t  0 such that
+
++ t=1
+
+t
+
+=
+
++
+
+and
+
++ t=1
+
+t2
+
+<
+
++.
+
+Here
+
+we
+
+place
+
+ourselves
+
+in
+
+a
+
+large-scale
+
+setting,
+
+where
+
+the
+
+sample sizes n1, . . . , nK of the training datasets are such that computing the empirical gradient
+
+gn() d=ef Ln() =
+
+K
+1/
+k=1
+
+nk dk
+
+. . . H(X(I11); X(I22); . . . ; X(IKK ); )
+I1 IK
+
+(4)
+
+at each iteration is intractable due to the number # =
+
+K k=1
+
+nk dk
+
+of terms to be averaged. Instead,
+
+stochastic approximation suggests the use of an unbiased estimate of (4) that is cheap to compute.
+
+3
+
+3 SGD Implementation based on Incomplete U -Statistics
+
+A possible approach consists in replacing (4) by a (complete) U -statistic computed from subsamples
+of reduced sizes nk << nk, {(X1(k), . . . , Xn(kk)) : k = 1, . . . , K} say, drawn uniformly at random without replacement among the original samples, leading to the following gradient estimator:
+
+gn () =
+
+1
+K nk k=1 dk
+
+. . . H(XI(11); XI(22); . . . ; XI(KK); ),
+I1 IK
+
+(5)
+
+where
+
+Ik refers to summation over all
+
+nk dk
+
+subsets
+
+X
+
+(k) Ik
+
+= (Xi1(k),
+
+...,
+
+Xid(kk)) related to a set
+
+Ik of dk indexes 1  i1 < . . . < idk  nk and n = (n1, . . . , nK ). Although this approach is very
+
+natural, one can obtain a better estimate for the same computational cost, as shall be seen below.
+
+3.1 Monte-Carlo Estimation of the Empirical Gradient
+
+From a practical perspective, the alternative strategy we propose is of disarming simplicity. It is based on a Monte-Carlo sampling scheme that consists in drawing independently with replacement among the set of index vectors , yielding a gradient estimator in the form of a so-called incomplete U -statistic (see [19]):
+
+1 gB() = B
+
+H(X(I11), . . . , X(IKK ); ),
+
+(I1, ..., IK )DB
+
+(6)
+
+where DB is built by sampling B times with replacement in the set . We point out that the conditional expectation of (6) given the K observed data samples is equal to gn(). The parameter B, corresponding to the number of terms to be averaged, controls the computational complexity of
+
+the SGD implementation. Observe incidentally that an incomplete U -statistic is not a U -statistic in
+
+general. Hence, as an unbiased estimator of the gradient of the statistical risk L(), (6) is of course
+
+less accurate than the full empirical gradient (4) (i.e., it has larger variance), but this slight increase
+
+in variance leads to a large reduction in computational cost. In our subsequent analysis, we will
+
+show that for the same computational cost (i.e., taking B =
+
+K k=1
+
+nk dk
+
+), implementing SGD with
+
+(6) rather than (5) leads to much more accurate results. We will rely on the fact that (6) has smaller
+
+variance w.r.t. to L() (except in the case where K = 1 = d1), as shown in the proposition below.
+
+Proposition 1. Set B =
+
+K k=1
+
+nk dk
+
+. There exists a universal constant c > 0, such that we have:
+
+K
+2 (gn ())  c * 2/ nk
+k=1
+
+and
+
+K
+2 (gB())  c * 2/
+k=1
+
+nk dk
+
+,
+
+for all n  NK , with 2 = 2(H(X1(1), . . . , Xd(KK ); )). Explicit but lengthy expressions of the variances are given in [19].
+
+Remark 1. The results of this paper can be extended to other sampling schemes to approximate (4), such as Bernoulli sampling or sampling without replacement in , following the proposal of [14]. For clarity, we focus on sampling with replacement, which is computationally more efficient.
+
+3.2 A Conditional Performance Analysis
+
+As a first go, we investigate and compare the performance of the SGD methods described above
+conditionally upon the observed data samples. For simplicity, we denote by Pn(.) the conditional probability measure given the data and by En[.] the Pn-expectation. Given a matrix M , we denote by M T the transpose of M and M HS := T r(M M T ) its Hilbert-Schmidt norm. We assume that the loss function H is l-smooth in , i.e its gradient is l-Lipschitz, with l > 0. We also restrict
+
+ourselves to the case where Ln is -strongly convex for some deterministic constant :
+
+Ln(1) - Ln(2)
+
+ Ln (1 )T
+
+(x
+
+-
+
+y)
+
+-
+
+ 2
+
+1 - 2
+
+2
+
+(7)
+
+and we denote by n its unique minimizer. We point out that the present analysis can be extended to the smooth but non-strongly convex case, see [1]. A classical argument based on convex analysis and
+
+4
+
+stochastic optimization (see [1, 22] for instance) shows precisely how the conditional variance of the gradient estimator impacts the empirical performance of the solution produced by the corresponding SGD method and thus strongly advocates the use of the SGD variant proposed in Section 3.1.
+
+Proposition 2. Consider the recursion t+1 = t - tg(t) where En[g(t)|t] = Ln(t), and denote by n2 (g()) the conditional variance of g(). For step size t = 1/t, the following holds.
+
+1.
+
+If
+
+1 2
+
+<
+
+< 1, then:
+
+En[Ln(t+1) - Ln(n )]
+
+n2 (g(n )) t
+
+1l2-1(
+
+1 2
+
++
+
+l12 2 -
+
+) 1
+
++
+
+1 o( t
+
+)
+
+.
+
+C1
+
+2.
+
+If 
+
+= 1 and 1
+
+>
+
+1 2
+
+,
+
+then:
+
+En[Ln(t+1) - Ln(n )]
+
+n2 (g(n ))
+
+21 l exp(2l12)12
+
++
+
+1 o( ) .
+
+t+1
+
+(21 - 1)
+
+t
+
+C2
+
+Proposition 2 illustrates the well-known fact that the convergence rate of SGD is dominated by the variance term and thus one needs to focus on reducing this term to improve its performance.
+We are also interested in the asymptotic behavior of the algorithm (when t  +), under the following assumptions:
+
+A1 The function Ln() is twice differentiable on a neighborhood of n . A2 The function Ln() is bounded.
+
+Let us set  = 2Ln(n ). We establish the following result (refer to the Supplementary Material for a detailed proof).
+
+Theorem 1. Let the covariance matrix n be the unique solution of the Lyapunov equation:
+
+n + n - n = n(n ),
+
+(8)
+
+where
+
+n(n )
+
+=
+
+En[g(n )g(n )T ]
+
+and
+
+
+
+=
+
+1
+
+>
+
+1 2
+
+if
+
+
+
+=
+
+1,
+
+0 if
+
+not.
+
+Then,
+
+under
+
+Assumptions
+
+A1 - A2, we have:
+
+1/t
+
+Ln(t) - Ln()
+
+
+
+1 2
+
+U
+
+T
+
+(n)1/2(n)1/2U,
+
+where U  N (0, Iq). In addition, in the case  = 0, we have :
+
+(n)1/2
+
+2 HS
+
+=
+
+E[U T (n)1/2(n)1/2U ]
+
+=
+
+1 2
+
+n2 (g(n )).
+
+(9)
+
+Theorem 1 reveals that the conditional variance term again plays a key role in the asymptotic performance of the algorithm. In particular, it is the dominating term in the precision of the solution. In the next section, we build on these results to derive a generalization bound in the spirit of [4] which explicitly depend on the true variance of the gradient estimator.
+
+4 Generalization Bounds
+
+Let  = argmin L() be the minimizer of the true risk. As proposed in [4], the mean excess risk can be decomposed as follows: n  NK ,
+
+E[L(t) - L()]  2E sup |Ln() - L()| + E Ln(t) - Ln(n ) .
+
+
+(10)
+
+E1 E2
+
+Beyond the optimization error (the second term on the right hand side of (10)), the analysis of the generalization ability of the learning method previously described requires to control the estimation error (the first term). This can be achieved by means of the result stated below, which extends Corollary 3 in [5] to the K-sample situation.
+
+5
+
+Proposition 3. Let H be a collection of bounded symmetric kernels on
+
+K k=1
+
+Xkdk
+
+such
+
+that
+
+MH
+
+=
+
+sup(H,x)HxX |H(x)| < +. Suppose also that H is a VC major class of functions with finite
+
+Vapnik-Chervonenkis dimension V < +. Let  = min { n1/d1 , . . . , nK /dK }. Then, for any n  NK
+
+E sup |Un(H) - (H)|  MH
+H H
+
+2
+
+2V log(1 + ) 
+
+.
+
+(11)
+
+We are now ready to derive our main result.
+
+Theorem 2. Let t be the sequence generated by SGD using the incomplete statistic gradient esti-
+
+mator (6) with B =
+
+K k=1
+
+nk dk
+
+terms for some n1, . . . , nK . Assume that {L(.; ) :
+
+  } is a
+
+VC major class class of finite VC dimension V s.t.
+
+M = sup |H(x(1), . . . , x(K); )| < +,
+
+, (x(1), ..., x(K))
+
+K k=1
+
+Xkdk
+
+(12)
+
+and N = sup 2 < +. If the step size satisfies the condition of Proposition 2, we have:
+
+n  NK , E[|L(t) - L()|]
+
+C N Bt
+
++
+
+2M
+
+2
+
+2V log(1 + ) 
+
+.
+
+For any   (0, 1), we also have with probability at least 1 - : n  NK ,
+
+|L(t) - L()|
+
+C N Bt
+
++
+
+D log(2/) t
+
++ 2M
+
+2
+
+2V log(1 + ) +
+
+
+for some constants C and D depending on the parameters l, , 1, a1.
+
+log(4/) .
+ (13)
+
+The generalization bound provided by Theorem 2 shows the advantage of using an incomplete U -
+
+statistic (6) as the gradient estimator. In particular, we can obtain results of the same form as Theo-
+
+rem 2 for the complete U -statistic estimator (5), but B =
+
+K k=1
+
+nk dk
+
+is then replaced by
+
+K k=1
+
+nk
+
+(following Proposition 1), leading to greatly damaged bounds. Using an incomplete U -statistic, we
+
+thus achieve better performance on the test set while reducing the number of iterations (and there-
+
+fore the numbers of gradient computations) required to converge to a accurate solution. To the best
+
+of our knowledge, this is the first result of this type for empirical minimization of U -statistics. In
+
+the next section, we provide experiments showing that these gains are very significant in practice.
+
+5 Numerical Experiments
+
+In this section, we provide numerical experiments to compare the incomplete and complete U -
+statistic gradient estimators (5) and (6) in SGD when they rely on the same number of terms B. The datasets we use are available online.1 In all experiments, we randomly split the data into 80%
+training set and 20% test set and sample 100K pairs from the test set to estimate the test performance.
+We used a step size of the form t = 1/t, and the results below are with respect to the number of SGD iterations. Computational time comparisons can be found in the supplementary material.
+
+AUC Optimization We address the problem of learning a binary classifier by optimizing the Area
+Under the Curve, which corresponds to the VUS criterion (Eq. 2) when K = 2. Given a sequence of i.i.d observations Zi = (Xi, Yi) where Xi  Rp and Yi  {-1, 1}, we denote by X+ = {Xi; Yi = 1}, X- = {Xi; Yi = -1} and N = |X+||X-|. As done in [27, 13], we take a linear scoring rule s(x) = T x where   Rp is the parameter to learn, and use the logistic loss as a smooth convex function upper bounding the Heaviside function, leading to the following ERM problem:
+
+min
+Rp
+
+1 N
+
+log(1 + exp(s(Xi-) - s(Xi+))).
+Xi+X+ Xj-X-
+
+1http://www.csie.ntu.edu.tw/cjlin/libsvmtools/datasets/
+
+6
+
+(a) Covtype, Batch size = 9, 1 = 1
+
+(b) Covtype, Batch size = 400, 1 = 1
+
+(c) Ijcnn1, Batch size = 25, 1 = 2
+
+(d) Ijcnn1, Batch size = 100, 1 = 5
+
+Figure 1: Average over 50 runs of the risk estimate with the number of iterations (solid lines) +/their standard deviation (dashed lines)
+
+We use two datasets: IJCNN1 (200K examples, 22 features) and covtype (600K examples, 54 features). We try different values for the initial step size 1 and the batch size B. Some results, averaged over 50 runs of SGD, are displayed in Figure 1. As predicted by our theoretical findings, we found that the incomplete U -statistic estimator always outperforms its complete variant. The performance gap between the two strategies can be small (for instance when B is very large or 1 is unnecessarily small), but for values of the parameters that are relevant in practical scenarios (i.e., B reasonably small and 1 ensuring a significant decrease in the objective function), the difference can be substantial. We also observe a smaller variance between SGD runs with the incomplete version.
+
+Metric Learning We now turn to a metric learning formulation, where we are given a sample of N i.i.d observations Zi = (Xi, Yi) where Xi  Rp and Yi  {1, . . . , c}. Following the existing literature [2], we focus on (pseudo) distances of the form DM (x, x ) = (x - x )T M (x - x ) where M is a p x p symmetric positive semi-definite matrix. We again use the logistic loss to obtain a
+convex and smooth surrogate for (3). The ERM problem is as follows:
+
+6
+
+min
+M
+
+N (N
+
+-
+
+1)(N
+
+-
+
+2)
+
+I {Yi = Yj = Yk} log(1 + exp(DM (Xi, Xj) - DM (Xi, Xk))).
+
+i<j<k
+
+We use the binary classification dataset SUSY (5M examples, 18 features). Figure 2 shows that the performance gap between the two strategies is much larger on this problem. This is consistent with the theory: one can see from Proposition 1 that the variance gap between the incomplete and the complete approximations is much wider for a one-sample U -statistic of degree 3 (metric learning) than for a two-sample U -statistic of degree 1 (AUC optimization).
+
+6 Conclusion and Perspectives
+In this paper, we have studied a specific implementation of the SGD algorithm when the natural empirical estimates of the objective function are of the form of generalized U -statistics. This situation
+
+7
+
+(a) SUSY, Batch size = 120, 1 = 0.5
+
+(b) SUSY, Batch size = 455, 1 = 1
+
+Figure 2: Average over 50 runs of the error test with the number of iterations (solid lines) +/- their standard deviation (dashed lines)
+
+covers a wide variety of statistical learning problems such as multi-partite ranking, pairwise clustering and metric learning. The gradient estimator we propose in this context is based on an incomplete U -statistic obtained by sampling tuples with replacement. Our main result is a thorough analysis of the generalization ability of the predictive rules produced by this algorithm involving both the optimization and the estimation error in the spirit of [4]. This analysis shows that the SGD variant we propose far surpasses a more naive implementation (of same computational cost) based on subsampling the data points without replacement. Furthermore, we have shown that these performance gains are very significant in practice when dealing with large-scale datasets. In future work, we plan to investigate how one may extend the nonuniform sampling strategies proposed in [8, 21, 28] to our setting in order to further improve convergence. This is a challenging goal since we cannot hope to maintain a distribution over the set of all possible tuples of data points. A tractable solution could involve approximating the distribution in order to achieve a good trade-off between statistical performance and computational/memory costs.
+
+Appendix - Sketch of Technical Proofs
+
+Note that the detailed proofs can be found in the Supplementary Material.
+
+Sketch Proof of Proposition 2
+
+Set at at+1
+
+= En[ at (1
+
+t+1 - n 2] and - 2t(1 - tL))
+
+following [1], +2t2n2 (n ).
+
+observe that the sequence (at) satisfies the recursion A standard stochastic approximation argument yields
+
+an upper bound for at (cf [17, 1]), which, combined with Ln() - Ln(n )
+
+L 2
+
+ - n
+
+2 (see [23]
+
+for instance), give the desired result.
+
+Sketch of Proof of Theorem 1
+The proof relies on stochastic approximation arguments (see [10, 25, 11]). We first show that 1/t (t - n )  N (0.n). Then, we apply the second order delta-method to derive the asymp-
+totic behavior of the objective function. Eq. (9) is obtained by standard algebra.
+
+Sketch of Proof of Theorem 2
+Combining (10), (12) and Proposition 2 leads to the first part of the result. To derive sharp probability bounds, we apply the union bound on E1 + E2. To deal with E1, we use concentration results for U -processes, while we adapt the proof of Proposition 2 to control E2: the r.v.'s are recentered to make martingale increments appear, and finally we apply Azuma and Hoeffding inequalities.
+
+Acknowledgements This work was supported by the chair Machine Learning for Big Data of Telecom ParisTech, and was conducted when A. Bellet was affiliated with Telecom ParisTech.
+
+8
+
+References
+[1] F. R. Bach and E. Moulines. Non-Asymptotic Analysis of Stochastic Approximation Algorithms for Machine Learning. In NIPS, 2011.
+[2] A. Bellet, A. Habrard, and M. Sebban. A Survey on Metric Learning for Feature Vectors and Structured Data. Technical report, arXiv:1306.6709, June 2013.
+[3] A. Bellet, A. Habrard, and M. Sebban. Metric Learning. Morgan & Claypool Publishers, 2015. [4] L. Bottou and O. Bousquet. The Tradeoffs of Large Scale Learning. In NIPS, 2007. [5] S. Clemencon, G. Lugosi, and N. Vayatis. Ranking and empirical risk minimization of U-statistics. Ann.
+Statist., 36, 2008. [6] S. Clemencon, S. Robbiano, and J. Tressou. Maximal deviations of incomplete U -processes with appli-
+cations to Empirical Risk Sampling. In SDM, 2013. [7] S. Clemencon. On U-processes and clustering performance. In NIPS, pages 37-45, 2011. [8] S. Clemencon, P. Bertail, and E. Chautru. Scaling up M-estimation via sampling designs: The Horvitz-
+Thompson stochastic gradient descent. In IEEE Big Data, 2014. [9] A. Defazio, F. Bach, and S. Lacoste-Julien. SAGA: A Fast Incremental Gradient Method With Support
+for Non-Strongly Convex Composite Objectives. In NIPS, 2014. [10] B. Delyon. Stochastic Approximation with Decreasing Gain: Convergence and Asymptotic Theory, 2000. [11] G. Fort. Central limit theorems for stochastic approximation with controlled Markov Chain. EsaimPS,
+2014. [12] J. Furnkranz, E. Hullermeier, and S. Vanderlooy. Binary Decomposition Methods for Multipartite Rank-
+ing. In ECML/PKDD, pages 359-374, 2009. [13] A. Herschtal and B. Raskutti. Optimising area under the ROC curve using gradient descent. In ICML,
+page 49, 2004. [14] S. Janson. The asymptotic distributions of Incomplete U -statistics. Z. Wahrsch. verw. Gebiete, 66:495-
+505, 1984. [15] R. Johnson and T. Zhang. Accelerating Stochastic Gradient Descent using Predictive Variance Reduction.
+In NIPS, pages 315-323, 2013. [16] P. Kar, B. Sriperumbudur, P. Jain, and H. Karnick. On the Generalization Ability of Online Learning
+Algorithms for Pairwise Loss Functions. In ICML, 2013. [17] H. J. Kushner and G. Yin. Stochastic approximation and recursive algorithms and applications, vol-
+ume 35. Springer Science & Business Media, 2003. [18] N. Le Roux, M. W. Schmidt, and F. Bach. A Stochastic Gradient Method with an Exponential Conver-
+gence Rate for Finite Training Sets. In NIPS, 2012. [19] A. J. Lee. U-Statistics: Theory and Practice. 1990. [20] J. Mairal. Incremental Majorization-Minimization Optimization with Application to Large-Scale Machine
+Learning. Technical report, arXiv:1402.4419, 2014. [21] D. Needell, R. Ward, and N. Srebro. Stochastic Gradient Descent, Weighted Sampling, and the Random-
+ized Kaczmarz algorithm. In NIPS, pages 1017-1025, 2014. [22] A. Nemirovski, A. Juditsky, G. Lan, and A. Shapiro. Robust Stochastic Approximation Approach to
+Stochastic Programming. SIAM Journal on Optimization, 19(4):1574-1609, 2009. [23] Y. Nesterov. Introductory lectures on convex optimization, volume 87. Springer, 2004. [24] M. Norouzi, D. J. Fleet, and R. Salakhutdinov. Hamming Distance Metric Learning. In NIPS, pages
+1070-1078, 2012. [25] M. Pelletier. Weak convergence rates for stochastic approximation with application to multiple targets
+and simulated annealing. Ann. Appl.Prob, 1998. [26] Q. Qian, R. Jin, J. Yi, L. Zhang, and S. Zhu. Efficient Distance Metric Learning by Adaptive Sampling
+and Mini-Batch Stochastic Gradient Descent (SGD). Machine Learning, 99(3):353-372, 2015. [27] P. Zhao, S. Hoi, R. Jin, and T. Yang. AUC Maximization. In ICML, pages 233-240, 2011. [28] P. Zhao and T. Zhang. Stochastic Optimization with Importance Sampling for Regularized Loss Mini-
+mization. In ICML, 2015.
+9
+

@@ -1,0 +1,649 @@
+Bounding the Cost of Search-Based Lifted Inference
+
+David Smith University of Texas At Dallas 800 W Campbell Rd, Richardson, TX 75080 dbs014200@utdallas.edu
+
+Vibhav Gogate University of Texas At Dallas 800 W Campbell Rd, Richardson, TX 75080 vibhav.gogate@utdallas.edu
+
+Abstract
+Recently, there has been growing interest in systematic search-based and importance sampling-based lifted inference algorithms for statistical relational models (SRMs). These lifted algorithms achieve significant complexity reductions over their propositional counterparts by using lifting rules that leverage symmetries in the relational representation. One drawback of these algorithms is that they use an inference-blind representation of the search space, which makes it difficult to efficiently pre-compute tight upper bounds on the exact cost of inference without running the algorithm to completion. In this paper, we present a principled approach to address this problem. We introduce a lifted analogue of the propositional And/Or search space framework, which we call a lifted And/Or schematic. Given a schematic-based representation of an SRM, we show how to efficiently compute a tight upper bound on the time and space cost of exact inference from a current assignment and the remaining schematic. We show how our bounding method can be used within a lifted importance sampling algorithm, in order to perform effective Rao-Blackwellisation, and demonstrate experimentally that the Rao-Blackwellised version of the algorithm yields more accurate estimates on several real-world datasets.
+
+1 Introduction
+
+A myriad of probabilistic logic languages have been proposed in recent years [5, 12, 17]. These languages can express elaborate models with a compact specification. Unfortunately, performing efficient inference in these models remains a challenge. Researchers have attacked this problem by "lifting" propositional inference techniques; lifted algorithms identify indistinguishable random variables and treat them as a single block at inference time, which can yield significant reductions in complexity. Since the original proposal by Poole [15], a variety of lifted inference algorithms have emerged. One promising approach is the class of search-based algorithms [8, 9, 16, 19, 20, 21], which lift propositional weighted model counting [4, 18] to the first-order level by transforming the propositional search space into a smaller lifted search space.
+In general, exact lifted inference remains intractable. As a result, there has been a growing interest in developing approximate algorithms that take advantage of symmetries. In this paper, we focus on a class of such algorithms, called lifted sampling methods [9, 10, 13, 14, 22] and in particular on the lifted importance sampling (LIS) algorithm [10]. LIS can be understood as a sampling analogue of an exact lifted search algorithm called probabilistic theorem proving (PTP). PTP accepts a SRM as input (as a Markov Logic Network (MLN) [17]), decides upon a lifted inference rule to apply (conditioning, decomposition, partial grounding, etc.), constructs a set of reduced MLNs, recursively calls itself on each reduced MLN in this set, and combines the returned values in an appropriate manner. A drawback of PTP is that the MLN representation of the search space is inference unaware; at any step in PTP, the cost of inference over the remaining model is unknown. This is problematic because unlike (propositional) importance sampling algorithms for graphical models, which can be Rao-Blackwellised [3] in a principled manner by sampling variables until the treewidth of the remaining model is bounded by a small constant (called w-cutset sampling [1]), it is currently not possible to Rao-Blackwellise LIS in a principled manner. To address these limitations, we make the following contributions:
+
+1
+
+1. We propose an alternate, inference-aware representation of the lifted search space that allows efficient computation of the cost of inference at any step of the PTP algorithm. Our approach is based on the And/Or search space perspective [6]. Propositional And/Or search associates a compact representation of a search space with a graphical model (called a pseudotree), and then uses this representation to guide a weighted model counting algorithm over the full search space. We extend this notion to Lifted And/Or search spaces. We associate with each SRM a schematic, which describes the associated lifted search space in terms of lifted Or nodes, which represent branching on counting assignments [8] to groups of indistinguishable variables, and lifted And nodes, which represent decompositions over independent and (possibly) identical subproblems. Our formal specification of lifted And/Or search spaces offers an intermediate representation of SRMs that bridges the gap between high-level probabilistic logics such as Markov Logic [17] and the search space representation that must be explored at inference time.
+2. We use the intermediate specification to characterize the size of the search space associated with an SRM without actually exploring it, providing tight upper bounds on the complexity of PTP. This allows us, in principle, to develop advanced approximate lifted inference algorithms that take advantage of exact lifted inference whenever they encounter tractable subproblems.
+3. We demonstrate the utility of our lifted And/Or schematic and tight upper bounds by developing a Rao-Blackwellised lifted importance sampling algorithm, enabling the user to systematically explore the accuracy versus complexity trade-off. We demonstrate experimentally that it vastly improves the accuracy of estimation on several real-world datasets.
+2 Background and Terminology
+And/Or Search Spaces. The And/Or search space model is a general perspective for searching over graphical models, including both probabilistic networks and constraint networks [6]. And/Or search spaces allow for many familiar graph notions to be used to characterize algorithmic complexity. Given a graphical model, M " xG, y, where G " xV, Ey is a graph and  is a set of features or potentials, and a rooted tree T that spans G in such a manner that the edges of G that are not in T are all back-edges (i.e., T is a pseudo tree [6]), the corresponding And/Or Search Space, denoted ST pRq, contains alternating levels of And nodes and Or nodes. Or nodes are labeled with Xi, where Xi P varspq. And nodes are labeled with xi and correspond to assignments to Xi. The root of the And/Or search tree is an Or node corresponding to the root of T .
+Intuitively, the pseudo tree can be viewed as a schematic for the structure of an And/Or search space associated with a graphical model, which denotes (1) the conditioning order on the set varspq, and (2) the locations along this ordering at which the model decomposes into independent subproblems. Given a pseudotree, we can generate the corresponding And/Or search tree via a straightforward algorithm [6] that adds conditioning branches to the pseudo tree representation during a DFS walk over the structure. Adding a cache that stores the value of each subproblem (keyed by an assignment to its context) allows each subproblem to be computed just once, and converts the search tree into a search graph. Thus the cost of inference is encoded in the pseudo tree. In Section 3, we define a lifted analogue to the backbone pseudo tree, called a lifted And/Or schematic, and in Section 3, we use the definition to prove cost of inference bounds for probabilistic logic models.
+First Order Logic. An entity (or a constant) is an object in the model about which we would like to reason. Each entity has an associated type,  . The set of all unique types forms the set of base types for the model. A domain is a set of entities of the same type  ; we assume that each domain is finite and is disjoint from every other domain in the model. A variable, denoted by a lower-case letter, is a symbolic placeholder that specifies where a substitution may take place. Each variable is associated with a type  ; a valid substitution requires that a variable be replaced by an object (either an entity or another variable) with the same type. We denote the domain associated with a variable v by v.
+We define a predicate, denoted by Rpt1 :: 1, . . . , tk :: kq, to be a k-ary functor that maps typed entities to binary-valued random variables (also called parameterized random variable [15]). A substitution is an expression of the form tt1 " x1, . . . , tk " xku where ti are variables of type i and xi are either entities or variables of type i. Given a predicate R and a substitution  " tt1 " x1, . . . , tk " xku, the application of  to R yields another k-ary functor functor with each ti replaced by xi, called an atom. If all the xi are entities, the application yields a random variable. In this case, we refer to  as a grounding of R, and R as a ground atom. We adopt the notation i to refer to the i-th assignment of , i.e. i " xi.
+2
+
+Statistical Relational Models combine first-order logic and probabilistic graphical models. A
+
+popular SRM is Markov logic networks (MLNs) [17]. An MLN is a set of weighted first-order logic
+
+clauses. Given entities, the MLN defines a Markov network over all the ground atoms in its Herbrand
+
+base (cf. [7]), with a feature corresponding to each ground clause in the Herbrand base. (We assume
+
+Herbrand interpretations throughout this paper.) The weight of each feature is the weight of the
+
+corresponding first-order clause. The probability distribution associated with the Markov network
+
+is given number
+
+obfy:trPuepxgqro"unZd1inexgps pin xi w, ainndipxZqq"whexreexwpipis tihweiwniepixghqqt
+
+of is
+
+the the
+
+ith clause and nipxq is its partition function. In this
+
+paper, we focus on computing Z. It is known that many inference problems over MLNs can be
+
+reduced to computing Z.
+
+Probabilistic Theorem Proving (PTP) [9] is an algorithm for computing Z in MLNs. It lifts the two main steps in propositional inference: conditioning (Or nodes) and decomposition (And nodes). In lifted conditioning, the set of truth assignments to ground atoms of a predicate R are partitioned into multiple parts such that in each part (1) all truth assignment have the same number of true atoms and (2) the MLNs obtained by applying the truth assignments are identical. Thus, if R has n ground atoms, the lifted search procedure will search over Opn  1q new MLNs while the propositional search procedure will search over Op2nq MLNs, an exponential reduction in complexity. In lifted decomposition, the MLN is partitioned into a set of MLNs that are not only identical (up to a renaming) but also disjoint in the sense that they do not share any ground atoms. Thus, unlike the propositional procedure which creates n disjoint MLNs and searches over each, the lifted procedure searches over just one of the n MLNs (since they are identical). Unfortunately, lifted decomposition and lifted conditioning cannot always be applied and in such cases PTP resorts to propositional conditioning and decomposition. A drawback of PTP is that unlike propositional And/Or search which has tight complexity guarantees (e.g., exponential in the treewidth and pseudotree height), there are no (tight) formal guarantees on the complexity of PTP.1 We address this limitation in the next two sections.
+
+3 Lifted And/Or Schematics
+
+Our goal in this section is to define a lifted
+
+analogue the pseudotree notion employed
+
+(x,1,2)
+
+by the propositional And/Or framework.
+
+R1 ([x],1,2,UN)
+
+R1 ([x],1,2,UN)
+
+R1 ([x],1,2,UN)
+
+The structure must encode (1) all infor-
+
+mation contained in a propositional pseu-
+
+(y,1,2)
+
+(x,1,2)
+
+dotree (a conditioning order, conditional
+
+S1 ([x],1,2,UN)
+
+S1 ([x,y],2,2,UN)
+
+S1 ([x,y],2,2,UN)
+
+independence assumptions), as well as (2)
+
+additional information needed by the PTP
+
+algorithm in order to exploit the symme- Figure 1: Possible schematics for (a) Rpxq _ Spxq, (b) Rpxq
+
+tries of the lifted model. Since the symmetries that can be exploited highly depend on the amount of evidence, we encode the
+
+_Spx, yq and (c) Rpxq _ Rpyq _ Spx, yq, x " y " 2. U N stands for unknown. Circles and diamonds represent
+lifted Or and And nodes respectively.
+
+SRM after evidence is instantiated, via a process called shattering [2]. Thus, while a pseudotree
+
+encodes a graphical model, a schematic encodes an (SRM, evidence set) pair.
+
+Definition A lifted Or node is a vertex labeled by a 6  tuple xR, , , i, c, ty, where (1) R is a
+k-ary predicate, (2)  is a set of valid substitutions for R, (3)  P t1, . . . , ku, represents the counting
+argument for the predicate Rpt1 :: 1, . . . , tk :: kq and specifies a domain  to be counted over, (4) i is an identifier of the block of the partition being counted over, (5) c P Z is the number of entities
+in block i, and (6) t P tT rue, F alse, U nknownu is the truth value of the set of entities in block i.
+
+Definition A lifted And node is a vertex labeled by F , a (possibly empty) set of formulas, where a formula f is a pair ptpO, , bqu, wq, in which O is a lifted Or node xR, , , i, c, ty,  P  , b P tT rue, F alseu, and w P R. Formulas are assumed to be in clausal form.
+
+Definition A lifted And/Or schematic, S " xVS, ES, vry, is a rooted tree comprised of lifted Or nodes and lifted And nodes. S must obey the following properties:
+
+* Every lifted Or node O P VS has a single child node N P VS. * Every lifted And node A P VS has a (possibly empty) set of children tN1, . . . , Nnu  VS .
+1Although, complexity bounds exist for related inference algorithms such as first-order decomposition trees [20], they are not as tight as the ones presented in this paper.
+
+3
+
+* For each pair of lifted Or nodes O, O1 P VS, with respective labels xR, , , i, c, ty, xR1, 1, 1, i1, c1, t1y, pR, iq  pR1, i1q. Pairs pR, iq uniquely identify lifted Or nodes. * For every lifted Or node O P VS with label xR, , , i, c, ty, @ P , @1  , either (1) 1 = 1, or (2) 1 P X, where X has appeared as the decomposer label [9] of some edge in pathSpO, vrq. * For each formula fi " ptpO, , bqu, wq appearing at a lifted And node A, @O P tpO, , bqu, O P pathSpvr, Aq. We call the set of edges tpO, Aq | O P FormulaspAqu the back edges of S. * Each edge between a lifted Or node O and its child node N is unlabeled. Each edge between
+a lifted And node A and its child node N may be (1) unlabeled or (2) labeled with a pair pX, cq, where X is a set of variables, called a decomposer set, and c P Z is the the number of equivalent entities in the block of x represented by the subtree below. If it is labeled with a decomposer set X then (a) for every substitution set  labeling a lifted Or node O1 appearing in the subtree rooted at
+N , Di s.t .@ P , i P X and (b) @ decomposer sets Y labeling edges in the subtree rooted at N , Y X X " H.
+The lifted And/Or Schematic is a general structure for specifying the inference procedure in SRMs.
+It can encode models specified in many formats, such as Markov Logic [17] and PRV models [15].
+Given a model and evidence set, constructing a schematic conversion into a canonical form is achieved
+via shattering [2, 11], whereby exchangeable variables are grouped together. Inference only requires
+information on the size of these groups, so the representation omits information on the specific
+variables in a given group. Figure 1 shows And/Or schematics for three MLNs.
+
+Algorithm 1 Function evalNode(And)
+1: Input: a schematic, T with And root node, a counting store cs 2: Output: a real number, w 3: N " root(T ) 4: for formula f P N do 5: w " w calculateWeightpf, csq 6: for child N 1 of T do 7: cs1 " sumOutDoneAtomspcs, N q 8: if pN, N 1q has label xV, b, cby then 9: if ExpV, bq, ccy P cs s.t. v P V then 10: cs2 " cs1 Y xpV, bq, xtu, tptu, cbqyy 11: xP, M y "getCC(V, b, cs2) //get cc for V 12: for assignment pai, kiq P M do 13: //give v its own entry in cs 14: cs3 " updateCCAtDecomposerpcs2, V, v, pai, 1qq 15: w " wevalNodepN 1, cs3qki 16: else 17: w " wevalNodepN 1, csq 18: return w
+
+Algorithm 2 Function evalNode(Or)
+
+1: Input: a schematic, T with Or Node root, a counting store cs 2: Output: a real number, w 3: if pxroot(T),cs)y, wq P cache then return w
+
+4: xR, , , b, c, t, P y = root(T )
+
+5: T 1 " child(xR, , , b, c, t, y, T q
+
+6: V " tv |  P ,  " vu
+
+7: xP, txai, kiyuy "getCC(V, b)
+
+8: w " 0
+
+9: if t P tT rue, F alseu then
+
+10: cs1 = updateCC(xP, M y, R, tv) 11: w "evalNode(T 1,cs1)
+
+12: else
+
+13: assigns = ttv1, . . . , vnu | vi P t0, . . . , kiuu
+
+14: for tv1, . . . , vnu P assigns do 15: cs1 = updateCC(xP, M y, R, tv1, . . . , vnu)
+
+16:
+
+w
+
+"
+
+w
+
+
+
+ n
+i"1
+
+ki
+
+ 
+
+vi
+
+evalNodepT
+
+1,
+
+ cs1 q
+
+17: insertCache(xR, , , b, c, t, P y, w) 18: return w
+
+3.1 Lifted Node Evaluation Functions-We describe the inference procedure in Algorithms 1 and 2.
+We require the notion of a counting store in order to track counting assignments over the variables in
+the model. A counting store is a set of pairs xpV, iq, ccy, where V is a set of variables that are counted over together, i is a block identifier, and cc is a counting context. A counting context (introduced in [16]), is a pair xP r, M y, where P r is a list of m predicates and M : tT rue, F alseum N k, is a map from truth assignments to P r to a non-negative integer denoting the count of the number of entities
+in the i-th block of the partition of each v P V that take that assignment. We initialize the algorithm by a call to Algorithm 1 with an appropriate schematic S and empty counting store.
+
+The lifted And node function (Algorithm 1) first computes the weight of any completely conditioned formulas. It then makes a set of evalNode calls for each of its children O; if pA, Oq has decomposer label V , it makes a call for each assignment in each block of the partition of V ; otherwise it makes a single call to O. The algorithm takes the product of the resulting terms along with the product of the weights and returns the result. The lifted Or node function (Algorithm 2) retrieves the set of all assignments previously made to its counting argument variable set; it then makes an evalNode call to its child for each completion to its assignment set that is consistent with its labeled truth value, and takes their weighted sum, where the weight is the number of symmetric assignments represented by each assignment completion.
+
+The overall complexity of depends on the number of entries in the counting store at each step of inference. Note that Algorithm 1 reduces the size of the store by summing out over atoms that leave context. Algorithm 2 increases the size of the store at atoms with unknown truth value by splitting the current assignment into True and False blocks w.r.t. its atom predicate. Atoms with known truth value leave the size of the store unchanged.
+
+4
+
+4 Complexity Analysis
+Algorithms 1 and 2 describe a DFS-style traversal of the lifted search space associated with S. As our notion of complexity, we are interested in specifying the maximum number of times any node VS P S is replicated during instantiation of the search space. We describe this quantity as SSN pSq. Our goal in this section is to define the function SSN pSq, which we refer to as the induced lifted width of S.
+4.1 Computing the Induced Lifted Width of a Schematic-In the propositional And/Or framework, the inference cost of a pseudotree T is determined by DR, the tree decomposition of the graph G " xN odespT q, BackEdgespT qy induced by the variable ordering attained by traversing T along any DFS ordering from root to leaves. [6]. Inference is Opexppwqq, where w is the size of the largest cluster in DR. The analogous procedure in lifted And/Or requires additional information be stored at each cluster. Lifted tree decompositions are identical to their propositional counterparts with two exceptions. First, each cluster Ci requires the ordering of its nodes induced by the original order of S. Second, each cluster Ci that contains a node which occurs after a decomposer label requires the inclusion of the decomposer label. Formally:
+
+Definition The tree sequence TS associated with schematic S is a partially ordered set such that: (1) O P N odespSq n O P TS, (2) pA, N q with label l P EdgespSq n pA, lq P TS, and (3) AncpN1, N2, Sq n N1  N2 P TS.
+Definition The path sequence P associated with tree sequence TS of schematic S is any totally ordered subsequence of TS.
+Definition Given a schematic S and its tree sequence TS, the Lifted Tree Decomposition of TS, denoted DS, is a pair pC, T q in which C is a set of path sequences and T is a tree whose nodes are the members of C satisfying the following properties: (1) @pO, Aq P BackEdgespP q, Di s.t. O, A P Ci, (2) @i, j, k s.t Ck P P athT pCi, Cjq, Ci X Cj  Ck, (3) @A P TS, O P Ci, A  O n A P Ci.
+Given the partial ordering of nodes defined by S, each schematic S induces a unique Lifted Tree Decomposition, DS. Computing SSN pSq requires computing maxCiPC SSC pCiq. There exists a total ordering over the nodes in each Ci; hence the lifted structure in each Ci constitutes a path. We take the lifted search space generated by each cluster C to be a tree; hence computing the maximum node replication is equivalent to computing the number of leaves in SSC.
+
+In order to calculate the induced lifted width of a given path, we must first determine which Or
+
+nodes are counted over dependently. Let VC " tv | xR, , , i, c, ty P C,  P ,  " vu be the set of variables that are counted over by an Or node in cluster C. Let VC be a partition of VC into its
+dependent variable counting sets; i.e. define the binary relation CS " tpv1, v2q | DxR, , , i, c, ty P VS s.t D, 1 P ,  " v1, 1 " v2u. Then V " tv1 | pv, v1q P CSu, where CS is the transitive closure of CS. Let VC " tVj | v1, v2 P Vj n pv1, v2q P CSu. Variables that appear in a set Vj P VC refer to the same set of objects; thus all have the same type j and they all share the same partition of the entities of Tj. Let Pj denote the partition of the entities of Tj w.r.t variable set Vj. Then each block pij P Pj is counted over independently (we refer to each pij as a dependent counting
+path ). Thus we can calculate the total leaves corresponding to cluster C by taking the product of the
+
+leaves of each pij block:
+
+SSC pCq
+
+"
+
+
+Vj PVC
+
+
+pij PPj
+
+SSpppij q
+
+(1)
+
+Analysis of lifted Or nodes that count over the same block pij depends on the structure of the decomposers sets over the structure. First, we consider the case in which C contains no decomposers.
+
+4.2 Lifted Or Nodes with No Decomposer-Consider ORC,Vj,i, the sequence of nodes in C that
+
+perform conditioning over the i-th block of the partition of the variables in Vj. The nodes in ORC,Vj,i
+
+count over the same set of entities. A conditioning assignment at O assigns ct P t0 . . . cu entities to
+
+T rue and cf " c  ct entities to F alse w.r.t. its predicate, breaking the symmetry over the c elements
+
+in the block. Each O1 P ORp,Vj,i that occurs after O must perform counting over two sets of size ct
+
+and cf separately. The number of assignments for block tVj, iu grows exponentially with the number
+
+of ancestors counting over tVj, iu whose truth value is unknown. Formally, let cij be the size of the
+
+i-th block of the partition of Vj, and let nij " |tO | O P ORC,Vj,i, N " xR, , , i, c, unknownyu|.
+
+For an initial domain size cij and predicate count nij, we must compute the number of possible ways
+
+to represent cij as a sum of 2nij non-negative integers. Define kij " 2nij . We can count the number
+
+of leaf nodes generated by counting the number of weak compositions of cij into kij parts. Thus the
+
+number of search space leaves corresponding to pij generated by C is:
+
+SSpppij q
+
+"
+
+W
+
+pcij ,
+
+kij q
+
+"
+
+cij kij 1
+kij 1
+
+(2)
+
+5
+
+Example Consider the example in Figure 1(a). There is a single path from the root to a leaf. The
+
+set of variables appearing on the path, V " txu, and hence the partition of V into variables that are
+
+counted over together yields ttxuu. Thus n1,1 " |tpR1p2, U nq, S1p2, U nqu| " 2, c1,1 " 2, and
+
+k1,1
+
+"
+
+4.
+
+So
+
+we
+
+can
+
+count
+
+the
+
+leaves
+
+of
+
+the
+
+model
+
+by
+
+the
+
+expression
+
+241
+41
+
+"
+
+5! 3!2!
+
+"
+
+10.
+
+4.3 Lifted Or Nodes with Decomposers- To Algorithm 3 Function countPathLeaves
+
+determine the size of the search tree induced by a subsequence P that contains decomposers, we must consider whether the counting argument of each Or node is decomposed on.
+4.3.1 Lifted Or Nodes with Decomposers as Non Counting Arguments
+We first consider the case when ORC,Vj,i contains decomposer variables as non-counting arguments. For each parent-to-child edge (A,N,label l), Algorithm 1 generates a child for each non-zero assignment in the counting store containing the decomposer variable. If a path subsequence over variable v of initial domain c has n Or nodes, k of which occur below the decomposer label, then we can compute the num-
+
+1: Input: a subsequence path P 2: Output: f pxq : Z N Z, where x is a domain size and f pxq
+
+is the number of search space leaves generated by P
+3: //we represent the recursive polynomial
+
+apwc1 - wc2q as a triple pa, wc1, wc2q,
+
+where a P
+
+Z, and wc1, wc2 are either weak
+
+compositions (base case) or triples of this
+
+type (recursive case)
+
+4: type WCP = WC INT | WCD (INT,WCP,WCP)
+
+5: //evalPoly constructs the polynomial
+
+6: function MAKEPOLY((WC nq, pt, a, sq)
+
+7:
+
+return
+
+WCD
+
+(
+
+n 2ta
+
+,
+
+WC
+
+n,
+
+WC
+
+pn
+
+
+
+2ta
+
+qq
+
+8: function MAKEPOLY((WCD (c, wc1, wc2qq, pt, a, sqq 9: return WCDpa, makePoly wc1 pt, a, sq, makePoly wc2 pt
+
+s, a  s, sqq
+
+10: //applyDec divides out the Or nodes with
+
+counting variables that are decomposers
+11: function APPLYDEC(d,(WC a)) 12: return WC pa{p2dqq
+
+13: function APPLYDEC(d,(WCD (a,b,c))) 14: return WCD (a,applyDec d b,applyDec d c)
+
+ber of assignments in the counting store at each
+
+decomposer as 2nk. Further, we can compute
+
+the number of non-zero leaves generated by each
+
+assignment can be computed as the difference
+
+in leaves from the model over n Or nodes and
+
+the model over k Or nodes. Hence the result-
+
+ing
+
+model
+
+has
+
+2nk 
+
+c2n1
+2n 1
+
+
+
+c2k
+
+ 1
+
+2k 1
+
+leaves. This procedure can be repeated by recur-
+
+sively applying the rule to split each weak com-
+
+position into a difference of weak compositions
+
+for each decomposer label present in the subse-
+
+quence under consideration (Algorithm 3). The
+
+final result is a polynomial in c, which, when
+
+15: //evalPoly creates a function that takes a
+
+domain and computes the differences of the
+
+constituent weak compositions
+16: function EVALPOLY((WCD (a,b,c)),x) 17: return a  (evalPoly b x - evalPoly c x)
+
+18: function EVALPOLY((WC a),x)
+
+19:
+
+return
+
+xa1
+a1
+
+20: t = totalOrNodes(P ) 21: dv = orNodesWithDecomposerCountingArgument(P ) 22: poly = WC 2t; orNodesAbove=0;orNodesBetween=0 23: for N of P do 24: if N " pA, xv, p, cyq then 25: poly = makePoly poly (t,orNodesAbove,orNodesBetween) 26: orNodesBetween=0 27: else 28: orNodesAbove++;orNodesBetween++
+return 2dv evalPoly (applyDec dv poly)
+
+given a domain size, returns the number of leaves generated by the path subsequence.
+
+Example Consider the example in Figure 1(c). Again there is a single path from the root to a leaf. The set of variables appearing on the path is V " tx, yu. The partition of V into variables that are counted over together yields V " ttx, yuu.Algorithm 3 returns the polynomial f pxq " 2pW px, 4qW px, 2qq. So the search space contains 2p2441 1  2221 1q " 14 leaves.
+4.3.2 Lifted Or Nodes with Decomposers as Counting Arguments
+
+The procedure is similar for the case when P contains Or nodes that count over variables that have
+been decomposed one addition. Or nodes that count over a variable that has previously appeared as
+the decomposer label of an ancestor in the path have a domain size of 1 and hence always spawn
+W p1, 2q " 2 children instead of W px, 2q children. If there are d Or nodes in P that count over decomposed variables, we must divide the k term of each weak composition in our polynomial by 2d.
+Lines 11  14 of Algorithm 3 perform this operation.
+
+Example Consider the example shown in Figure 1(b). Again there is one path from the root
+to leaf, with V " tx, yu; partitioning V into sets of variables that are counted over together yields V " ttxu, tyuu. Thus n1,1 " |tpR1p2, U nqu| " 1, c1,1 " 2, and k1,1 " 2. Similarly, n2,1 " |tS1p2, U nq|s| " 1, c2,1 " 2, and k2,1 " 2. Algorithm 3 returns the constant functions f1pxq " f2pxq " 2  W px, 1q " 2. Equation 1 indicates that we take the product of these functions. So the search space contains 4 leaves regardless of the domain sizes of x and y.
+
+4.4 Overall Complexity-Detailed analysis, as well as a proof of correctness of Algorithm 3 is given in the supplemental material section. Here we give general complexity results.
+
+6
+
+Theorem 4.1 Given a lifted And/Or Schematic S with associated Tree Decomposition DS " pC, T q, the overall time and space complexity of inference in S is OpmaxCiPCSSC pCiqq.
+
+5 An Application: Rao-Blackwellised Importance Sampling
+
+Rao-Blackwellisation [1, 3] is a variance-reduction technique which combines exact inference with Algorithm 4 Function makeRaoFunction
+
+sampling. The idea is to partition the ground atoms into two sets: a set of atoms, say X that will be sampled and a set of atoms that will be summed out analytically using exact inference techniques, say Y. Typically, the accuracy (variance decreases) improves as the cardinality of Y is increased. However, so does the cost of exact inference, which in turn decreases the accuracy because fewer samples are generated. Thus, there is a trade-off.
+Rao-Blackwellisation is particularly useful in lifted
+
+1: Input: a schematic S 2: Output: f pxq : CS N Z 3: find the clusters of S 4: pC, T q = findTreeDecomposition(S) 5: sizef " tu 6: for Ci of C do 7: P = dependentCountingPaths(Ci) 8: cf " tu 9: for pVj , Pj q of P do 10: fj = countPathLeaves(Pj ) 11: cf .append(xVJ , fj y)
+12: sizef .append(cf )
+return sizef
+
+sampling schemes because subproblems over large Algorithm 5 Function evalRaoFunction
+
+sets of random variables are often tractable (e.g. subproblems containing 2n assignments can often be summed out in Opnq time via lifted conditioning, or in Op1q time via lifted decomposition). The approach presented in Section 3 is ideal for this task because Algorithm 3 returns a function that is specified at the schematic level rather than the search space level. Computing the size of the remaining search space requires just the evaluation of
+
+1: Input: a counting store, cs, a list of list of size functions, sf 2: Output: s P Z, the cost of exact inference 3: clusterCosts " tu 4: for cf i of sf do 5: clusterCost " 1 6: for xVj , fj y of cf i do 7: assigns " getCCpVj q 8: for sk of assigns do 9: clusterCost " clusterCost  fj pskq
+10: clusterCosts.append(clusterCost)
+return maxpclusterCostsq
+
+a set of polynomials. In this section, we introduce
+
+our sampling scheme, which adds Rao-Blackwellisation to lifted importance sampling (LIS) (as
+
+detailed in [9, 10]). Technically, LIS is a minor modification of PTP, in which instead of searching
+
+over all possible truth assignments to ground atoms via lifted conditioning, the algorithm generates a
+
+random truth assignment (lifted sampling), and weighs it appropriately to yield an unbiased estimate
+
+of the partition function.
+
+5.1 Computing the size bounding function-Given a schematic S " xVS, ES, vry to sample, we introduce a preprocessing step that constructs a size evaluation function for each v P VS. Algorithm 4 details the process of creating the function for one node. It takes as input the schematic S rooted at v. It first finds the tree decomposition of S. The algorithm then finds the dependent paths in each
+cluster; finally, it applies Algorithm 3 to each dependent path and wraps the resulting function with
+the variable dependency. It returns a list of list of (variable,function) pairs.
+
+5.2 Importance Sampling at lifted Or Nodes-Importance sampling at lifted Or nodes is similar to its propositional analogue. Each lifted Or node is now specified by an 8-tuple xR, , , i, c, t, Q, sf y, in which Q is the proposal distribution for pR, iq, and sf is the output of Algorithm 4. The sampling algorithm takes an additional input, cb, specifying the complexity bound for Rao-Blackwellisation. Given an or Node where t "unknown, we first compute the cost of exact inference.
+
+Algorithm 5 describes the procedure. It takes as input (1) the list of lists sf output by Algorithm 4, and (2) the counting store, detailing the counting assignments already made by the current sample. For each sublist in the input list, the algorithm evaluates each (variable,function) pair by (1) retrieving the list of current assignments from the counting store, (2) evaluating the function for the domain size of each assignment, and (3) computing the product of the results. Each of these values represents a bound on the cost of inference for a single cluster; Algorithm 5 returns c, the maximum of this list.
+
+If c " cb we call evalN odepSq; otherwise we sample assignment i from Q with probability
+
+qi, update the counting store with assignment i, and call sampleN odepS1q, where S1 is the child
+
+schematic, yielding estimate
+
+w
+
+of
+
+the partition
+
+function of S1.
+
+We
+
+then
+
+return
+
+S
+
+"
+
+w qi
+
+as
+
+the estimate
+
+of the partition function at S.
+
+5.3 Importance Sampling at lifted And Nodes-Importance sampling at lifted And nodes differs from its propositional counterpart in that a decomposer labeled edge pA, T q represents d distributions
+
+7
+
+that are not only independent but also identical. Let A be a lifted And node that we wish to
+
+sample, with children S1, . . . , Sk, with corresponding decomposer labels d1 . . . dk (for each edge
+
+with no decomposer label take di " 1). Then the estimator for the partition function at A is:
+
+A
+
+"
+
+
+iPt1..ku
+
+
+j Pt1..di u
+
+Ti .
+
+6 Experiments
+
+We ran our Rao-Blackwellised Importance Sampler on three benchmark SRMs and datasets: (1) The friends, smokers and Asthma MLN and dataset described in [19], (2) The webKB MLN for collective classification and (3) The Protein MLN, in which the task is to infer protein interactions from biological data. All models are available from www.alchemy.cs.washington.edu.
+Setup. For each model, we set 10% randomly selected ground atoms as evidence, and designated them to have T rue value. We then estimated the partition function via our Rao-Blackwellised sampler with complexity bounds t0, 10, 100, 1000u (bound of 0 yields the LIS algorithm). We used the uniform distribution as our proposal. We ran each sampler 50 times and computed the sample variance of the estimates.
+Results. Figure 2 shows the sample variance of the estimators as a function of time. We see that the Rao-Blackwellised samplers typically have smaller variance than LIS . However, increasing the complexity bound typically does not improve the variance as a function of time (but the variance does improve as a function of number of samples). Our results indicate that the structure of the model plays a role in determining the most efficient complexity bound for sampling. In general, models with large decomposers, especially near the bottom of the schematic, will benefit from a larger complexity bound, because it is often more efficient to perform exact inference over a decomposer node.
+
+Log Sample Variance
+
+Log Sample Variance
+
+Log Sample Variance
+
+2452 2451 2450 2449 2448 2447 2446 2445 2444 2443
+0
+595 594 593 592 591 590 589 588 587 586
+0
+1115
+1110
+1105
+1100
+1095
+
+Time(s) vs Log Sample Variance:Smooth-test.pdf
+
+0 10 100 1000
+
+200 400 600 800 Time(s)
+(a) Friends and Smokers, Asthma 2600 objects, 10% evidenceTime(s) vs Log Sample Variance:Smooth-test.pdf
+0 10 100 1000
+
+200 400 600 Time(s)
+(b) webKB
+
+800
+
+410 objects, 10% evidenceTime(s) vs Log Sample Variance:Smooth-test.pdf
+
+0
+10 100 1000
+
+1000 1000
+
+7 Conclusions and Future Work
+In this work, we have presented an inference-aware representation of SRMs based on the And/Or framework. Using this framework, we have proposed an
+
+1090 0
+
+200 400 600 Time(s)
+(c) protein
+
+800 1000
+
+550 objects, 10% evidence
+
+Figure 2: Log variance as a function of time.
+
+accurate and efficient method for bounding the cost of inference for the family of lifted condition-
+
+ing based algorithms, such as Probabilistic Theorem Proving. Given a shattered SRM, we have
+
+shown how the method can be used to quickly identify tractable subproblems of the model. We
+
+have presented one immediate application of the scheme by developing a Rao-Blackwellised Lifted
+
+Importance Sampling Algorithm, which uses our bounding scheme as a variance reducer.
+
+Acknowledgments
+
+We gratefully acknowledge the support of the Defense Advanced Research Projects Agency (DARPA) Probabilistic Programming for Advanced Machine Learning Program under Air Force Research Laboratory (AFRL) prime contract no. FA8750-14-C-0005. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the view of DARPA, AFRL, or the US government.
+
+8
+
+References
+[1] B. Bidyuk and R. Dechter. Cutset Sampling for Bayesian Networks. Journal of Artificial Intelligence Research, 28:1-48, 2007.
+[2] R Braz, Eyal Amir, and Dan Roth. Lifted first-order probabilistic inference. In Proceedings of the 19th international joint conference on Artificial intelligence, pages 1319-1325. Citeseer, 2005.
+[3] George Casella and Christian P Robert. Rao-blackwellisation of sampling schemes. Biometrika, 83(1):81-94, 1996.
+[4] M. Chavira and A. Darwiche. On probabilistic inference by weighted model counting. Artificial Intelligence, 172(6-7):772-799, 2008.
+[5] Luc De Raedt and Kristian Kersting. Probabilistic inductive logic programming. Springer, 2008.
+[6] Rina Dechter and Robert Mateescu. And/or search spaces for graphical models. Artificial intelligence, 171(2):73-106, 2007.
+[7] Michael R. Genesereth and Eric Kao. Introduction to Logic, Second Edition. Morgan & Claypool Publishers, 2013.
+[8] Vibhav Gogate and Pedro Domingos. Exploiting logical structure in lifted probabilistic inference. In Statistical Relational Artificial Intelligence, 2010.
+[9] Vibhav Gogate and Pedro Domingos. Probabilistic theorem proving. In Proceedings of the Twenty-Seventh Conference Annual Conference on Uncertainty in Artificial Intelligence (UAI11), pages 256-265, Corvallis, Oregon, 2011. AUAI Press.
+[10] Vibhav Gogate, Abhay Kumar Jha, and Deepak Venugopal. Advances in lifted importance sampling. In AAAI, 2012.
+[11] Abhay Jha, Vibhav Gogate, Alexandra Meliou, and Dan Suciu. Lifted inference seen from the other side: The tractable features. In Advances in Neural Information Processing Systems, pages 973-981, 2010.
+[12] Brian Milch, Bhaskara Marthi, Stuart Russell, David Sontag, Daniel L Ong, and Andrey Kolobov. Blog: Probabilistic models with unknown objects. Statistical relational learning, page 373, 2007.
+[13] M. Niepert. Lifted probabilistic inference: An MCMC perspective. In UAI 2012 Workshop on Statistical Relational Artificial Intelligence, 2012.
+[14] M. Niepert. Symmetry-aware marginal density estimation. In Twenty-Seventh AAAI Conference on Artificial Intelligence, pages 725-731, 2013.
+[15] David Poole. First-order probabilistic inference. In IJCAI, volume 3, pages 985-991. Citeseer, 2003.
+[16] David Poole, Fahiem Bacchus, and Jacek Kisynski. Towards completely lifted search-based probabilistic inference. arXiv preprint arXiv:1107.4035, 2011.
+[17] Matthew Richardson and Pedro Domingos. Markov logic networks. Machine learning, 62(12):107-136, 2006.
+[18] T. Sang, P. Beame, and H. Kautz. Solving Bayesian networks by weighted model counting. In Proceedings of the Twentieth National Conference on Artificial Intelligence, pages 475-482, 2005.
+[19] Dan Suciu, Abhay Jha, Vibhav Gogate, and Alexandra Meliou. Lifted inference seen from the other side: The tractable features. In NIPS, 2010.
+[20] Nima Taghipour, Jesse Davis, and Hendrik Blockeel. First-order decomposition trees. In Advances in Neural Information Processing Systems, pages 1052-1060, 2013.
+[21] Guy Van den Broeck, Nima Taghipour, Wannes Meert, Jesse Davis, and Luc De Raedt. Lifted probabilistic inference by first-order knowledge compilation. In Proceedings of the TwentySecond international joint conference on Artificial Intelligence-Volume Volume Three, pages 2178-2185. AAAI Press, 2011.
+[22] Deepak Venugopal and Vibhav Gogate. On lifting the gibbs sampling algorithm. In Advances in Neural Information Processing Systems, pages 1655-1663, 2012.
+9
+

@@ -1,0 +1,560 @@
+Barrier Frank-Wolfe for Marginal Inference
+
+Rahul G. Krishnan Courant Institute
+New York University
+
+Simon Lacoste-Julien
+INRIA - Sierra Project-Team E cole Normale Superieure, Paris
+
+David Sontag Courant Institute New York University
+
+Abstract
+We introduce a globally-convergent algorithm for optimizing the tree-reweighted (TRW) variational objective over the marginal polytope. The algorithm is based on the conditional gradient method (Frank-Wolfe) and moves pseudomarginals within the marginal polytope through repeated maximum a posteriori (MAP) calls. This modular structure enables us to leverage black-box MAP solvers (both exact and approximate) for variational inference, and obtains more accurate results than tree-reweighted algorithms that optimize over the local consistency relaxation. Theoretically, we bound the sub-optimality for the proposed algorithm despite the TRW objective having unbounded gradients at the boundary of the marginal polytope. Empirically, we demonstrate the increased quality of results found by tightening the relaxation over the marginal polytope as well as the spanning tree polytope on synthetic and real-world instances.
+1 Introduction
+Markov random fields (MRFs) are used in many areas of computer science such as vision and speech. Inference in these undirected graphical models is generally intractable. Our work focuses on performing approximate marginal inference by optimizing the Tree Re-Weighted (TRW) objective (Wainwright et al., 2005). The TRW objective is concave, is exact for tree-structured MRFs, and provides an upper bound on the log-partition function.
+Fast combinatorial solvers for the TRW objective exist, including Tree-Reweighted Belief Propagation (TRBP) (Wainwright et al., 2005), convergent message-passing based on geometric programming (Globerson and Jaakkola, 2007), and dual decomposition (Jancsary and Matz, 2011). These methods optimize over the set of pairwise consistency constraints, also called the local polytope. Sontag and Jaakkola (2007) showed that significantly better results could be obtained by optimizing over tighter relaxations of the marginal polytope. However, deriving a message-passing algorithm for the TRW objective over tighter relaxations of the marginal polytope is challenging. Instead, Sontag and Jaakkola (2007) use the conditional gradient method (also called Frank-Wolfe) and offthe-shelf linear programming solvers to optimize TRW over the cycle consistency relaxation. Rather than optimizing over the cycle relaxation, Belanger et al. (2013) optimize the TRW objective over the exact marginal polytope. Then, using Frank-Wolfe, the linear minimization performed in the inner loop can be shown to correspond to MAP inference.
+The Frank-Wolfe optimization algorithm has seen increasing use in machine learning, thanks in part to its efficient handling of complex constraint sets appearing with structured data (Jaggi, 2013; Lacoste-Julien and Jaggi, 2015). However, applying Frank-Wolfe to variational inference presents challenges that were never resolved in previous work. First, the linear minimization performed in the inner loop is computationally expensive, either requiring repeatedly solving a large linear program, as in Sontag and Jaakkola (2007), or performing MAP inference, as in Belanger et al. (2013). Second, the TRW objective involves entropy terms whose gradients go to infinity near the boundary of the feasible set, therefore existing convergence guarantees for Frank-Wolfe do not apply. Third, variational inference using TRW involves both an outer and inner loop of Frank-Wolfe, where the outer loop optimizes the edge appearance probabilities in the TRW entropy bound to tighten it.
+1
+
+Neither Sontag and Jaakkola (2007) nor Belanger et al. (2013) explore the effect of optimizing over the edge appearance probabilities.
+Although MAP inference is in general NP hard (Shimony, 1994), it is often possible to find exact solutions to large real-world instances within reasonable running times (Sontag et al., 2008; Allouche et al., 2010; Kappes et al., 2013). Moreover, as we show in our experiments, even approximate MAP solvers can be successfully used within our variational inference algorithm. As MAP solvers improve in their runtime and performance, their iterative use could become feasible and as a byproduct enable more efficient and accurate marginal inference. Our work provides a fast deterministic alternative to recently proposed Perturb-and-MAP algorithms (Papandreou and Yuille, 2011; Hazan and Jaakkola, 2012; Ermon et al., 2013).
+Contributions. This paper makes several theoretical and practical innovations. We propose a modification to the Frank-Wolfe algorithm that optimizes over adaptively chosen contractions of the domain and prove its rate of convergence for functions whose gradients can be unbounded at the boundary. Our algorithm does not require a different oracle than standard Frank-Wolfe and could be useful for other convex optimization problems where the gradient is ill-behaved at the boundary.
+We instantiate the algorithm for approximate marginal inference over the marginal polytope with the TRW objective. With an exact MAP oracle, we obtain the first provably convergent algorithm for the optimization of the TRW objective over the marginal polytope, which had remained an open problem to the best of our knowledge. Traditional proof techniques of convergence for first order methods fail as the gradient of the TRW objective is not Lipschitz continuous.
+We develop several heuristics to make the algorithm practical: a fully-corrective variant of FrankWolfe that reuses previously found integer assignments thereby reducing the need for new (approximate) MAP calls, the use of local search between MAP calls, and significant re-use of computations between subsequent steps of optimizing over the spanning tree polytope. We perform an extensive experimental evaluation on both synthetic and real-world inference tasks.
+
+2 Background
+
+Markov Random Fields: MRFs are undirected probabilistic graphical models where the probability
+distribution factorizes over cliques in the graph. We consider marginal inference on pairwise MRFs with N random variables X1, X2, . . . , XN where each variable takes discrete states xi  VALi. Let G = (V, E) be the Markov network with an undirected edge {i, j}  E for every two variables Xi and Xj that are connected together. Let N (i) refer to the set of neighbors of variable Xi. We organize the edge log-potentials ij(xi, xj) for all possible values of xi  VALi, xj  VALj in the vector ij, and similarly for the node log-potential vector i. We regroup these in the overall
+vector . We introduce a similar grouping for the marginal vector : for example, i(xi) gives the coordinate of the marginal vector corresponding to the assignment xi to variable Xi.
+
+Tree Re-weighted Objective (Wainwright et al., 2005): Let Z() be the partition function for the MRF and M be the set of all valid marginal vectors (the marginal polytope). The maximization of
+the TRW objective gives the following upper bound on the log partition function:
+
+log Z()  min max
+T M
+where the TRW entropy is:
+
+,  + H(; ),
+TRW(;,)
+
+(1)
+
+H(; ) := (1 - ij)H(i) + ijH(ij), H(i) := - i(xi) log i(xi). (2)
+
+iV jN (i)
+
+(ij)E
+
+xi
+
+T is the spanning tree polytope, the convex hull of edge indicator vectors of all possible spanning trees of the graph. Elements of   T specify the probability of an edge being present under a specific distribution over spanning trees. M is difficult to optimize over, and most TRW algorithms optimize over a relaxation called the local consistency polytope L  M:
+
+L :=   0, xi i(xi) = 1 i  V, xi ij(xi, xj) = j(xj), xj ij(xi, xj) = i(xi) {i, j}  E .
+
+The TRW objective TRW(; , ) is a globally concave function of  over L, assuming that  is obtained from a valid distribution over spanning trees of the graph (i.e.   T).
+
+Frank-Wolfe (FW) Algorithm: In recent years, the Frank-Wolfe (aka conditional gradient) algorithm has gained popularity in machine learning (Jaggi, 2013) for the optimization of convex
+
+2
+
+functions over compact domains (denoted D). The algorithm is used to solve minxD f (x) by iteratively finding a good descent vertex by solving the linear subproblem:
+
+s(k) = arg min f (x(k)), s
+sD
+
+(FW oracle),
+
+(3)
+
+and then taking a convex step towards this vertex: x(k+1) = (1 - )x(k) + s(k) for a suitably chosen step-size   [0, 1]. The algorithm remains within the feasible set (is projection free), is
+
+invariant to affine transformations of the domain, and can be implemented in a memory efficient
+
+manner. Moreover, the FW gap g(x(k)) := -f (x(k)), s(k) - x(k) provides an upper bound on
+
+the suboptimality of the iterate x(k). The primal convergence of the Frank-Wolfe algorithm is given
+
+by Thm. 1 in Jaggi (2013), restated here for convenience: for k  1, the iterates x(k) satisfy:
+
+f (x(k)) - f (x)  2Cf ,
+
+(4)
+
+k+2
+
+where Cf is called the "curvature constant". Under the assumption that f is L-Lipschitz continu-
+
+ous1 on D, we can bound it as Cf  L diam||.||(D)2.
+
+Marginal Inference with Frank-Wolfe: To optimize maxM TRW(; , ) with Frank-Wolfe, the linear subproblem (3) becomes arg maxM ,  , where the perturbed potentials  correspond to the gradient of TRW(; , ) with respect to . Elements of  are of the form c(xc) + Kc(1 + log c(xc)), evaluated at the pseudomarginals' current location in M, where Kc is the coefficient of the entropy for the node/edge term in (2). The FW linear subproblem here is thus equivalent to performing MAP inference in a graphical model with potentials  (Belanger et al., 2013), as
+the vertices of the marginal polytope are in 1-1 correspondence with valid joint assignments to the
+random variables of the MRF, and the solution of a linear program is always achieved at a vertex of the polytope. The TRW objective does not have a Lipschitz continuous gradient over M, and so
+standard convergence proofs for Frank-Wolfe do not hold.
+
+3 Optimizing over Contractions of the Marginal Polytope
+Motivation: We wish to (1) use the fewest possible MAP calls, and (2) avoid regions near the boundary where the unbounded curvature of the function slows down convergence. A viable option to address (1) is through the use of correction steps, where after a Frank-Wolfe step, one optimizes over the polytope defined by previously visited vertices of M (called the fully-corrective Frank-Wolfe (FCFW) algorithm and proven to be linearly convergence for strongly convex objectives (Lacoste-Julien and Jaggi, 2015)). This does not require additional MAP calls. However, we found (see Sec. 5) that when optimizing the TRW objective over M, performing correction steps can surprisingly hurt performance. This leaves us in a dilemma: correction steps enable decreasing the objective without additional MAP calls, but they can also slow global progress since iterates after correction sometimes lie close to the boundary of the polytope (where the FW directions become less informative). In a manner akin to barrier methods and to Garber and Hazan (2013)'s local linear oracle, our proposed solution maintains the iterates within a contraction of the polytope. This gives us most of the mileage obtained from performing the correction steps without suffering the consequences of venturing too close to the boundary of the polytope. We prove a global convergence rate for the iterates with respect to the true solution over the full polytope.
+
+We describe convergent algorithms to optimize TRW(; , ) for   M. The approach we adopt to deal with the issue of unbounded gradients at the boundary is to perform Frank-Wolfe within a contraction of the marginal polytope given by M for   [0, 1], with either a fixed  or an adaptive .
+Definition 3.1 (Contraction polytope). M := (1 - )M +  u0, where u0  M is the vector representing the uniform distribution.
+
+Marginal vectors that lie within M are bounded away from zero as all the components of u0 are strictly positive. Denoting V() as the set of vertices of M, V as the set of vertices of M and f () := -TRW(; , ), the key insight that enables our novel approach is that:
+
+arg min f, v()
+
+ arg min f, (1 - )v + u0 
+
+v() V ()
+
+vV
+
+(Linear Minimization over M)
+
+(Definition of v())
+
+(1 - ) arg min f, v + u0.
+vV
+(Run MAP solver and shift vertex)
+
+1I.e. f (x) - f (x )  L x - x for x, x  D. Notice that the dual norm *  is needed here.
+
+3
+
+Algorithm 1: Updates to  after a MAP call (Adaptive  variant)
+
+1: At iteration k. Assuming x(k), u0, (k-1), f are defined and s(k) has been computed
+
+2: Compute g(x(k)) = -f (x(k)), s(k) - x(k) (Compute FW gap)
+
+3: Compute gu(x(k)) = -f (x(k)), u0 - x(k) (Compute "uniform gap")
+
+4: if gu(x(k)) < 0 then
+
+5:
+
+Let  =
+
+g(x(k) ) -4gu (x(k) )
+
+(Compute new proposal for )
+
+6: if  < (k-1) then
+
+7:
+
+(k) = min
+
+,
+
+(k-1) 2
+
+(Shrink by at least a factor of two if proposal is smaller)
+
+8: end if 9: end if (and set (k) = (k-1) if it was not updated)
+
+Therefore, to solve the FW subproblem (3) over M, we can run as usual a MAP solver and simply shift the resulting vertex of M towards u0 to obtain a vertex of M. Our solution to optimize over restrictions of the polytope is more broadly applicable to the optimization problem defined below, with f satisfying Prop. 3.3 (satisfied by the TRW objective) in order to get convergence rates.
+Problem 3.2. Solve minxD f (x) where D is a compact convex set and f is convex and continuously differentiable on the relative interior of D.
+Property 3.3. (Controlled growth of Lipschitz constant over D). We define D := (1 - )D + u0 for a fixed u0 in the relative interior of D. We suppose that there exists a fixed p  0 and L such that for any  > 0, f (x) has a bounded Lipschitz constant L  L-p x  D.
+Fixed : The first algorithm fixes a value for  a-priori and performs the optimization over D. The following theorem bounds the sub-optimality of the iterates with respect to the optimum over D.
+Theorem 3.4 (Suboptimality bound for fixed- algorithm). Let f satisfy the properties in Prob. 3.2 and Prop. 3.3, and suppose further that f is finite on the boundary of D. Then the use of Frank-Wolfe for minxD f (x) realizes a sub-optimality over D bounded as:
+f (x(k)) - f (x)  2C +  ( diam(D)) , (k + 2)
+where x is the optimal solution in D, C  L diam||.||(D)2, and  is the modulus of continuity function of the (uniformly) continuous f (in particular, ()  0 as   0).
+
+The full proof is given in App. C. The first term of the bound comes from the standard Frank-Wolfe convergence analysis of the sub-optimality of x(k) relative to x(), the optimum over D, as in (4) and using Prop. 3.3. The second term arises by bounding f (x()) - f (x)  f (x) - f (x) with a cleverly chosen x  D (as x() is optimal in D). We pick x := (1 - )x + u0 and note that x - x   diam(D). As f is continuous on a compact set, it is uniformly continuous and we thus have f (x) - f (x)  ( diam(D)) with  its modulus of continuity function.
+
+Adaptive : The second variant to solve minxD f (x) iteratively perform FW steps over D, but also decreases  adaptively. The update schedule for  is given in Alg. 1 and is motivated by the convergence proof. The idea is to ensure that the FW gap over D is always at least half the FW gap over D, relating the progress over D with the one over D. It turns out that FW-gap-D = (1 - )FW-gap-D +  * gu(x(k)), where the "uniform gap" gu(x(k)) quantifies the decrease of the function when contracting towards u0. When gu(x(k)) is negative and large compared to the FW gap, we need to shrink  (see step 5 in Alg. 1) to ensure that the -modified direction is a sufficient
+descent direction. We can show that the algorithm converges to the global solution as follows:
+
+Theorem 3.5 (Global convergence for adaptive- variant over D). For a function f satisfying the properties in Prob. 3.2 and Prop. 3.3, the sub-optimality of the iterates obtained by running the FW updates over D with  updated according to Alg. 1 is bounded as:
+
+f (x(k)) - f (x)  O
+
+k-
+
+1 p+1
+
+.
+
+A full proof with a precise rate and constants is given in App. D. The sub-optimality hk := f (x(k))- f (x) traverses three stages with an overall rate as above. The updates to (k) as in Alg. 1 enable us
+
+4
+
+Algorithm 2: Approximate marginal inference over M (solving (1)). Here f is the negative TRW objective.
+
+1: Function TRW-Barrier-FW((0), , (init), u0):
+
+2:
+
+Inputs:
+
+Edge-appearance probabilities (0), (init)
+
+
+
+1 4
+
+initial contraction of polytope, inner loop
+
+stopping criterion , fixed reference point u0 in the interior of M. Let (-1) = (init).
+
+3: Let V := {u0} (visited vertices), x(0) = u0 (Initialize the algorithm at the uniform distribution)
+
+4: for i = 0 . . . MAX RHO ITS do {FW outer loop to optimize  over T}
+
+5: for k = 0 . . . MAXITS do {FCFW inner loop to optimize x over M}
+
+6: Let  = f (x(k); , (i)) (Compute gradient)
+
+7: Let s(k)  arg min , v (Run MAP solver to compute FW vertex)
+
+vM
+8: Compute g(x(k)) = -, s(k) - x(k) (Inner loop FW duality gap)
+
+9: if g(x(k))  then
+
+10: break FCFW inner loop (x(k) is -optimal)
+
+11: end if 12: (k) = (k-1) (For Adaptive-: Run Alg. 1 to modify )
+
+13: Let s((k)) = (1 - (k))s(k) + (k)u0 and d((k)) = s((k)) - x(k) (-contracted quantities)
+
+14: x(k+1) = arg min{f (x(k) +  d((k))) :   [0, 1]} (FW step with line search)
+
+15: Update correction polytope: V := V  {s(k)}
+
+16: x(k+1) := CORRECTION(x(k+1), V, (k), (i)) (optional: correction step)
+
+17: x(k+1), Vsearch := LOCALSEARCH(x(k+1), s(k), (k), (i)) (optional: fast MAP solver) 18: Update correction polytope (with vertices from LOCALSEARCH): V := V  {Vsearch}
+
+19: end for 20: v  minSpanTree(edgesMI(x(k))) (FW vertex of the spanning tree polytope)
+
+21:
+
+(i+1)
+
+
+
+(i)
+
++
+
+(
+
+i i+2
+
+)(v
+
+-
+
+(i))
+
+(Fixed step-size schedule FW update for  kept in relint(T))
+
+22: x(0)  x(k), (-1)  (k-1) (Re-initialize for FCFW inner loop)
+
+23: If i < MAX RHO ITS then x(0) = CORRECTION(x(0), V, (-1), (i+1))
+
+24: end for 25: return x(0) and (i)
+
+to (1) upper bound the duality gap over D as a function of the duality gap in D and (2) lower bound the value of (k) as a function of hk. Applying the standard Descent Lemma with the Lipschitz constant on the gradient of the form L-p (Prop. 3.3), and replacing (k) by its bound in hk, we get the recurrence: hk+1  hk - Chpk+2. Solving this gives us the desired bound.
+Application to the TRW Objective: minM -TRW(; , ) is akin to minxD f (x) and the (strong) convexity of -TRW(; , ) has been previously shown (Wainwright et al., 2005; London et al., 2015). The gradient of the TRW objective is Lipschitz continuous over M since all marginals are strictly positive. Its growth for Prop. 3.3 can be bounded with p = 1 as we show in App. E.1. This gives a rate of convergence of O(k-1/2) for the adaptive- variant, which interestingly is a typical rate for non-smooth convex optimization. The hidden constant is of the order O(  *|V |). The modulus of continuity  for the TRW objective is close to linear (it is almost a Lipschitz function), and its constant is instead of the order O(  +|V |).
+4 Algorithm
+Alg. 2 describes the pseudocode for our proposed algorithm to do marginal inference with TRW(; , ). minSpanTree finds the minimum spanning tree of a weighted graph, and edgesMI() computes the mutual information of edges of G from the pseudomarginals in 2 (to perform FW updates over  as in Alg. 2 in Wainwright et al. (2005)). It is worthwhile to note that our approach uses three levels of Frank-Wolfe: (1) for the (tightening) optimization of  over T, (2) to perform approximate marginal inference, i.e for the optimization of  over M, and (3) to perform the correction steps (lines 16 and 23). We detail a few heuristics that aid practicality.
+Fast Local Search: Fast methods for MAP inference such as Iterated Conditional Modes (Besag, 1986) offer a cheap, low cost alternative to a more expensive combinatorial MAP solver. We
+2The component ij has value H(i) + H(j) - H(ij).
+5
+
+warm start the ICM solver with the last found vertex s(k) of the marginal polytope. The subroutine LOCALSEARCH (Alg. 6 in Appendix) performs a fixed number of FW updates to the pseudomarginals using ICM as the (approximate) MAP solver.
+Re-optimizing over the Vertices of M (FCFW algorithm): As the iterations of FW progress, we keep track of the vertices of the marginal polytope found by Alg. 2 in the set V . We make use of these vertices in the CORRECTION subroutine (Alg. 5 in Appendix) which re-optimizes the objective function over (a contraction of) the convex hull of the elements of V (called the correction polytope). x(0) in Alg. 2 is initialized to the uniform distribution which is guaranteed to be in M (and M). After updating , we set x(0) to the approximate minimizer in the correction polytope. The intuition is that changing  by a small amount may not substantially modify the optimal x (for the new ) and that the new optimum might be in the convex hull of the vertices found thus far. If so, CORRECTION will be able to find it without resorting to any additional MAP calls. This encourages the MAP solver to search for new, unique vertices instead of rediscovering old ones.
+Approximate MAP Solvers: We can swap out the exact MAP solver with an approximate MAP solver. The primal objective plus the (approximate) duality gap may no longer be an upper bound on the log-partition function (black-box MAP solvers could be considered to optimize over an inner bound to the marginal polytope). Furthermore, the gap over D may be negative if the approximate MAP solver fails to find a direction of descent. Since adaptive- requires that the gap be positive in Alg. 1, we take the max over the last gap obtained over the correction polytope (which is always non-negative) and the computed gap over D as a heuristic.
+Theoretically, one could get similar convergence rates as in Thm. 3.4 and 3.5 using an approximate MAP solver that has a multiplicative guarantee on the gap (line 8 of Alg. 2), as was done previously for FW-like algorithms (see, e.g., Thm. C.1 in Lacoste-Julien et al. (2013)). With an -additive error guarantee on the MAP solution, one can prove similar rates up to a suboptimality error of . Even if the approximate MAP solver does not provide an approximation guarantee, if it returns an upper bound on the value of the MAP assignment (as do branch-and-cut solvers for integer linear programs, or Sontag et al. (2008)), one can use this to obtain an upper bound on log Z (see App. J).
+
+5 Experimental Results
+
+Setup:
+
+The
+
+L1
+
+error
+
+in
+
+marginals
+
+is
+
+computed
+
+as:
+
+
+
+:=
+
+1 N
+
+Ni=1|i(1) - i (1)|. When using
+
+exact MAP inference, the error in log Z (denoted log Z ) is computed by adding the duality gap to
+
+the primal (since this guarantees us an upper bound). For approximate MAP inference, we plot the
+
+primal objective. We use a non-uniform initialization of  computed with the Matrix Tree Theorem
+
+(Sontag and Jaakkola, 2007; Koo et al., 2007). We perform 10 updates to , optimize  to a duality
+
+gap of 0.5 on M, and always perform correction steps. We use LOCALSEARCH only for the real-
+
+world instances. We use the implementation of TRBP and the Junction Tree Algorithm (to compute
+
+exact marginals) in libDAI (Mooij, 2010). Unless specified, we compute marginals by optimizing
+
+the TRW objective using the adaptive- variant of the algorithm (denoted in the figures as M).
+
+MAP Solvers: For approximate MAP, we run three solvers in parallel: QPBO (Kolmogorov and Rother, 2007; Boykov and Kolmogorov, 2004), TRW-S (Kolmogorov, 2006) and ICM (Besag, 1986) using OpenGM (Andres et al., 2012) and use the result that realizes the highest energy. For exact inference, we use Gurobi Optimization (2015) or toulbar2 (Allouche et al., 2010).
+
+Test Cases: All of our test cases are on binary pairwise MRFs. (1) Synthetic 10 nodes cliques: Same setup as Sontag and Jaakkola (2007, Fig. 2), with 9 sets of 100 instances each with coupling strength drawn from U[-, ] for   {0.5, 1, 2, . . . , 8}. (2) Synthetic Grids: 15 trials with 5 x 5 grids. We sample i  U [-1, 1] and ij  [-4, 4] for nodes and edges. The potentials were (-i, i) for nodes and (ij, -ij; -ij, ij) for edges. (3) Restricted Boltzmann Machines (RBMs): From the Probabilistic Inference Challenge 2011.3 (4) Horses: Large (N  12000) MRFs representing images from the Weizmann Horse Data (Borenstein and Ullman, 2002) with potentials
+learned by Domke (2013). (5) Chinese Characters: An image completion task from the KAIST
+Hanja2 database, compiled in OpenGM by Andres et al. (2012). The potentials were learned using
+Decision Tree Fields (Nowozin et al., 2011). The MRF is not a grid due to skip edges that tie nodes
+at various offsets. The potentials are a combination of submodular and supermodular and therefore
+a harder task for inference algorithms.
+
+3http://www.cs.huji.ac.il/project/PASCAL/index.php
+
+6
+
+Error in LogZ (log Z)
+
+Error in Marginals ()
+
+Error in LogZ (log Z)
+
+50 60 0.5
+
+M Exact MAP M
+
+40
+
+M0.0001 M
+
+50
+
+0.4
+
+L Approx MAP M
+
+L 40 M
+
+30 M(no correction)
+
+M0.0001
+
+0.3
+
+30 M
+
+20 L 0.2 20 M(no correction)
+
+10 10 0.1
+
+00 10 20 30 40 50 60 70 80 MAP calls
+(a) log Z : 5 x 5 grids M vs M
+
+00 5 10 15 20 25 MAP calls
+(b) log Z : 10 node cliques M vs M
+
+0.00 20 40 60 80 100 120 MAP calls
+(c) : 5 x 5 grids Approx. vs. Exact MAP
+
+Error in LogZ (log Z)
+
+103
+
+102
+
+101
+
+Exact MAP M
+100 L
+Approx MAP M
+
+10-10
+
+20 40 60 80 100 MAP calls
+
+(d) log Z : 40 node RBM Approx. vs. Exact MAP
+
+Error in Marginals ()
+
+0.8
+
+0.7
+
+perturbMAP L
+
+0.6 L(opt)
+
+0.5
+
+M(opt) M
+
+0.4
+
+0.3
+
+0.2
+
+0.1
+
+0.0 0.51 2 3 4 5 6 7 8 
+
+(e) : 10 node cliques Optimization over T
+
+Error in LogZ (log Z)
+
+102
+
+perturbMAP
+
+101
+
+L L(opt)
+
+M(opt)
+
+M
+
+100
+
+10-1 0.51 2 3 4 5 6 7 
+(f) log Z : 10 node cliques Optimization over T
+
+8
+
+Figure 1: Synthetic Experiments: In Fig. 1(c) & 1(d), we unravel MAP calls across updates to . Fig. 1(d) corresponds to a single RBM (not an aggregate over trials) where for "Approx MAP" we plot the absolute error between the primal objective and log Z (not guaranteed to be an upper bound).
+
+On the Optimization of M versus M
+We compare the performance of Alg. 2 on optimizing over M (with and without correction), optimizing over M with fixed- = 0.0001 (denoted M0.0001) and optimizing over M using the adaptive- variant. These plots are averaged across all the trials for the first iteration of optimizing over T. We show error as a function of the number of MAP calls since this is the bottleneck for large MRFs. Fig. 1(a), 1(b) depict the results of this optimization aggregated across trials. We find that all variants settle on the same average error. The adaptive  variant converges faster on average followed by the fixed  variant. Despite relatively quick convergence for M with no correction on the grids, we found that correction was crucial to reducing the number of MAP calls in subsequent steps of inference after updates to . As highlighted earlier, correction steps on M (in blue) worsen convergence, an effect brought about by iterates wandering too close to the boundary of M.
+On the Applicability of Approximate MAP Solvers
+Synthetic Grids: Fig. 1(c) depicts the accuracy of approximate MAP solvers versus exact MAP solvers aggregated across trials for 5 x 5 grids. The results using approximate MAP inference are competitive with those of exact inference, even as the optimization is tightened over T. This is an encouraging and non-intuitive result since it indicates that one can achieve high quality marginals through the use of relatively cheaper approximate MAP oracles.
+RBMs: As in Salakhutdinov (2008), we observe for RBMs that the bound provided by TRW(; , ) over L is loose and does not get better when optimizing over T. As Fig. 1(d) depicts for a single RBM, optimizing over M realizes significant gains in the upper bound on log Z which improves with updates to . The gains are preserved with the use of the approximate MAP solvers. Note that there are also fast approximate MAP solvers specifically for RBMs (Wang et al., 2014).
+Horses: See Fig. 2 (right). The models are close to submodular and the local relaxation is a good approximation to the marginal polytope. Our marginals are visually similar to those obtained by TRBP and our algorithm is able to scale to large instances by using approximate MAP solvers.
+7
+
+Ground Truth
+
+MAP
+
+TRBP FW(1) FW(10)
+
+GGroruonudnd TrTurtuhth
+
+MMAAPP
+
+TTRRBBPP
+
+FW(11)) FFWW((1100))
+
+Ground Truth
+Ground Truth
+
+MAP
+
+TRBP
+TRBP Marginals
+
+FW(1)
+COND-0.01 Marginals
+
+FW(10)
+COND-0.01 Marginals - Opt Rho
+
+Ground Truth
+
+TRBP Marginals
+
+COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho
+
+Ground Truth Ground Truth
+
+TRBP Marginals TRBP Marginals
+
+COND-0.01 Marginals COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho COND-0.01 Marginals - Opt Rho
+
+Ground Truth
+
+TRBP Marginals
+
+COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho
+
+Figure 2: Results on real world test cases. FW(i) corresponds to the final marginals at the ith iteration of
+
+Ground Truth
+
+TRBP Marginals
+
+optimizing . The area highlighted on the Chinese Characters depicts the region of uncertainty.Ground Truth
+
+TRBP Marginals
+
+COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho
+
+COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho
+
+Ground Truth
+
+TRBP Marginals
+
+COND-0.01 Marginals
+
+COND-0.01 Marginals - Opt Rho
+
+On the Importance of Optimizing over T Synthetic Cliques: In Fig. 1(e), 1(f), we study the effect of tightening over T against coupling strength . We consider the  and log Z obtained for the final marginals before updating  (step 19) and compare to the values obtained after optimizing over T (marked with opt). The optimization over T has little effect on TRW optimized over L. For optimization over M, updating  realizes better marginals and bound on log Z (over and above those obtained in Sontag and Jaakkola (2007)).
+Chinese Characters: Fig. 2 (left) displays marginals across iterations of optimizing over T. The submodular and supermodular potentials lead to frustrated models for which L is very loose, which results in TRBP obtaining poor results.4 Our method produces reasonable marginals even before the first update to , and these improve with tightening over T.
+Related Work for Marginal Inference with MAP Calls
+Hazan and Jaakkola (2012) estimate log Z by averaging MAP estimates obtained on randomly perturbed inflated graphs. Our implementation of the method performed well in approximating log Z but the marginals (estimated by fixing the value of each random variable and estimating log Z for the resulting graph) were less accurate than our method (Fig. 1(e), 1(f)).
+
+6 Discussion
+We introduce the first provably convergent algorithm for the TRW objective over the marginal polytope, under the assumption of exact MAP oracles. We quantify the gains obtained both from marginal inference over M and from tightening over the spanning tree polytope. We give heuristics that improve the scalability of Frank-Wolfe when used for marginal inference. The runtime cost of iterative MAP calls (a reasonable rule of thumb is to assume an approximate MAP call takes roughly the same time as a run of TRBP) is worthwhile particularly in cases such as the Chinese Characters where L is loose. Specifically, our algorithm is appropriate for domains where marginal inference is hard but there exist efficient MAP solvers capable of handling non-submodular potentials. Code is available at https://github.com/clinicalml/fw-inference.
+Our work creates a flexible, modular framework for optimizing a broad class of variational objectives, not simply TRW, with guarantees of convergence. We hope that this will encourage more research on building better entropy approximations. The framework we adopt is more generally applicable to optimizing functions whose gradients tend to infinity at the boundary of the domain.
+Our method to deal with gradients that diverge at the boundary bears resemblance to barrier functions used in interior point methods insofar as they bound the solution away from the constraints. Iteratively decreasing  in our framework can be compared to decreasing the strength of the barrier, enabling the iterates to get closer to the facets of the polytope, although its worthwhile to note that we have an adaptive method of doing so.
+
+Acknowledgements
+RK and DS gratefully acknowledge the support of the DARPA Probabilistic Programming for Advancing Machine Learning (PPAML) Program under AFRL prime contract no. FA8750-14-C-0005.
+4We run TRBP for 1000 iterations using damping = 0.9; the algorithm converges with a max norm difference between consecutive iterates of 0.002. Tightening over T did not significantly change the results of TRBP.
+
+8
+
+References
+D. Allouche, S. de Givry, and T. Schiex. Toulbar2, an open source exact cost function network solver, 2010. B. Andres, B. T., and J. H. Kappes. OpenGM: A C++ library for discrete graphical models, June 2012. D. Belanger, D. Sheldon, and A. McCallum. Marginal inference in MRFs using Frank-Wolfe. NIPS Workshop
+on Greedy Optimization, Frank-Wolfe and Friends, 2013. J. Besag. On the statistical analysis of dirty pictures. J R Stat Soc Series B, 1986. E. Borenstein and S. Ullman. Class-specific, top-down segmentation. In ECCV, 2002. Y. Boykov and V. Kolmogorov. An experimental comparison of min-cut/max-flow algorithms for energy mini-
+mization in vision. TPAMI, 2004. J. Domke. Learning graphical model parameters with approximate marginal inference. TPAMI, 2013. S. Ermon, C. P. Gomes, A. Sabharwal, and B. Selman. Taming the curse of dimensionality: Discrete integration
+by hashing and optimization. In ICML, 2013. D. Garber and E. Hazan. A linearly convergent conditional gradient algorithm with applications to online and
+stochastic optimization. arXiv preprint arXiv:1301.4666, 2013. A. Globerson and T. Jaakkola. Convergent propagation algorithms via oriented trees. In UAI, 2007. I. Gurobi Optimization. Gurobi optimizer reference manual, 2015. T. Hazan and T. Jaakkola. On the partition function and random maximum a-posteriori perturbations. In ICML,
+2012. M. Jaggi. Revisiting Frank-Wolfe: Projection-free sparse convex optimization. In ICML, 2013. J. Jancsary and G. Matz. Convergent decomposition solvers for tree-reweighted free energies. In AISTATS,
+2011. J. Kappes et al. A comparative study of modern inference techniques for discrete energy minimization prob-
+lems. In CVPR, 2013. V. Kolmogorov. Convergent tree-reweighted message passing for energy minimization. TPAMI, 2006. V. Kolmogorov and C. Rother. Minimizing nonsubmodular functions with graph cuts-A Review. TPAMI, 2007. T. Koo, A. Globerson, X. Carreras, and M. Collins. Structured prediction models via the matrix-tree theorem.
+In EMNLP-CoNLL, 2007. S. Lacoste-Julien and M. Jaggi. On the global linear convergence of Frank-Wolfe optimization variants. In
+NIPS, 2015. S. Lacoste-Julien, M. Jaggi, M. Schmidt, and P. Pletscher. Block-coordinate Frank-Wolfe optimization for
+structural SVMs. In ICML, 2013. B. London, B. Huang, and L. Getoor. The benefits of learning with strongly convex approximate inference. In
+ICML, 2015. J. M. Mooij. libDAI: A free and open source C++ library for discrete approximate inference in graphical
+models. JMLR, 2010. S. Nowozin, C. Rother, S. Bagon, T. Sharp, B. Yao, and P. Kohli. Decision tree fields. In ICCV, 2011. G. Papandreou and A. Yuille. Perturb-and-map random fields: Using discrete optimization to learn and sample
+from energy models. In ICCV, 2011. R. Salakhutdinov. Learning and evaluating Boltzmann machines. Technical report, 2008. S. Shimony. Finding MAPs for belief networks is NP-hard. Artificial Intelligence, 1994. D. Sontag and T. Jaakkola. New outer bounds on the marginal polytope. In NIPS, 2007. D. Sontag, T. Meltzer, A. Globerson, Y. Weiss, and T. Jaakkola. Tightening LP relaxations for MAP using
+message-passing. In UAI, 2008. M. J. Wainwright, T. S. Jaakkola, and A. S. Willsky. A new class of upper bounds on the log partition function.
+IEEE Transactions on Information Theory, 2005. S. Wang, R. Frostig, P. Liang, and C. Manning. Relaxations for inference in restricted Boltzmann machines. In
+ICLR Workshop, 2014.
+9
+

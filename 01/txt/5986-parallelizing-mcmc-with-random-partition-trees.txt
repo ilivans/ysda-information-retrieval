@@ -1,0 +1,767 @@
+Parallelizing MCMC with Random Partition Trees
+
+Xiangyu Wang Dept. of Statistical Science
+Duke University xw56@stat.duke.edu
+
+Fangjian Guo Dept. of Computer Science
+Duke University guo@cs.duke.edu
+
+Katherine A. Heller Dept. of Statistical Science
+Duke University kheller@stat.duke.edu
+
+David B. Dunson Dept. of Statistical Science
+Duke University dunson@stat.duke.edu
+
+Abstract
+The modern scale of data has brought new challenges to Bayesian inference. In particular, conventional MCMC algorithms are computationally very expensive for large data sets. A promising approach to solve this problem is embarrassingly parallel MCMC (EP-MCMC), which first partitions the data into multiple subsets and runs independent sampling algorithms on each subset. The subset posterior draws are then aggregated via some combining rules to obtain the final approximation. Existing EP-MCMC algorithms are limited by approximation accuracy and difficulty in resampling. In this article, we propose a new EP-MCMC algorithm PART that solves these problems. The new algorithm applies random partition trees to combine the subset posterior draws, which is distribution-free, easy to resample from and can adapt to multiple scales. We provide theoretical justification and extensive experiments illustrating empirical performance.
+1 Introduction
+Bayesian methods are popular for their success in analyzing complex data sets. However, for large data sets, Markov Chain Monte Carlo (MCMC) algorithms, widely used in Bayesian inference, can suffer from huge computational expense. With large data, there is increasing time per iteration, increasing time to convergence, and difficulties with processing the full data on a single machine due to memory limits. To ameliorate these concerns, various methods such as stochastic gradient Monte Carlo [1] and sub-sampling based Monte Carlo [2] have been proposed. Among directions that have been explored, embarrassingly parallel MCMC (EP-MCMC) seems most promising. EP-MCMC algorithms typically divide the data into multiple subsets and run independent MCMC chains simultaneously on each subset. The posterior draws are then aggregated according to some rules to produce the final approximation. This approach is clearly more efficient as now each chain involves a much smaller data set and the sampling is communication-free. The key to a successful EP-MCMC algorithm lies in the speed and accuracy of the combining rule.
+Existing EP-MCMC algorithms can be roughly divided into three categories. The first relies on asymptotic normality of posterior distributions. [3] propose a "Consensus Monte Carlo" algorithm, which produces final approximation by a weighted averaging over all subset draws. This approach is effective when the posterior distributions are close to Gaussian, but could suffer from huge bias when skewness and multi-modes are present. The second category relies on calculating an appropriate variant of a mean or median of the subset posterior measures [4, 5]. These approaches rely on asymptotics (size of data increasing to infinity) to justify accuracy, and lack guarantees in finite samples. The third category relies on the product density equation (PDE) in (1). Assuming X is the
+1
+
+observed data and  is the parameter of interest, when the observations are iid conditioned on , for any partition of X = X(1)  X(2)  * * *  X(m), the following identity holds,
+
+p(|X)  ()p(X|)  p(|X(1))p(|X(2)) * * * p(|X(m)),
+
+(1)
+
+if the prior on the full data and subsets satisfy () =
+
+m i=1
+
+i().
+
+[6]
+
+proposes
+
+using
+
+kernel
+
+density
+
+estimation on each subset posterior and then combining via (1). They use an independent Metropolis
+
+sampler to resample from the combined density. [7] apply the Weierstrass transform directly to (1)
+
+and developed two sampling algorithms based on the transformed density. These methods guarantee
+
+the approximation density converges to the true posterior density as the number of posterior draws
+
+increase. However, as both are kernel-based, the two methods are limited by two major drawbacks.
+
+The first is the inefficiency of resampling. Kernel density estimators are essentially mixture distri-
+
+butions. Assuming we have collected 10,000 posterior samples on each machine, then multiplying
+
+just two densities already yields a mixture distribution containing 108 components, each of which
+
+is associated with a different weight. The resampling requires the independent Metropolis sampler
+
+to search over an exponential number of mixture components and it is likely to get stuck at one
+
+"good" component, resulting in high rejection rates and slow mixing. The second is the sensitivity
+
+to bandwidth choice, with one bandwidth applied to the whole space.
+
+In this article, we propose a novel EP-MCMC algorithm termed "parallel aggregation random trees" (PART), which solves the above two problems. The algorithm inhibits the explosion of mixture components so that the aggregated density is easy to resample. In addition, the density estimator is able to adapt to multiple scales and thus achieve better approximation accuracy. In Section 2, we motivate the new methodology and present the algorithm. In Section 3, we present error bounds and prove consistency of PART in the number of posterior draws. Experimental results are presented in Section 4. Proofs and part of the numerical results are provided in the supplementary materials.
+
+2 Method
+
+Recall the PDE identity (1) in the introduction. When data set X is partitioned into m subsets X = X(1)  * * *  X(m), the posterior distribution of the ith subset can be written as
+
+f (i)()  ()1/mp(X(i)|),
+
+(2)
+
+where () is the prior assigned to the full data set. Assuming observations are iid given , the
+
+relationship between the full data posterior and subset posteriors is captured by
+
+mm
+
+p(|X)  () p(X(i)|)  f (i)().
+
+(3)
+
+i=1 i=1
+
+Due to the flaws of applying kernel-based density estimation to (3) mentioned above, we propose to use random partition trees or multi-scale histograms. Let FK be the collection of all Rp-
+
+partitions formed by K disjoint rectangular blocks, where a rectangular block takes the form of
+
+Ak d=ef (lk,1, rk,1] x (lk,2, rk,2] x * * * (lk,p, rk,p]  Rp for some lk,q < rk,q. A K-block histogram
+
+is then defined as
+
+f(i)()
+
+=
+
+K k=1
+
+nk(i) 1( N |Ak|
+
+
+
+Ak ),
+
+(4)
+
+where {Ak : k = 1, 2, * * * , K}  FK are the blocks and N, n(ki) are the total number of posterior samples on the ith subset and of those inside the block Ak respectively (assuming the same N across subsets). We use | * | to denote the area of a block. Assuming each subset posterior is approximated
+
+by a K-block histogram, if the partition {Ak} is restricted to be the same across all subsets, then the aggregated density after applying (3) is still a K-block histogram (illustrated in the supplement),
+
+p(|X) = 1 m f(i)() = 1 K ZZ
+i=1 k=1
+
+m n(ki) i=1 |Ak|
+
+K
+1(  Ak) = wkgk(),
+k=1
+
+(5)
+
+where Z =
+
+K k=1
+
+m i=1
+
+n(ki) /|Ak |m-1
+
+is
+
+the
+
+normalizing
+
+constant,
+
+wk 's
+
+are
+
+the
+
+updated
+
+weights,
+
+and gk() = unif(; Ak) is the block-wise distribution. Common histogram blocks across subsets
+
+control the number of mixture components, leading to simple aggregation and resampling proce-
+
+dures. Our PART algorithm consists of space partitioning followed by density aggregation, with
+
+aggregation simply multiplying densities across subsets for each block and then normalizing.
+
+2
+
+2.1 Space Partitioning
+To find good partitions, our algorithm recursively bisects (not necessarily evenly) a previous block along a randomly selected dimension, subject to certain rules. Such partitioning is multi-scale and related to wavelets [8]. Assume we are currently splitting the block A along the dimension q and denote the posterior samples in A by {j(i)}jA for the ith subset. The cut point on dimension q is determined by a partition rule ({j(,1q)}, {j(,2q)}, * * * , {j(,mq )}). The resulting two blocks are subject to further bisecting under the same procedure until one of the following stopping criteria is met -- (i) nk/N <  or (ii) the area of the block |Ak| becomes smaller than |A|. The algorithm returns a tree with K leafs, each corresponding to a block Ak. Details are provided in Algorithm 1.
+
+Algorithm 1 Partition tree algorithm
+
+1: procedure BUILDTREE({j(1)}, {j(2)}, * * * , {j(m)}, (*), , a, N , L, R) 2: D  {1, 2, * * * , p}
+
+3: while D not empty do
+
+4: Draw q uniformly at random from D.
+
+Randomly choose the dimension to cut
+
+5: q  ({j(,1q)}, {j(,2q)}, * * * , {j(,mq )}), T .n(i)  Cardinality of {j(i)} for all i
+
+6: if q - Lq > a, Rq - q > a and min( for all i then
+7: L  L, Lq  q, R  R, Rq  q
+
+j 1(j(,iq)  q), j 1(j(,iq) > q)) > N  Update left and right boundaries
+
+8: T .L  BUILDTREE({j(1) : j(,1q)  q}, * * * , {j(m) : j(,mq )  q}, * * * , N, L, R )
+
+9: T .R  BUILDTREE({j(1) : j(,1q) > q}, * * * , {j(m) : j(,mq ) > q}, * * * , N, L , R) 10: return T
+
+11: else
+
+12: D  D \ {q}
+
+Try cutting at another dimension
+
+13: end if
+
+14: end while
+
+15: T .L  NULL, T .R  NULL, return T
+
+Leaf node
+
+16: end procedure
+
+In Algorithm 1, |A| becomes the minimum edge length of a block a (possibly different across dimensions). Quantities L, R  Rp are the left and right boundaries of the samples respectively, which take the sample minimum/maximum when the support is unbounded. We consider two choices for the partition rule (*) -- maximum (empirical) likelihood partition (ML) and median/KD-tree par-
+tition (KD).
+
+Maximum Likelihood Partition (ML) ML-partition searches for partitions by greedily maximizing the empirical log likelihood at each iteration. For m = 1 we have
+
+ = ML({j,q, j = 1, * * * , n}) =
+
+arg max
+
+n1 +n2 =n,A1 A2 =A
+
+n1 n1 n|A1|
+
+n2
+
+n2
+,
+
+n|A2|
+
+(6)
+
+where n1 and n2 are counts of posterior samples in A1 and A2, respectively. The solution to (6) falls inside the set {j}. Thus, a simple linear search after sorting samples suffices (by book-keeping the
+ordering, sorting the whole block once is enough for the entire procedure). For m > 1, we have
+
+m
+q,ML(*) = arg max
+mi=1{j(i)} i=1
+
+n1(i) n(i)|A1|
+
+n(1i)
+
+n(2i) n(i)|A2|
+
+n(2i)
+,
+
+(7)
+
+similarly solved by a linear search. This is dominated by sorting and takes O(n log n) time.
+
+Median/KD-Tree Partition (KD) Median/KD-tree partition cuts at the empirical median of pos-
+terior samples. When there are multiple subsets, the median is taken over pooled samples to force {Ak} to be the same across subsets. Searching for median takes O(n) time [9], which is faster than ML-partition especially when the number of posterior draws is large. The same partitioning strategy
+is adopted by KD-trees [10].
+
+3
+
+2.2 Density Aggregation
+Given a common partition, Algorithm 2 aggregates all subsets in one stage. However, assuming a single "good" partition for all subsets is overly restrictive when m is large. Hence, we also consider pairwise aggregation [6, 7], which recursively groups subsets into pairs, combines each pair with Algorithm 2, and repeats until one final set is obtained. Run time of PART is dominated by space partitioning (BUILDTREE), with normalization and resampling very fast.
+
+Algorithm 2 Density aggregation algorithm (drawing N samples from the aggregated posterior)
+
+1: procedure ONESTAGEAGGREGATE({j(1)}, {j(2)}, * * * , {j(m)}, (*), , a, N , N , L, R)
+
+2: T  BUILDTREE({j(1)}, {j(2)}, * * * , {j(m)}, (*), , a, N , L, R), Z  0
+
+3: ({Ak}, {n(ki)})  TRAVERSELEAF(T ) 4: for k = 1, 2, * * * , K do
+
+5:
+
+wk 
+
+m i=1
+
+n(ki) /|Ak |m-1 ,
+
+Z
+
+
+
+Z
+
++
+
+wk
+
+6: end for
+
+Multiply inside each block
+
+7: wk  wk/Z for all k
+
+Normalize
+
+8: for t = 1, 2, * * * , N do
+
+9: Draw k with weights {wk} and then draw t  gk()
+
+10: end for
+
+11: return {1, 2, * * * , N }
+
+12: end procedure
+
+2.3 Variance Reduction and Smoothing
+
+Random Tree Ensemble Inspired by random forests [11, 12], the full posterior is estimated by averaging T independent trees output by Algorithm 1. Smoothing and averaging can reduce variance and yield better approximation accuracy. The trees can be built in parallel and resampling in Algorithm 2 only additionally requires picking a tree uniformly at random.
+
+Local Gaussian Smoothing As another approach to increase smoothness, the blockwise uniform
+
+distribution in (5) can be replaced by a Gaussian distribution gk = N (; k, k), with mean and
+
+covariance estimated "locally" by samples within the block. A multiplied Gaussian approximation
+
+is used: k = (
+
+m i=1
+
+ (ki)-1)-1,
+
+k
+
+=
+
+k (
+
+m i=1
+
+ (ki)-1(ki)
+
+),
+
+where
+
+ (ki)
+
+and
+
+k(i)
+
+are
+
+estimated
+
+with the ith subset. We apply both random tree ensembles and local Gaussian smoothing in all
+
+applications of PART in this article unless explicitly stated otherwise.
+
+3 Theory
+
+In this section, we provide consistency theory (in the number of posterior samples) for histograms and the aggregated density. We do not consider the variance reduction and smoothing modifications in these developments for simplicity in exposition, but extensions are possible. Section 3.1 provides error bounds on ML and KD-tree partitioning-based histogram density estimators constructed from N independent samples from a single joint posterior; modified bounds can be obtained for MCMC samples incorporating the mixing rate, but will not be considered here. Section 3.2 then provides corresponding error bounds for our PART-aggregrated density estimators in the one-stage and pairwise cases. Detailed proofs are provided in the supplementary materials.
+Let f () be a p-dimensional posterior density function. Assume f is supported on a measurable set   Rp. Since one can always transform  to a bounded region by scaling, we simply assume  = [0, 1]p as in [8, 13] without loss of generality. We also assume that f  C1().
+
+3.1 Space partitioning
+
+Maximum likelihood partition (ML) For a given K, ML partition solves the following problem:
+
+fM L
+
+=
+
+arg
+
+max
+
+1 N
+
+K
+
+nk log
+
+k=1
+
+nk , N |Ak|
+
+s.t. nk/N  c0, |Ak|  /D,
+
+(8)
+
+4
+
+for some c0 and , where D = f  < . We have the following result.
+Theorem 1. Choose  = 1/K1+1/(2p). For any  > 0, if the sample size satisfies that N > 2(1 - c0)-2K1+1/(2p) log(2K/), then with probability at least 1 - , the optimal solution to (8) satisfies that
+
+DKL(f
+
+fM L )
+
+
+
+(C1
+
++
+
+2
+
+log
+
+K
+
+)K
+
+-
+
+1 2p
+
++
+
+C2
+
+max
+
+log D, 2 log K
+
+ where C1 = log D + 4pLD with L = f  and C2 = 48 p + 1.
+
+K 3eN
+
+8
+
+log log ,
+
+NK
+
+
+
+When multiple densities f (1)(), * * * , f (m)() are presented, our goal of imposing the same partition on all functions requires solving a different problem,
+
+(fM(i)L)mi=1
+
+=
+
+arg max
+
+m i=1
+
+1 Ni
+
+K
+n(ki)
+k=1
+
+log
+
+n(ki) Ni |Ak |
+
+,
+
+s.t. n(ki)/Ni  c0, |Ak|  /D,
+
+(9)
+
+where Ni is the number of posterior samples for function f (i). A similar result as Theorem 1 for (9) is provided in the supplementary materials.
+
+Median partition/KD-tree (KD) The KD-tree fKD cuts at the empirical median for different dimensions. We have the following result.
+
+Theorem 2. For any  > 0, define r = log2
+
+1
+
++
+
+1 2+3L/
+
+.
+
+For any  > 0, if N
+
+>
+
+32e2(log K)2K log(2K/), then with probability at least 1 - , we have
+
+fKD - fKD 1   + pLK-r/p + 4e log K
+
+2K log
+N
+
+2K .
+
+
+If f () is further lower bounded by some constant b0 > 0, we can then obtain an upper bound on
+
+the KL-divergence. Define rb0 = log2
+
+1
+
++
+
+1 2+3L/b0
+
+and we have
+
+DKL(f
+
+fK D )
+
+
+
+pLD K-rb0 /p b0
+
++
+
+8e log K
+
+2K log
+N
+
+2K .
+
+
+When there are multiple functions and the median partition is performed on pooled data, the partition might not happen at the empirical median on each subset. However, as long as the partition quantiles are upper and lower bounded by  and 1 -  for some   [1/2, 1), we can establish results similar to Theorem 2. The result is provided in the supplementary materials.
+
+3.2 Posterior aggregation
+The previous section provides estimation error bounds on individual posterior densities, through which we can bound the distance between the true posterior conditional on the full data set and the aggregated density via (3). Assume we have m density functions {f (i), i = 1, 2, * * * , m} and intend to approximate their aggregated density fI = iI f (i)/ iI f (i), where I = {1, 2, * * * , m}. Notice that for any I  I, fI = p(| iI X(i)). Let D = maxI I fI , i.e., D is an upper bound on all posterior densities formed by a subset of X. Also define ZI = iI f (i). These quantities depend only on the model and the observed data (not posterior samples). We denote fML and fKD by f as the following results apply similarly to both methods.
+The "one-stage" aggregation (Algorithm 2) first obtains an approximation for each f (i) (via either ML-partition or KD-partition) and then computes fI = iI f(i)/ iI f(i).
+
+5
+
+Theorem 3 (One-stage aggregation). Denote the average total variation distance between f (i) and f(i) by . Assume the conditions in Theorem 1 and 2 and for ML-partition
+
+ N  32c-0 1
+
+2(p
+
++
+
+1)K
+
+3 2
+
++
+
+1 2p
+
+log
+
+3eN K
+
+log
+
+8 
+
+and for KD-partition
+
+N > 128e2K(log K)2 log(K/).
+
+Then with high probability the total variation distance between fI and fI is bounded by fI -fI 1 
+
+2 ZI
+
+m(2D)m-1,
+
+where
+
+ZI
+
+is
+
+a
+
+constant
+
+that
+
+does
+
+not
+
+depend
+
+on
+
+the
+
+posterior
+
+samples.
+
+The approximation error of Algorithm 2 increases dramatically with the number of subsets. To
+
+ameliorate this, we introduce the pairwise aggregation strategy in Section 2, for which we have the
+
+following result.
+
+Theorem 4 (Pairwise aggregation). Denote the average total variation distance between f (i) and
+
+f(i) by . Assume the conditions in Theorem 3. Then with high probability the total varia-
+
+tion distance between fI and fI is bounded by fI - fI 1  (4C0D)log2 m+1, where C0 =
+
+maxI
+
+ZI I I
+
+ZI \I ZI
+
+is a constant that does not depend on posterior samples.
+
+4 Experiments
+
+In this section, we evaluate the empirical performance of PART1 and compare the two algorithms PART-KD and PART-ML to the following posterior aggregation algorithms.
+
+1. Simple averaging (average): each aggregated sample is an arithmetic average of M samples coming from M subsets.
+2. Weighted averaging (weighted): also called Consensus Monte Carlo algorithm [3], where each aggregated sample is a weighted average of M samples. The weights are optimally chosen for a Gaussian posterior.
+3. Weierstrass rejection sampler (Weierstrass): subset posterior samples are passed through a rejection sampler based on the Weierstrass transform to produce the aggregated samples [7]. We use its R package2 for experiments.
+4. Parametric density product (parametric): aggregated samples are drawn from a multivariate Gaussian, which is a product of Laplacian approximations to subset posteriors [6].
+5. Nonparametric density product (nonparametric): aggregated posterior is approximated by a product of kernel density estimates of subset posteriors [6]. Samples are drawn with an independent Metropolis sampler.
+6. Semiparametric density product (semiparametric): similar to the nonparametric, but with subset posteriors estimated semiparametrically [6, 14].
+All experiments except the two toy examples use adaptive MCMC [15, 16] 3 for posterior sampling. For PART-KD/ML, one-stage aggregation (Algorithm 2) is used only for the toy examples (results from pairwise aggregation are provided in the supplement). For other experiments, pairwise aggregation is used, which draws 50,000 samples for intermediate stages and halves  after each stage to refine the resolution (The value of  listed below is for the final stage). The random ensemble of PART consists of 40 trees.
+
+4.1 Two Toy Examples
+The two toy examples highlight the performance of our methods in terms of (i) recovering multiple modes and (ii) correctly locating posterior mass when subset posteriors are heterogeneous. The PART-KD/PART-ML results are obtained from Algorithm 2 without local Gaussian smoothing.
+1MATLAB implementation available from https://github.com/richardkwo/ random-tree-parallel-MCMC
+2https://github.com/wwrechard/weierstrass 3http://helios.fmi.fi/lainema/mcmc/
+
+6
+
+Bimodal Example Figure 1 shows an example consisting of m = 10 subsets. Each subset consists of 10,000 samples drawn from a mixture of two univariate normals 0.27N (i,1, i2,1) + 0.73N (i,2, i2,2), with the means and standard deviations slightly different across subsets, given by i,1 = -5 + i,1, i,2 = 5 + i,2 and i,1 = 1 + |i,1|, i,2 = 4 + |i,2|, where i,l  N (0, 0.5), i,l  N (0, 0.1) independently for m = 1, * * * , 10 and l = 1, 2. The resulting true combined posterior (red solid) consists of two modes with different scales. In Figure 1, the left panel shows the
+subset posteriors (dashed) and the true posterior; the right panel compares the results with various
+methods to the truth. A few are omitted in the graph: average and weighted average overlap with
+parametric, and Weierstrass overlaps with PART-KD/PART-ML.
+
+11 True density
+0.8 Subset densities 8
+0.6 6
+0.4 4
+
+True density PART-KD PART-ML Parametric Nonparametric Semiparametric
+
+density
+
+0.2 2
+
+0 -10 -5
+
+05 x
+
+0 10 15 -10 -5
+
+05 x
+
+10 15
+
+Figure 1: Bimodal posterior combined from 10 subsets. Left: the true posterior and subset posteriors (dashed). Right: aggregated posterior output by various methods compared to the truth. Results are based on 10,000 aggregated samples.
+
+Rare Bernoulli Example We consider N = 10, 000 Bernoulli trials xi iid Ber() split into m = 15 subsets. The parameter  is chosen to be 2m/N so that on average each subset only contains 2 successes. By random partitioning, the subset posteriors are rather heterogeneous as plotted in dashed lines in the left panel of Figure 2. The prior is set as () = Beta(; 2, 2). The right panel of Figure 2 compares the results of various methods. PART-KD, PART-ML and Weierstrass capture the true posterior shape, while parametric, average and weighted average are all biased. The nonparametric and semiparametric methods produce flat densities near zero (not visible in Figure 2 due to the scale).
+
+800 True posterior
+600 Subset posteriors
+400
+
+PART-KD PART-ML
+
+density
+
+200
+
+0 0 0.005 0.01 0.015 0.02 3
+Figure 2: The posterior for the probability  of a rare event. Left: the full posterior (solid) and m = 15 subset posteriors (dashed). Right: aggregated posterior output by various methods. All results are based on 20,000 aggregated samples.
+
+4.2 Bayesian Logistic Regression
+Synthetic dataset The dataset {(xi, yi)}Ni=1 consists of N = 50, 000 observations in p = 50 dimensions. All features xi  Rp-1 are drawn from Np-1(0, ) with p = 50 and k,l = 0.9|k-l|. The model intercept is set to -3 and the other coefficient j's are drawn randomly from N (0, 52). Conditional on xi, yi  {0, 1} follows p(yi = 1) = 1/(1 + exp(-T [1, xi])). The dataset is randomly split into m = 40 subsets. For both full chain and subset chains, we run adaptive MCMC for 200,000 iterations after 100,000 burn-in. Thinning by 4 results in T = 50, 000 samples.
+The samples from the full chain (denoted as {j}Tj=1) are treated as the ground truth. To compare the accuracy of different methods, we resample T points {j} from each aggregated posterior and then
+7
+
+compare them using the following metrics: (1) RMSE of posterior mean
+
+1 pT
+
+(
+
+j j -
+
+j j ) 2
+
+(2) approximate KL divergence DKL(p() p()) and DKL(p() p()), where p and p are both
+
+approximated by multivariate Gaussians (3) the posterior concentration ratio, defined as r =
+
+j j -  22/ j j -  22, which measures how posterior spreads out around the true
+
+value (with r = 1 being ideal). The result is provided in Table 1. Figure 4 shows the DKL(p p) versus the length of subset chains supplied to the aggregation algorithm. The results of PART are
+obtained with  = 0.001, a = 0.0001 and 40 trees. Figure 3 showcases the aggregated posterior for two parameters in terms of joint and marginal distributions.
+
+Method
+PART (KD) PART (ML) average weighted Weierstrass parametric nonparametric semiparametric
+
+RMSE
+0.587 1.399 29.93 38.28 6.47 10.07 25.59 25.45
+
+DKL(p p)
+3.95 x 102 8.05 x 101 2.53 x 103 2.60 x 104 7.20 x 102 2.46 x 103 3.40 x 104 2.06 x 104
+
+DKL(p p)
+6.45 x 102 5.47 x 102 5.41 x 104 2.53 x 105 2.62 x 103 6.12 x 103 3.95 x 104 3.90 x 104
+
+r
+3.94 9.17 184.62 236.15 39.96 62.13 157.86 156.97
+
+PART-KD PART-ML
+
+Table 1: Accuracy of posterior aggregation on logistic regression. Figure 3: Posterior of 1 and 17.
+Real datasets We also run experiments on two real datasets: (1) the Covertype dataset4 [17] consists of 581,012 observations in 54 dimensions, and the task is to predict the type of forest cover with cartographic measurements; (2) the MiniBooNE dataset5 [18, 19] consists of 130,065 observations in 50 dimensions, whose task is to distinguish electron neutrinos from muon neutrinos with experimental data. For both datasets, we reserve 1/5 of the data as the test set. The training set is randomly split into m = 50 and m = 25 subsets respectively for covertype and MiniBooNE. Figure 5 shows the prediction accuracy versus total runtime (parallel subset MCMC + aggregation time) for different methods. For each MCMC chain, the first 20% iterations are discarded before aggregation as burn-in. The aggregated chain is required to be of the same length as the subset chains. As a reference, we also plot the result for the full chain and lasso [20] run on the full training set.
+
+PART-KD PART-ML
+
+prediction accuracy
+
+PART-KD
+PART-ML 0.8
+
+Parametric Nonparametric
+
+Weierstrass Average 1
+
+0.75
+
+0.8
+
+0.7 0.6 0.65 Covertype 0.4
+
+0.6 0.2
+
+0
+
+200
+
+400
+
+600
+
+800 0
+
+50
+
+total time (sec)
+
+Weighted Full chain
+
+Lasso
+
+MiniBooNE
+100 150 200 250 300 total time (sec)
+
+Figure 4: Approximate KL divergence between the full chain and the combined posterior versus the length of subset chains.
+
+Figure 5: Prediction accuracy versus total runtime (running chain + aggregation) on Covertype and MiniBooNE datasets (semiparametric is not compared due to its long running time). Plots against the length of chain are provided in the supplement.
+
+5 Conclusion
+
+In this article, we propose a new embarrassingly-parallel MCMC algorithm PART that can efficiently draw posterior samples for large data sets. PART is simple to implement, efficient in subset combining and has theoretical guarantees. Compared to existing EP-MCMC algorithms, PART has substantially improved performance. Possible future directions include (1) exploring other multi-scale density estimators which share similar properties as partition trees but with a better approximation accuracy (2) developing a tuning procedure for choosing good  and a, which are essential to the performance of PART.
+4http://www.csie.ntu.edu.tw/cjlin/libsvmtools/datasets/binary.html 5https://archive.ics.uci.edu/ml/machine-learning-databases/00199
+
+8
+
+References
+[1] Max Welling and Yee W Teh. Bayesian learning via stochastic gradient langevin dynamics. In Proceedings of the 28th International Conference on Machine Learning (ICML-11), 2011.
+[2] Dougal Maclaurin and Ryan P Adams. Firefly Monte Carlo: Exact MCMC with subsets of data. Proceedings of the conference on Uncertainty in Artificial Intelligence (UAI), 2014.
+[3] Steven L Scott, Alexander W Blocker, Fernando V Bonassi, Hugh A Chipman, Edward I George, and Robert E McCulloch. Bayes and big data: The consensus Monte Carlo algorithm. In EFaBBayes 250 conference, volume 16, 2013.
+[4] Stanislav Minsker, Sanvesh Srivastava, Lizhen Lin, and David Dunson. Scalable and robust bayesian inference via the median posterior. In Proceedings of the 31st International Conference on Machine Learning (ICML-14), 2014.
+[5] Sanvesh Srivastava, Volkan Cevher, Quoc Tran-Dinh, and David B Dunson. WASP: Scalable Bayes via barycenters of subset posteriors. In Proceedings of the 18th International Conference on Artificial Intelligence and Statistics (AISTATS), volume 38, 2015.
+[6] Willie Neiswanger, Chong Wang, and Eric Xing. Asymptotically exact, embarrassingly parallel MCMC. In Proceedings of the Thirtieth Conference Annual Conference on Uncertainty in Artificial Intelligence (UAI-14), pages 623-632, Corvallis, Oregon, 2014. AUAI Press.
+[7] Xiangyu Wang and David B Dunson. Parallel MCMC via Weierstrass sampler. arXiv preprint arXiv:1312.4605, 2013.
+[8] Linxi Liu and Wing Hung Wong. Multivariate density estimation based on adaptive partitioning: Convergence rate, variable selection and spatial adaptation. arXiv preprint arXiv:1401.2597, 2014.
+[9] Manuel Blum, Robert W Floyd, Vaughan Pratt, Ronald L Rivest, and Robert E Tarjan. Time bounds for selection. Journal of Computer and System Sciences, 7(4):448-461, 1973.
+[10] Jon Louis Bentley. Multidimensional binary search trees used for associative searching. Communications of the ACM, 18(9):509-517, 1975.
+[11] Leo Breiman. Random forests. Machine Learning, 45(1):5-32, 2001. [12] Leo Breiman. Bagging predictors. Machine Learning, 24(2):123-140, 1996. [13] Xiaotong Shen and Wing Hung Wong. Convergence rate of sieve estimates. The Annals of
+Statistics, pages 580-615, 1994. [14] Nils Lid Hjort and Ingrid K Glad. Nonparametric density estimation with a parametric start.
+The Annals of Statistics, pages 882-904, 1995. [15] Heikki Haario, Marko Laine, Antonietta Mira, and Eero Saksman. DRAM: efficient adaptive
+MCMC. Statistics and Computing, 16(4):339-354, 2006. [16] Heikki Haario, Eero Saksman, and Johanna Tamminen. An adaptive Metropolis algorithm.
+Bernoulli, pages 223-242, 2001. [17] Jock A Blackard and Denis J Dean. Comparative accuracies of neural networks and discrim-
+inant analysis in predicting forest cover types from cartographic variables. In Proc. Second Southern Forestry GIS Conf, pages 189-199, 1998. [18] Byron P Roe, Hai-Jun Yang, Ji Zhu, Yong Liu, Ion Stancu, and Gordon McGregor. Boosted decision trees as an alternative to artificial neural networks for particle identification. Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment, 543(2):577-584, 2005. [19] M. Lichman. UCI machine learning repository, 2013. [20] Robert Tibshirani. Regression shrinkage and selection via the lasso. Journal of the Royal Statistical Society. Series B (Methodological), pages 267-288, 1996.
+9
+

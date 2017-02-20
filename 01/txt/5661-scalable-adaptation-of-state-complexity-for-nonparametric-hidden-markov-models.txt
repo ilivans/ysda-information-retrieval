@@ -1,0 +1,866 @@
+Scalable Adaptation of State Complexity for Nonparametric Hidden Markov Models
+Michael C. Hughes, William Stephenson, and Erik B. Sudderth Department of Computer Science, Brown University, Providence, RI 02912 mhughes@cs.brown.edu, wtstephe@gmail.com, sudderth@cs.brown.edu
+Abstract
+Bayesian nonparametric hidden Markov models are typically learned via fixed truncations of the infinite state space or local Monte Carlo proposals that make small changes to the state space. We develop an inference algorithm for the sticky hierarchical Dirichlet process hidden Markov model that scales to big datasets by processing a few sequences at a time yet allows rapid adaptation of the state space cardinality. Unlike previous point-estimate methods, our novel variational bound penalizes redundant or irrelevant states and thus enables optimization of the state space. Our birth proposals use observed data statistics to create useful new states that escape local optima. Merge and delete proposals remove ineffective states to yield simpler models with more affordable future computations. Experiments on speaker diarization, motion capture, and epigenetic chromatin datasets discover models that are more compact, more interpretable, and better aligned to ground truth segmentations than competitors. We have released an open-source Python implementation which can parallelize local inference steps across sequences.
+1 Introduction
+The hidden Markov model (HMM) [1, 2] is widely used to segment sequential data into interpretable discrete states. Human activity streams might use walking or dancing states, while DNA transcription might be understood via promotor or repressor states [3]. The hierarchical Dirichlet process HMM (HDP-HMM) [4, 5, 6] provides an elegant Bayesian nonparametric framework for reasoning about possible data segmentations with different numbers of states.
+Existing inference algorithms for HMMs and HDP-HMMs have numerous shortcomings: they cannot efficiently learn from large datasets, do not effectively explore segmentations with varying numbers of states, and are often trapped at local optima near their initialization. Stochastic optimization methods [7, 8] are particularly vulnerable to these last two issues, since they cannot change the number of states instantiated during execution. The importance of removing irrelevant states has been long recognized [9]. Samplers that add or remove states via split and merge moves have been developed for HDP topic models [10, 11] and beta process HMMs [12]. However, these Monte Carlo proposals use the entire dataset and require all sequences to fit in memory, limiting scalability.
+We propose an HDP-HMM learning algorithm that reliably transforms an uninformative, single-state initialization into an accurate yet compact set of states. Generalizing previous work on memoized variational inference for DP mixture models [13] and HDP topic models [14], we derive a variational bound for the HDP-HMM that accounts for sticky state persistence and can be used for effective Bayesian model selection. Our algorithm uses birth proposal moves to create new states and merge and delete moves to remove states with poor predictive power. State space adaptations are validated via a global variational bound, but by caching sufficient statistics our memoized algorithm efficiently processes subsets of sequences at each step. Extensive experiments demonstrate the reliability and scalability of our approach, which can be reproduced via Python code we have released online1.
+1http://bitbucket.org/michaelchughes/x-hdphmm-nips2015/
+1
+
+(A) Initialization, K=1
+
+(B) After first lap births, K=47
+
+(C) After first lap merges, K=37
+
+! "!! #!! $!! %!!
+(F) Ground truth labels, K=12
+
+! "!! #!! $!! %!!
+(E) After 100 laps, K=31
+
+! "!! #!! $!! %!! accepted merge pairs
+(D) After second lap, K=56
+accepted birth
+
+! "!! #!! $!! %!!
+
+! "!! #!! $!! %!!
+
+! "!! #!! $!! %!!
+
+Figure 1: Illustration of our new birth/merge/delete variational algorithm as it learns to segment motion capture
+
+sequences into common exercise types (Sec. 5). Each panel shows segmentations of the same 6 sequences,
+
+with time on the horizontal axis. Starting from just one state (A), birth moves at the first sequence create useful
+
+states. Local updates to each sequence in turn can use existing states or birth new ones (B). After all sequences
+
+are updated once, we perform merge moves to clean up and lap is complete (C). After another complete lap of
+
+birth updates at each sequence followed by merges and deletes, the segmentation is further refined (D). After
+
+many laps, our final segmentation (E) aligns well to labels from a human annotator (F), with some true states
+
+aligning to multiple learned states that capture subject-specific variability in exercises.
+
+2 Hierarchical Dirichlet Process Hidden Markov Models
+
+We wish to jointly model N sequences, where sequence n has data xn = [xn1, xn2, . . . , xnTn ] and observation xnt is a vector representing interval or timestep t. For example, xnt  RD could be the spectrogram for an instant of audio, or human limb positions during a 100ms interval.
+
+The HDP-HMM explains this data by assigning each observation xnt to a single hidden state znt. The chosen state comes from a countably infinite set of options k  {1, 2, . . .}, generated via Markovian dynamics with initial state distributions 0 and transition distributions {k}k=1:
+
+p(zn1 = k) = 0k, p(znt =  | zn,t-1 = k) = k.
+
+(1)
+
+We draw data xnt given assigned state znt = k from an exponential family likelihood F :
+
+F : log p(xnt | k) = sF (xdn)T k + cF (k), H : log p(k | ) = Tk  + cH (). (2)
+
+The natural parameter k for each state has conjugate prior H. Cumulant functions cF , cH ensure these distributions are normalized. The chosen exponential family is defined by its sufficient statistics sF . Our experiments consider Bernoulli, Gaussian, and auto-regressive Gaussian likelihoods.
+
+Hierarchies of Dirichlet processes. Under the HDP-HMM prior and posterior, the number of
+states is unbounded; it is possible that every observation comes from a unique state. The hierarchical
+Dirichlet process (HDP) [5] encourages sharing states over time via a latent root probability vector  over the infinite set of states (see Fig. 2). The stick-breaking representation of the prior on  first draws independent variables uk  Beta(1, ) for each state k, and then sets k = uk k=-11(1 - u). We interpret uk as the conditional probability of choosing state k among states {k, k + 1, k + 2, . . .}.
+
+In expectation, the K most common states are first in stick-breaking order. We represent their
+
+probabilities via the vector [1 2 . . . K >K ], where >K =
+
+ k=K +1
+
+k .
+
+Given
+
+this
+
+(K
+
++
+
+1)-
+
+dimensional probability vector , the HDP-HMM generates transition distributions k for each state
+
+k from a Dirichlet with mean equal to  and variance governed by concentration parameter  > 0:
+
+[k1 . . . kK k>K ]  Dir(1, 2, . . . , >K ).
+
+(3)
+
+We draw starting probability vector 0 from a similar prior with much smaller variance, 0  Dir(0) with 0  , because few starting states are observed.
+
+Sticky self-transition bias. In many applications, we expect each segment to persist for many
+timesteps. The "sticky" parameterization of [4, 6] favors self-transition by placing extra prior mass on the transition probability kk. In particular, [k1 . . . k>K ]  Dir(1, . . . k + , . . . >K ) where  > 0 controls the degree of self-transition bias. Choosing   100 leads to long segment
+lengths, while avoiding the computational cost of semi-Markov alternatives [7].
+
+2
+
+k
+uk k
+
+
+k
+k
+
+
+k
+k
+
+
+sn1 sn2 snT -1
+zn1 zn2 * * * znT
+xn1 xn2 * * * xnT
+N
+
+-50 -100 -150 -200
+0.0
+
+-20
+
+-40
+
+-60
+
+-80
+
+cD sticky lower bound
+
+-100
+
+-120
+
+0.5 1.0 1.5 2.0
+
+0
+
+alpha
+
+cD sticky lower bound
+5 10 15 20 25 30 num states K
+
+Figure 2: Left: Graphical representation of the HDP hidden Markov model. Variational parameters are shown in red. Center: Our surrogate bound for the sticky Dirichlet cumulant function cD (Eq. 9) as a function of , computed with  = 100 and uniform  with K = 20 active states. Right: Surrogate bound vs. K, with fixed  = 100,  = 0.5. This bound remains tight when our state adaptation moves insert or remove states.
+
+3 Memoized and Stochastic Variational Inference
+
+After observing data x, our inferential goal is posterior knowledge of top-level conditional probabilities u, HMM parameters , , and assignments z. We refer to u, ,  as global parameters because they generalize to new data sequences. In contrast, the states zn are local to a specific sequence xn.
+
+3.1 A Factorized Variational Lower Bound
+
+We seek a distribution q over the unobserved variables that is close to the true posterior, but lies in the
+simpler factorized family q(*) q(u)q()q()q(z). Each factor has exponential family form with free parameters denoted by hats, and our inference algorithms update these parameters to minimize the Kullback-Leibler (KL) divergence KL(q || p). Our chosen factorization for q is similar to [7], but includes a substantially more accurate approximation to q(u) as detailed in Sec. 3.2.
+
+Factor q(z). For each sequence n, we use an independent factor q(zn) with Markovian structure:
+
+q(zn)
+
+K
+rnk1(kzn1)
+k=1
+
+T -1 K K t=1 k=1 =1
+
+sntk rntk
+
+k (znt)(zn,t+1)
+
+(4)
+
+Free parameter vector snt defines the joint assignment probabilities sntk q(zn,t+1 = , znt = k),
+
+so the K2 non-negative entries of snt sum to one. The parameter rnt defines the marginal probability
+
+rntk = q(znt = k), and equals rntk =
+
+K =1
+
+sntk
+
+.
+
+We
+
+can
+
+find
+
+the
+
+expected
+
+count
+
+of
+
+transitions
+
+from state k to  across all sequences via the sufficient statistic Mk(s)
+
+N n=1
+
+Tn -1 t=1
+
+sntk
+
+.
+
+The truncation level K limits the total number of states to which data is assigned. Under our approximate posterior, only q(zn) is constrained by this choice; no global factors are truncated. Indeed, if data is only assigned to the first K states, the conditional independence properties of the HDP-HMM imply that {k, uk | k > K} are independent of the data. Their optimal variational posteriors thus match the prior, and need not be explicitly computed or stored [15, 16]. Simple variational algo-
+rithms treat K as a fixed constant [7], but Sec. 4 develops novel algorithms that fit K to data.
+
+Factor q(). For the starting state (k = 0) and each state k  1, 2, . . ., we define q(k) as a
+
+Dirichlet distribution: q(k) Dir(k1, . . . , kK , k>K ). Free parameter k is a vector of K + 1
+
+positive numbers, with one entry for each of the K active states and a final entry for the aggregate
+
+mass of all other states. The expected log transition probability between states k and , Pk()
+
+Eq[log k] = (k) - (
+
+K +1 m=1
+
+km
+
+),
+
+is
+
+a
+
+key
+
+sufficient
+
+statistic.
+
+Factor q(). Emission parameter k for state k has factor q(k) H(k) conjugate to the likelihood F . The supplement provides details for Bernoulli, Gaussian, and auto-regressive F .
+
+We score the approximation q via an objective function L that assigns a scalar value (higher is better) to each possible input of free parameters, data x, and hyperparameters , , , :
+
+L(*) Eq [log p(x, z, , u, ) - log q(z, , u, )] = Ldata + Lentropy + Lhdp-local + Lhdp-global. (5)
+
+3
+
+This function provides a lower bound on the marginal evidence: log p(x|, , , )  L. Improving this bound is equivalent to minimizing KL(q || p). Its four component terms are defined as follows:
+
+Ldata(x, r, ) Lhdp-local(s, , , )
+
+Eq
+
+log
+
+p(x
+
+|
+
+z,
+
+)
+
++
+
+log
+
+p() q()
+
+,
+
+Eq
+
+log
+
+p(z
+
+|
+
+)
+
++
+
+log
+
+p() q()
+
+,
+
+Lentropy (s) Lhdp-global(, )
+
+-Eq [log q(z)] ,
+
+Eq
+
+log
+
+p(u) q(u)
+
+.
+
+(6)
+
+Detailed analytic expansions for each term are available in the supplement.
+
+3.2 Tractable Posterior Inference for Global State Probabilities
+
+Previous variational methods for the HDP-HMM [7], and for HDP topic models [16] and HDP grammars [17], used a zero-variance point estimate for the top-level state probabilities . While this approximation simplifies inference, the variational objective no longer bounds the marginal evidence. Such pseudo-bounds are unsuitable for model selection and can favor models with redundant states that do not explain any data, but nevertheless increase computational and storage costs [14].
+
+Because we seek to learn compact and interpretable models, and automatically adapt the truncation level K to each dataset, we instead place a proper beta distribution on uk, k  1, 2, . . . K:
+
+q(uk) Beta(kk, (1-k)k), where k  (0, 1), k > 0.
+
+(7)
+
+Here k = Eq(u)[uk], Eq(u)[k] = kE[>k-1], and Eq(u)[>k] = k=1(1-). The scalar k controls the variance, where the zero-variance point estimate is recovered as k  .
+
+The beta factorization in Eq. (7) complicates evaluation of the marginal likelihood bound in Eq. (6):
+
+Lhdp-local(s, , , ) = Eq(u)[cD(0)] +
+
+K k=1
+
+Eq(u) [cD (
+
++
+
+k )]
+
+-
+
+K k=0
+
+cD
+
+(k
+
+)
+
++
+
+K k=0
+
+K=+11(Mk(s) + kEq(u)[] + k() - k)Pk(). (8)
+
+The Dirichlet cumulant function cD maps K +1 positive parameters to a log-normalization constant.
+
+For a non-sticky HDP-HMM where  = 0, previous work [14] established the following bound:
+
+cD ( )
+
+log () -
+
+K +1 k=1
+
+log
+
+(k )
+
+
+
+K
+
+log
+
+
+
++
+
+K +1 =1
+
+log
+
+
+
+.
+
+(9)
+
+Direct evaluation of Eq(u)[cD()] is problematic because the expectations of log-gamma functions
+
+have no closed form, but the lower bound has a simple expectation given beta distributed q(uk).
+
+Developing a similar bound for sticky models with  > 0 requires a novel contribution. To begin,
+
+in the supplement we establish the following bound for any  > 0,  > 0:
+
+cD( + k)  K log  - log( + ) + log(k + ) +
+
+K +1 =1 =k
+
+log().
+
+(10)
+
+To handle the intractable term Eq(u)[log(k + )], we leverage the concavity of the logarithm:
+
+log(k + )  k log( + ) + (1 - k) log .
+
+(11)
+
+Combining Eqs. (10) and (11) and taking expectations, we can evaluate a lower bound on Eq. (8) in
+
+closed form, and thereby efficiently optimize its parameters. As illustrated in Fig. 2, this rigorous
+
+lower bound on the marginal evidence log p(x) is quite accurate for practical hyperparameters.
+
+3.3 Batch and Stochastic Variational Inference
+
+Most variational inference algorithms maximize L via coordinate ascent optimization, where the best value of each parameter is found given fixed values for other variational factors. For the HDPHMM this leads to the following updates, which when iterated converge to some local maximum.
+
+Local update to q(zn). The assignments for each sequence zn can be updated independently via dynamic programming [18]. The forward-backward algorithm takes as input a Tn x K matrix of log-likelihoods Eq[log p(xn | k)] given the current , and log transition probabilities Pjk given the current . It outputs the optimal marginal state probabilities sn, rn under objective L. This step has cost O(TnK2) for sequence n, and we can process multiple sequences in parallel for efficiency.
+
+Global update to q(). Conjugate priors lead to simple closed-form updates k =  + Sk, where
+
+sufficient statistic Sk summarizes the data assigned to state k: Sk
+
+N n=1
+
+Tn t=1
+
+rntk sF
+
+(xnt).
+
+Global update to q(). For each state k  {0, 1, 2 . . . K}, the positive vector k defining the optimal Dirichlet posterior on transition probabilities from state k is k = Mk(s) +  + k().
+Statistic Mk(s) counts the expected number of transitions from state k to  across all sequences.
+
+4
+
+Global update to q(u). Due to non-conjugacy, our surrogate objective L has no closed-form update to q(u). Instead, we employ numerical optimization to update vectors ,  simultaneously:
+arg max Lhdp-local(, , , s) + Lhdp-global(, ) subject to k > 0, k  (0, 1) for k = 1, 2 . . . K.
+,
+Details are in the supplement. The update to q(u) requires expectations under q(), and vice versa, so it can be useful to iteratively optimize q() and q(u) several times given fixed local statistics.
+
+To handle large datasets, we can adapt these updates to perform stochastic variational inference (SVI) [19]. Stochastic algorithms perform local updates on random subsets of sequences (batches), and then perturb global parameters by following a noisy estimate of the natural gradient, which has a simple closed form. SVI has previously been applied to non-sticky HDP-HMMs with pointestimated  [7], and can be easily adapted to our more principled objective. One drawback of SVI is the requirement of a learning rate schedule, which must typically be tuned to each dataset.
+
+3.4 Memoized Variational Inference
+
+We now outline a memoized algorithm [13] for our sticky HDP-HMM variational objective. Before execution, each sequence is randomly assigned to one of B batches. The algorithm repeatedly visits batches one at a time in random order; we call each full pass through the complete set of B batches a lap. At each visit to batch b, we perform a local step for all sequences n in batch b and then a global step. With B = 1 batches, memoized inference reduces to the standard full-dataset algorithm, while with larger B we have more affordable local steps and faster overall convergence. With just one lap, memoized inference is equivalent to the synchronous version of streaming variational inference, presented in Alg. 3 of Broderick et al. [20]. We focus on regimes where dozens of laps are feasible, which we demonstrate dramatically improves performance.
+
+Affordable, but exact, batch optimization of L is possible by exploiting the additivity of statistics
+
+M , S. For each statistic we track a batch-specific quantity M b, and a whole-dataset summary
+
+M
+
+B b=1
+
+M b.
+
+After
+
+a
+
+local
+
+step
+
+at
+
+batch
+
+b
+
+yields
+
+sb,
+
+rb ,
+
+we
+
+update
+
+M b(sb)
+
+and
+
+Sb(rb),
+
+increment
+
+each whole-dataset statistic by adding the new batch summary and subtracting the summary stored
+
+in memory from the previous visit, and store (or memoize) the new statistics for future iterations.
+
+This update cycle makes M and S consistent with the most recent assignments for all sequences. Memoization does require O(BK2) more storage than SVI. However, this cost does not scale with
+
+the number of sequences N or length T . Sparsity in transition counts M may make storage cheaper.
+
+At any point during memoized execution, we can evaluate L exactly for all data seen thus far. This
+
+is possible because nearly all terms in Eq. (6) are functions of only global parameters , , , 
+
+and sufficient statistics M, S. The one exception that requires local values s, r is the entropy term
+
+Lentropy. To compute it, we track a (K + 1) x K matrix Hb at each batch b:
+
+H0b = -
+
+n rn1 log rn1,
+
+Hkb = -
+
+n
+
+Tn -1 t=1
+
+sntk
+
+log
+
+sntk rntk
+
+,
+
+(12)
+
+where the sums aggregate sequences n that belong to batch b. Each entry of Hb is non-negative, and
+
+given the whole-dataset entropy matrix H =
+
+B b=1
+
+Hb,
+
+we
+
+have
+
+Lentropy
+
+=
+
+K k=0
+
+K =1
+
+Hk
+
+.
+
+4 State Space Adaptation via Birth, Merge, and Delete Proposals
+
+Reliable nonparametric inference algorithms must quickly identify and create missing states. Splitmerge samplers for HDP topic models [10, 11] are limited because proposals can only split an existing state into two new states, require expensive traversal of all data points to evaluate an acceptance ratio, and often have low acceptance rates [12]. Some variational methods for HDP topic models also dynamically create new topics [16, 21], but do not guarantee improvement of the global objective and can be unstable. We instead interleave stochastic birth proposals with delete and merge proposals, and use memoization to efficiently verify proposals via the exact full-dataset objective.
+
+Birth proposals. Birth moves can create many new states at once while maintaining the monotonic
+increase of the whole-dataset objective, L. Each proposal happens within the local step by trying to improve q(zn) for a single sequence n. Given current assignments sn, rn with truncation K, the move proposes new assignments sn, rn that include the K existing states and some new states with index k > K. If L improves under the proposal, we accept and use the expanded set of states for all remaining updates in the current lap. To compute L, we require candidate global parameters , , , . These are found via a global step from candidate summaries M , S, which combine
+
+5
+
+30 15
+0 -15 -30
+-30 -15 0 15 30
+
+num topics K Hamming dist.
+
+50
+25
+*8 1 10 100 1000
+num pass thru data
+
+0.8
+0.6
+0.4
+0.2
+0.0 1 10 100 1000
+num pass thru data
+
+sampler
+stoch memo delete,merge birth,delete,merge Non-stick, kappa=0 Sticky, kappa=50
+
+stoch: K=47 after 2000 laps in 359 min.
+
+sampler: K=10 after 2000 laps in 74 min. delete,merge: K=8 after 100 laps in 5 min.
+
+0 200 400 600 800
+
+0 200 400 600 800
+
+0 200 400 600 800
+
+Figure 3: Toy data experiments (Sec. 5). Top left: Data sequences contain 2D points from 8 well-separated
+
+Gaussians with sticky transitions. Top center: Trace plots from initialization with 50 redundant states. Our
+
+state-adaptation algorithms (red/purple) reach ideal K = 8 states and zero Hamming distance regardless of
+
+whether a sticky (solid) or non-sticky (dashed) model is used. Competitors converge slower, especially in the
+
+non-sticky case because non-adaptive methods are more sensitive to hyperparameters. Bottom: Segmentations
+
+of 4 sequences by SVI, the Gibbs sampler, and our method under the non-sticky model ( = 0). Top half shows
+
+true state assignments; bottom shows aligned estimated states. Competitors are polluted by extra states (black).
+
+the new batch statistics Mb, Sb and memoized statistics of other batches M\b, S\ b expanded by zeros for states k > K. See the supplement for details on handling multiple sequences within a batch.
+The proposal for expanding s, r with new states can flexibly take any form, from very naive to very data-driven. For data with "sticky" state persistence, we recommend randomly choosing one interval [t, t + ] of the current sequence to reassign when creating s, r, leaving other timesteps fixed. We split this interval into two contiguous blocks (one may be empty), each completely assigned to a new state. In the supplement, we detail a linear-time search that finds the cut point that maximizes the objective Ldata. Other proposals such as sub-cluster splits [11] could be easily incorporated in our variational algorithm, but we find this simple interval-based proposal to be fast and effective.
+
+Merge proposals. Merge proposals try to find a less redundant but equally expressive model. Each
+proposal takes a pair of existing states i < j and constructs a candidate model where data from state j is reassigned to state i. Conceptually this reassignment gives a new value s, but instead statistics M , S can be directly computed and used in a global update for candidate parameters , , .
+
+Si = Si + Sj , M:i = M:i + M:j, Mi: = Mi: + Mj:, Mii = Mii + Mjj + Mji + Mij .
+
+While most terms in L are linear functions of our cached sufficient statistics, the entropy Lentropy is not. Thus for each candidate merge pair (i, j), we use O(K) storage and computation to track
+
+HcolummantriHx:oi faEndq.r(o1w2)Harie:
+
+of the corresponding non-negative, we can
+
+merged entropy matrix H. Because all terms in lower-bound Lentropy by summing a subset of H.
+
+the As
+
+detailed in the supplement, this allows us to rigorously bound the objective L for accepting multiple
+
+merges of distinct state pairs. Because many entries of H are near-zero, this bound is very tight,
+
+and in practice enables us to scalably merge many redundant state pairs in each lap through the data.
+
+To identify candidate merge pairs i, j, we examine all pairs of states and keep those that satisfy Ldata+Lhdp-local+Lhdp-global > Ldata+Lhdp-local+Lhdp-global. Because entropy must decrease after any merge (Lentropy < Lentropy), this test is guaranteed to find all possibly useful merges. It is much more efficient than the heuristic correlation score used in prior work on HDP topic models [14].
+
+Deletes. Our proposal to delete a rarely-used state j begins by dropping row j and column j from
+
+M to create M , and dropping Sj from S to create S. Using a target dataset of sequences with
+
+non-trivial mass on state j, x = {xn :
+
+Tn t=1
+
+rntj
+
+>
+
+0.01}, we run global and local parameter
+
+updates to reassign observations from former state j in a data-driven way. Rather than verifying on
+
+only the target dataset as in [14], we accept or reject the delete proposal via the whole-dataset bound
+
+L. To control computation, we only propose deleting states used in 10 or fewer sequences.
+
+6
+
+objective (x100) num states K time (sec) speedup
+
+stoch memo birth,del,merge K=50 K=100
+
+-3.4 -3.5
+
+100 75 50
+
+1200 1000
+800 600
+
+64x 32x 16x
+8x
+
+-3.6
+1 10 100
+num pass thru data
+
+25
+0 0.1 1 10 100
+num pass thru data
+
+400
+200
+0 1 2 4 8 16 32 64
+num parallel workers
+
+4x 2x 1x
+1 2 4 8 16 32 64
+num parallel workers
+
+Figure 4: Segmentation of human epigenome: 15 million observations across 173 sequences (Sec. 5). Left:
+
+Adaptive runs started at 1 state grow to 70 states within one lap and reach better L scores than 100-state non-
+
+adaptive methods. Each run takes several days. Right: Wallclock times and speedup factors for a parallelized
+
+local step on 1/3 of this dataset. 64 workers complete a local step with K = 50 states in under one minute.
+
+5 Experiments
+We compare our proposed birth-merge-delete memoized algorithm to memoized with delete and merge moves only, and without any moves. We further run a blocked Gibbs sampler [6] that was previously shown to mix faster than slice samplers [22], and our own implementation of SVI for objective L. These baselines maintain a fixed number of states K, though some states may have usage fall to zero. We start all fixed-K methods (including the sampler) from matched initializations. See the supplement for futher discussion and all details needed to reproduce these experiments.
+Toy data. In Fig. 3, we study 32 toy data sequences generated from 8 Gaussian states with sticky transitions [8]. From an abundant initialization with 50 states, the sampler and non-adaptive variational methods require hundreds of laps to remove redundant states, especially under a non-sticky model ( = 0). In contrast, our adaptive methods reach the ideal of zero Hamming distance within a few dozen laps regardless of stickiness, suggesting less sensitivity to hyperparameters.
+Speaker diarization. We study 21 unrelated audio recordings of meetings with an unknown number of speakers from the NIST 2007 speaker diarization challenge [23]. The sticky HDP-HMM previously achieved state-of-the-art diarization performance [6] using a sampler that required hours of computation. We ran methods from 10 matched initializations with 25 states and  = 100, computing Hamming distance on non-speech segments as in the standard DER metric. Fig. 5 shows that within minutes, our algorithms consistently find segmentations better aligned to true speaker labels.
+Labelled N = 6 motion capture. Fox et al. [12] introduced a 6 sequence dataset with labels for 12 exercise types, illustrated in Fig. 1. Each sequence has 12 joint angles (wrist, knee, etc.) captured at 0.1 second intervals. Fig. 6 shows that non-adaptive methods struggle even when initialized abundantly with 30 (dashed lines) or 60 (solid) states, while our adaptive methods reach better values of the objective L and cleaner many-to-one alignment to true exercises.
+Large N = 124 motion capture. Next, we apply scalable methods to the 124 sequence dataset of [12]. We lack ground truth here, but Fig. 7 shows deletes and merges making consistent reductions from abundant initializations and births growing from K = 1. Fig. 7 also shows estimated segmentations for 10 representative sequences, along with skeleton illustrations for the 10 most-used states in this subset. These segmentations align well with held-out text descriptions.
+Chromatin segmentation. Finally, we study segmenting the human genome by the appearance patterns of regulatory proteins [24]. We observe 41 binary signals from [3] at 200bp intervals throughout a white blood cell line (CD4T). Each binary value indicates the presence or absence of an acetylation or methylation that controls gene expression. We divide the whole epigenome into 173 sequences (one per batch) with total size T = 15.4 million. Fig. 4 shows our method can grow from 1 state to 70 states and compete favorably with non-adaptive competitors. We also demonstrate that our parallelized local step leads to big 25x speedups in processing such large datasets.
+
+6 Conclusion
+Our new variational algorithms adapt HMM state spaces to find clean segmentations driven by Bayesian model selection. Relative to prior work [14], our contributions include a new bound for the sticky HDP-HMM, births with guaranteed improvement, local step parallelization, and better merge selection rules. Our multiprocessing-based Python code is targeted at genome-scale applications. Acknowledgments This research supported in part by NSF CAREER Award No. IIS-1349774. M. Hughes supported in part by an NSF Graduate Research Fellowship under Grant No. DGE0228243.
+
+7
+
+sampler Hamming
+
+0.6 0.5 0.4 0.3 0.2 0.1 0.0
+0.0 0.1 0.2 0.3 0.4 0.5 0.6
+delete-merge Hamming
+sampler memo delete,merge birth,delete,merge
+
+train objective
+
+Meeting 11 (best) -2.50 -2.55 -2.60 -2.65 -2.70 -2.75 -2.80 1 10 100 1000
+elapsed time (sec)
+0.8
+0.6
+0.4
+
+train objective
+
+Meeting 16 (avg.) -2.55
+-2.60
+-2.65
+-2.70 1 10 100 1000
+elapsed time (sec) 0.8 0.6 0.4
+
+train objective
+
+Meeting 21 (worst) -2.40
+-2.45
+-2.50
+-2.55 1 10 100 1000
+elapsed time (sec) 0.8 0.6 0.4
+
+Hamming dist.
+
+Hamming dist.
+
+Hamming dist.
+
+0.2 0.2 0.2
+
+0.0 1 10 100 1000
+elapsed time (sec)
+
+0.0 1 10 100 1000
+elapsed time (sec)
+
+0.0 1 10 100 1000
+elapsed time (sec)
+
+Figure 5: Method comparison on speaker diarization from common K = 25 initializations (Sec. 5). Left: Scat-
+
+terplot of final Hamming distance for our adaptive method and the sampler. Across 21 meetings (each with 10
+
+initializations shown as individual dots) our method finds segmentations closer to ground truth. Right: Traces of objective L and Hamming distance for meetings representative of good, average, and poor performance.
+
+train objective
+
+Hamming dist.
+
+num states K
+
+-2.2 -2.4 -2.6
+
+60 40 20
+
+0.8 0.6 0.4 0.2
+
+stoch sampler
+memo delete,merge birth,delete,merge
+
+-2.8 1 10 100 1000
+num pass thru data
+
+0 1 10 100 1000
+num pass thru data
+
+0.0 1 10 100 1000
+num pass thru data
+
+birth: Hdist=0.34 K=28 @ 100 laps del/merge: Hdist=0.30 K=13 @ 100 laps sampler: Hdist=0.49 K=29 @ 1000 laps
+
+0 50 100 150 200 250 300 350 400
+
+0 50 100 150 200 250 300 350 400
+
+0 50 100 150 200 250 300 350 400
+
+Figure 6: Comparison on 6 motion capture streams (Sec. 5). Top: Our adaptive methods reach better L values
+
+and lower distance from true exercise labels. Bottom: Segmentations from the best runs of birth/merge/delete
+
+(left), only deletes and merges from 30 initial states (middle), and the sampler (right). Each sequence shows
+
+true labels (top half) and estimates (bottom half) colored by the true state with highest overlap (many-to-one).
+
+train objective num states K
+
+-2.4
+-2.5
+-2.6
+1 10 100 1000
+num pass thru data
+
+200 150 100
+50 0 1 10 100 1000
+num pass thru data
+
+1-1: playground jump 1-2: playground climb 1-3: playground climb 2-7: swordplay 5-3: dance 5-4: dance 5-5: dance 6-3: basketball dribble 6-4: basketball dribble 6-5: basketball dribble
+!
+
+"! #! $! %! &!!
+
+Walk
+
+Climb
+
+Sword
+
+Arms
+
+Swing
+
+Dribble
+
+Jump
+
+Balance
+
+Ballet Leap
+
+Ballet Pose
+
+Figure 7: Study of 124 motion capture sequences (Sec. 5). Top Left: Objective L and state count K as more data
+
+is seen. Solid lines have 200 initial states; dashed 100. Top Right: Final segmentation of 10 select sequences
+
+by our method, with id numbers and descriptions from mocap.cs.cmu.edu. The 10 most used states are
+
+shown in color, the rest with gray. Bottom: Time-lapse skeletons assigned to each highlighted state.
+
+8
+
+References
+[1] L. R. Rabiner. A tutorial on hidden Markov models and selected applications in speech recognition. Proc. of the IEEE, 77(2):257-286, 1989.
+[2] Zoubin Ghahramani. An introduction to hidden Markov models and Bayesian networks. International Journal of Pattern Recognition and Machine Intelligence, 15(01):9-42, 2001.
+[3] Jason Ernst and Manolis Kellis. Discovery and characterization of chromatin states for systematic annotation of the human genome. Nature Biotechnology, 28(8):817-825, 2010.
+[4] Matthew J. Beal, Zoubin Ghahramani, and Carl E. Rasmussen. The infinite hidden Markov model. In Neural Information Processing Systems, 2001.
+[5] Y. W. Teh, M. I. Jordan, M. J. Beal, and D. M. Blei. Hierarchical Dirichlet processes. Journal of the American Statistical Association, 101(476):1566-1581, 2006.
+[6] Emily B. Fox, Erik B. Sudderth, Michael I. Jordan, and Alan S. Willsky. A sticky HDP-HMM with application to speaker diarization. Annals of Applied Statistics, 5(2A):1020-1056, 2011.
+[7] Matthew J. Johnson and Alan S. Willsky. Stochastic variational inference for Bayesian time series models. In International Conference on Machine Learning, 2014.
+[8] Nicholas Foti, Jason Xu, Dillon Laird, and Emily Fox. Stochastic variational inference for hidden Markov models. In Neural Information Processing Systems, 2014.
+[9] Andreas Stolcke and Stephen Omohundro. Hidden Markov model induction by Bayesian model merging. In Neural Information Processing Systems, 1993.
+[10] Chong Wang and David M Blei. A split-merge MCMC algorithm for the hierarchical Dirichlet process. arXiv preprint arXiv:1201.1657, 2012.
+[11] Jason Chang and John W Fisher III. Parallel sampling of HDPs using sub-cluster splits. In Neural Information Processing Systems, 2014.
+[12] Emily B. Fox, Michael C. Hughes, Erik B. Sudderth, and Michael I. Jordan. Joint modeling of multiple time series via the beta process with application to motion capture segmentation. Annals of Applied Statistics, 8(3):1281-1313, 2014.
+[13] Michael C. Hughes and Erik B. Sudderth. Memoized online variational inference for Dirichlet process mixture models. In Neural Information Processing Systems, 2013.
+[14] Michael C. Hughes, Dae Il Kim, and Erik B. Sudderth. Reliable and scalable variational inference for the hierarchical Dirichlet process. In Artificial Intelligence and Statistics, 2015.
+[15] Yee Whye Teh, Kenichi Kurihara, and Max Welling. Collapsed variational inference for HDP. In Neural Information Processing Systems, 2008.
+[16] Michael Bryant and Erik B. Sudderth. Truly nonparametric online variational inference for hierarchical Dirichlet processes. In Neural Information Processing Systems, 2012.
+[17] Percy Liang, Slav Petrov, Michael I Jordan, and Dan Klein. The infinite PCFG using hierarchical Dirichlet processes. In Empirical Methods in Natural Language Processing, 2007.
+[18] Matthew James Beal. Variational algorithms for approximate Bayesian inference. PhD thesis, University of London, 2003.
+[19] Matt Hoffman, David Blei, Chong Wang, and John Paisley. Stochastic variational inference. Journal of Machine Learning Research, 14(1), 2013.
+[20] Tamara Broderick, Nicholas Boyd, Andre Wibisono, Ashia C. Wilson, and Michael I. Jordan. Streaming variational Bayes. In Neural Information Processing Systems, 2013.
+[21] Chong Wang and David Blei. Truncation-free online variational inference for Bayesian nonparametric models. In Neural Information Processing Systems, 2012.
+[22] J. Van Gael, Y. Saatci, Y. W. Teh, and Z. Ghahramani. Beam sampling for the infinite hidden Markov model. In International Conference on Machine Learning, 2008.
+[23] NIST. Rich transcriptions database. http://www.nist.gov/speech/tests/rt/, 2007.
+[24] Michael M. Hoffman, Orion J. Buske, Jie Wang, Zhiping Weng, Jeff A. Bilmes, and William S. Noble. Unsupervised pattern discovery in human chromatin structure through genomic segmentation. Nature methods, 9(5):473-476, 2012.
+9
+

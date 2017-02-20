@@ -1,0 +1,635 @@
+Sample Complexity of Learning Mahalanobis Distance Metrics
+
+Nakul Verma Janelia Research Campus, HHMI verman@janelia.hhmi.org
+
+Kristin Branson Janelia Research Campus, HHMI bransonk@janelia.hhmi.org
+
+Abstract
+Metric learning seeks a transformation of the feature space that enhances prediction quality for a given task. In this work we provide PAC-style sample complexity rates for supervised metric learning. We give matching lower- and upper-bounds showing that sample complexity scales with the representation dimension when no assumptions are made about the underlying data distribution. In addition, by leveraging the structure of the data distribution, we provide rates fine-tuned to a specific notion of the intrinsic complexity of a given dataset, allowing us to relax the dependence on representation dimension. We show both theoretically and empirically that augmenting the metric learning optimization criterion with a simple norm-based regularization is important and can help adapt to a dataset's intrinsic complexity yielding better generalization, thus partly explaining the empirical success of similar regularizations reported in previous works.
+1 Introduction
+In many machine learning tasks, data is represented in a high-dimensional Euclidean space. The L2 distance in this space is then used to compare observations in methods such as clustering and nearest-neighbor classification. Often, this distance is not ideal for the task at hand. For example, the presence of uninformative or mutually correlated measurements arbitrarily inflates the distances between pairs of observations. Metric learning has emerged as a powerful technique to learn a metric in the representation space that emphasizes feature combinations that improve prediction while suppressing spurious measurements. This has been done by exploiting class labels [1, 2] or other forms of supervision [3] to find a Mahalanobis distance metric that respects these annotations.
+Despite the popularity of metric learning methods, few works have studied how problem complexity scales with key attributes of the dataset. In particular, how do we expect generalization error to scale--both theoretically and practically--as one varies the number of informative and uninformative measurements, or changes the noise levels? In this work, we develop two general frameworks for PAC-style analysis of supervised metric learning. The distance-based metric learning framework uses class label information to derive distance constraints. The objective is to learn a metric that yields smaller distances between examples from the same class than those from different classes. Algorithms that optimize such distance-based objectives include Mahalanobis Metric for Clustering (MMC) [4], Large Margin Nearest Neighbor (LMNN) [1] and Information Theoretic Metric Learning (ITML) [2]. Instead of using distance comparisons as a proxy, however, one can also optimize for a specific prediction task directly. The second framework, the classifier-based metric learning framework, explicitly incorporates the hypotheses associated with the prediction task to learn effective distance metrics. Examples in this regime include [5] and [6].
+1
+
+Our analysis shows that in both frameworks, the sample complexity scales with a dataset's representation dimension (Theorems 1 and 3), and this dependence is necessary in the absence of assumptions about the underlying data distribution (Theorems 2 and 4). By considering any Lipschitz loss, our results improve upon previous sample complexity results (see Section 6) and, for the first time, provide matching lower bounds.
+In light of our observation that data measurements often include uninformative or weakly informative features, we expect a metric that yields good generalization performance to de-emphasize such features and accentuate the relevant ones. We thus formalize the metric learning complexity of a given dataset in terms of the intrinsic complexity d of the optimal metric. For Mahalanobis metrics, we characterize intrinsic complexity by the norm of the matrix representation of the metric. We refine our sample complexity results and show a dataset-dependent bound for both frameworks that relaxes the dependence on representation dimension and instead scales with the dataset's intrinsic metric learning complexity d (Theorem 7).
+Based on our dataset-dependent result, we propose a simple variation on the empirical risk minimizing (ERM) algorithm that returns a metric (of complexity d) that jointly minimizes the observed sample bias and the expected intra-class variance for metrics of fixed complexity d. This bias-variance balancing criterion can be viewed as a structural risk minimizing algorithm that provides better generalization performance than an ERM algorithm and justifies norm-regularization of weighting metrics in the optimization criteria for metric learning, partly explaining empirical success of similar objectives [7, 8]. We experimentally validate how the basic principle of normregularization can help enhance the prediction quality even for existing metric learning algorithms on benchmark datasets (Section 5). Our experiments highlight that norm-regularization indeed helps learn weighting metrics that better adapt to the signal in data in high-noise regimes.
+
+2 Preliminaries
+
+In this section, we define our notation, and explicitly define the distance-based and classifier-based
+
+learning frameworks. Given a D-dimensional representation space X = RD, we want to learn a weighting, or a metric1 M  on X that minimizes some notion of error on data drawn from a fixed
+
+unknown distribution D on X x {0, 1}:
+
+M  := argminMM err(M, D),
+
+where
+
+M
+
+is
+
+the
+
+class
+
+of
+
+weighting
+
+metrics
+
+M
+
+:=
+
+{M
+
+|
+
+M
+
+
+
+DxD
+R
+
+,
+
+max(M
+
+)
+
+=
+
+1}
+
+(we
+
+constrain
+
+the maximum singular value max to remove arbitrary scalings). For supervised metric learning,
+
+this error is typically label-based and can be defined in two intuitive ways.
+
+The distance-based framework prefers metrics M that bring data from the same class closer together than those from opposite classes. The corresponding distance-based error then measures how the distances amongst data violate class labels:
+
+errdist(M, D) := E(x1,y1),(x2,y2)D  M (x1, x2), Y ,
+where (M , Y ) is a generic distance-based loss function that computes the degree of violation between weighted distance M (x1, x2) := M (x1 -x2) 2 and the label agreement Y := 1[y1 = y2] and penalizes it by factor . For example,  could penalize intra-class distances that are more than some upper limit U and inter-class distances that are less than some lower limit L > U :
+
+L,U (M , Y ) :=
+
+min{1, [M -U ]+ } min{1, [L - M ]+ }
+
+if Y = 1 otherwise
+
+,
+
+(1)
+
+1Note that we are looking at the linear form of the metric M ; usually the corresponding quadratic form M TM is discussed in the literature, which is necessarily positive semi-definite.
+
+2
+
+where [A]+ := max{0, A}. MMC optimizes an efficiently computable variant of Eq. (1) by constraining the aggregate intra-class distances while maximizing the aggregate inter-class distances.
+ITML explicitly includes the upper and lower limits with an added regularization on the learned M
+to be close to a pre-specified metric of interest M0.
+
+While we will discuss loss-functions  that handle distances between pairs of observations, it is easy
+
+to extend to relative distances among triplets:
+
+triple(M (x1, x2), M (x1, x3), (y1, y2, y3)) :=
+
+min{1, [M (x1, x2) - M (x1, x3)]+ } 0
+
+if y1 = y2 otherwise
+
+= y3 ,
+
+LMNN is a popular variant, in which instead of looking at all triplets, it focuses on triplets in local neighborhoods, improving the quality of local distance comparisons.
+
+The classifier-based framework prefers metrics M that directly improve the prediction quality for a downstream task. Let H represent a real-valued hypothesis class associated with the prediction task of interest (each h  H : X  [0, 1]), then the corresponding classifier-based error becomes:
+
+errhypoth(M,
+
+D)
+
+:=
+
+inf
+hH
+
+E(x,y)D
+
+1 |h(M x) - y|  1/2
+
+.
+
+Example classifier-based methods include [5], which minimizes ranking errors for information re-
+
+trieval and [6], which incorporates network topology constraints for predicting network connectivity
+
+structure.
+
+3 Metric Learning Sample Complexity: General Case
+
+In any practical setting, we estimate the ideal weighting metric M  by minimizing the empirical
+
+version of the error criterion from a finite size sample from D. Let Sm denote a sample of size
+
+m, and err(M, Sm) denote the corresponding empirical error. We can then define the empirical
+
+risk minimizing metric based on m generalization performance to that of
+
+samples as Mm the theoretically
+
+o:p=timaarlgMmin,Mtheartr(isM,
+
+,
+
+Sm
+
+),
+
+and
+
+compare
+
+its
+
+err(Mm , D) - err(M , D).
+
+(2)
+
+Distance-Based Error Analysis. Given an i.i.d. sequence of observations z1, z2, . . . from
+D, zi = (xi, yi), we can pair the observations together to form a paired sample2 Smpair = {(z1, z2), . . . , (z2m-1, z2m)} = {(z1,i, z2,i)}mi=1 of size m, and define the sample-based distance error induced by a metric M as
+
+errdist(M, Smpair)
+
+:=
+
+1 m
+
+m
+
+
+
+M (x1,i, x2,i), 1[y1,i = y2,i] .
+
+i=1
+
+Then for any B-bounded-support distribution D (that is, each (x, y)  D, x  B), we have the following.3,4
+
+Theorem 1 Let  be a distance-based loss function that is -Lipschitz in the first argument. Then with probability at least 1 -  over an i.i.d. draw of 2m samples from an unknown B-boundedsupport distribution D paired as Smpair, we have
+sup errdist(M, D)- errdist(M, Smpair)  O B2 D ln(1/)/m .
+M M
+2While we pair 2m samples into m independent pairs, it is common to consider all O(m2) possibly dependent pairs. By exploiting independence we provide a simpler analysis yielding O(m-1/2) sample complexity rates, which is similar to the dependent case.
+3We only present the results for paired comparisons; the results are easily extended to triplet comparisons. 4All the supporting proofs are provided in Appendix A.
+
+3
+
+This implies a bound on our key quantity of interest, Eq. (2). To achieve estimation error rate , m = ((B2/ )2D ln(1/)) samples are sufficient, showing that one never needs more than a
+number proportional to D examples to achieve the desired level of accuracy with high probability.
+
+Since many applications involve high-dimensional data, we next study if such a strong dependency on D is necessary. It turns out that even for simple distance-based loss functions like L,U (c.f. Eq. 1), there are data distributions for which one cannot ensure good estimation error with fewer than
+linear in D samples.
+
+Theorem 2 Let A be any algorithm that, given an i.i.d. sample Sm (of size m) from a fixed unknown
+
+bounded support distribution D, returns a weighting metric from M that minimizes the empirical
+
+error with respect to distance-based loss function L,U . There exist   0, 0  U < L (indep. of
+
+D), s.t. for all 0 <
+
+,
+
+<
+
+1 64
+
+,
+
+there
+
+exists
+
+a
+
+bounded
+
+support
+
+distribution
+
+D,
+
+such
+
+that
+
+if
+
+m
+
+
+
+D+1 512 2
+
+,
+
+PSm errdist(A(Sm), D) - errdist(M , D) > > .
+
+While this strong dependence on D may seem discouraging, note that here we made no assumptions about the underlying structure of the data distribution. One may be able to achieve a more relaxed dependence on D in settings in which individual features contain varying amounts of useful information. This is explored in Section 4.
+
+Classifier-Based Error Analysis. In this setting, we consider an i.i.d. set of observations z1, z2, . . . from D to obtain the unpaired sample Sm = {zi}mi=1 of size m. To analyze the generalization-ability of weighting metrics optimized w.r.t. underlying real-valued hypothesis class H, we must measure the classification complexity of H. The scale-sensitive version of VC-dimension, the fat-shattering dimension, of a hypothesis class (denoted Fat(H)) encodes the right notion of classification complexity and provides a way to relate generalization error to the empirical error at a margin  [9].
+
+In the context of metric learning with respect to a fixed hypothesis class, define the empirical error
+
+at
+
+a
+
+margin
+
+
+
+as
+
+errhypoth(M, Sm)
+
+:=
+
+inf hH
+
+1 m
+
+(xi,yi)Sm 1[Margin(h(M xi), yi)  ], where
+
+Margin(y, y) := (2y - 1)(y - 1/2).
+
+Theorem 3 Let H be a -Lipschitz base hypothesis class. Pick any 0 <   1/2, and let m  Fat/16(H)  1. Then with probability at least 1 -  over an i.i.d. draw of m samples Sm from an unknown B-bounded-support distribution D ( 0 := min{/2, 1/2B})
+
+sup errhypoth(M, D) - errhypoth(M, Sm)  O
+M M
+
+1
+
+1 ln
+
++
+
+D2
+
+ln
+
+D
+
++
+
+Fat/16(H) ln
+
+m
+
+.
+
+m m 0
+
+m
+
+
+
+As before, this implies a bound on Eq. (2). To achieve estimation error rate , m = ((D2 ln(DB/) + Fat/16(H) ln(1/))/ 2) samples suffices. Note that the task of finding an optimal metric only additively increases sample complexity over that of finding the optimal hypoth-
+esis from the underlying hypothesis class. In contrast to the distance-based framework (Theorem 1),
+here we get a quadratic dependence on D. The following shows that a strong dependence on D is
+necessary in the absence of assumptions on the data distribution and base hypothesis class.
+
+Theorem 4 Pick any 0 <  < 1/8. Let H be a base hypothesis class of -Lipschitz functions that is closed under addition of constants (i.e., h  H = h  H, where h : x  h(x) + c, for all c) s.t. each h  H maps into the interval [1/2 - 4, 1/2 + 4] after applying an appropriate theshold.
+
+Then for any metric learning algorithm A, and for any B  1, there exists   0, for all 0 < ,  <
+
+1/64, there exists a B-bounded-support distribution D s.t. if m ln2 m < O
+
+D2 +d 2 ln(1/2)
+
+PSmD[errhypoth(M , D) > errhypoth(A(Sm), D) + ] > ,
+
+where d := Fat768(H) is the fat-shattering dimension of H at margin 768.
+
+4
+
+4 Sample Complexity for Data with Un- and Weakly Informative Features
+
+We introduce the concept of the metric learning complexity of a given dataset. Our key observation is that a metric that yields good generalization performance should emphasize relevant features while suppressing the contribution of spurious features. Thus, a good metric reflects the quality of individual feature measurements of data and their relative value for the learning task. We can leverage this and define the metric learning complexity of a given dataset as the intrinsic complexity d of the weighting metric that yields the best generalization performance for that dataset (if multiple metrics yield best performance, we select the one with minimum d). A natural way to characterize the intrinsic complexity of a weighting metric M is via the norm of the matrix M . Using metric learning complexity as our gauge for feature-set richness, we now refine our analysis in both canonical frameworks. We will first analyze sample complexity for norm-bounded metrics, then show how to automatically adapt to the intrinsic complexity of the unknown underlying data distribution.
+
+4.1 Distance-Based Refinement
+
+We start with the following refinement of the distance-based metric learning sample complexity for a class of Frobenius norm-bounded weighting metrics.
+
+Lemma 5 Let M be any class of weighting metrics on the feature space X = RD, and define
+
+d := supMM
+
+MTM
+
+2 . Let  be any distance-based loss function that is -Lipschitz in the first
+F
+
+argument. Then with probability at least 1 -  over an i.i.d. draw of 2m samples from an unknown
+
+B-bounded-support distribution D paired as Smpair, we have
+
+sup errdist(M, D)- errdist(M, Smpair)  O B2 d ln(1/)/m .
+M M
+
+Observe that if our dataset has a low metric learning complexity d D, then considering an appropriate class of norm-bounded weighting metrics M can help sharpen the sample complexity result, yielding a dataset-dependent bound. Of course, a priori we do not know which class of metrics is appropriate; We discuss how to automatically adapt to the right complexity class in Section 4.3.
+
+4.2 Classifier-Based Refinement
+
+Effective data-dependent analysis of classifier-based metric learning requires accounting for potentially complex interactions between an arbitrary base hypothesis class and the distortion induced by a weighting metric to the unknown underlying data distribution. To make the analysis tractable while still keeping our base hypothesis class H general, we assume that H is a class of two-layer feed-forward networks.5 Recall that for any smooth target function f , a two-layer feed-forward neural network (with appropriate number of hidden units and connection weights) can approximate f  arbitrarily well [10], so this class is flexible enough to include most reasonable target hypotheses.
+
+More formally, define the base hypothesis class of two-layer feed-forward neural network with K
+
+hidden [-1, 1]
+
+units as H2-net := {x 
+
+K i=1
+
+wi
+
+ (vi
+
+*
+
+is a smooth, strictly monotonic, -Lipschitz
+
+x) | w 1 activation
+
+ 1, vi 1  1}, where  : R function with (0) = 0. Then,
+
+ for
+
+generalization error w.r.t. any classifier-based -Lipschitz loss function ,
+
+errhypoth(M,
+
+D)
+
+:=
+
+inf
+hH2-net
+
+E(x,y)D
+
+
+
+h(M x), y
+
+,
+
+we have the following.6
+
+5We only present the results for two-layer networks in Lemma 6; the results are easily extended to multi-
+layer feed-forward networks. 6Since we know the functional form of the base hypothesis class H (i.e., a two layer feed-forward neural
+net), we can provide a more precise bound than leaving it as Fat(H).
+
+5
+
+Lemma 6
+
+Let
+
+M be
+
+any class
+
+of
+
+weighting
+
+metrics on the
+
+feature space X
+
+=
+
+D
+R
+
+,
+
+and
+
+define
+
+d := supMM
+
+MTM
+
+2.
+F
+
+For
+
+any
+
+
+
+>
+
+0,
+
+let
+
+H2-net
+
+be
+
+a
+
+two
+
+layer
+
+feed-forward
+
+neural
+
+network
+
+base hypothesis class (as defined above) and  be a classifier-based loss function that -Lipschitz
+
+in its first argument. Then with probability at least 1 -  over an i.i.d. draw of m samples Sm from
+
+an unknown B-bounded support distribution D, we have
+
+sup errhypoth(M, D)- errhypoth(M, Sm)  O B d ln(D/)/m .
+M M
+
+4.3 Automatically Adapting to Intrinsic Complexity
+
+While Lemmas 5 and 6 provide a sample complexity bound tuned to the metric learning complexity of a given dataset, these results are not directly useful since one cannot select the correct normbounded class M a priori, as the underlying distribution D is unknown. Fortunately, by considering an appropriate sequence of norm-bounded classes of weighting metrics, we can provide a uniform bound that automatically adapts to the intrinsic complexity of the unknown underlying data distribution D.
+
+Theorem 7 Define Md := {M | M TM 2  d}, and consider the nested sequence of weighting F
+metric classes M1  M2  * * * . Let d be any non-negative measure across the sequence Md
+such that d d = 1 (for d = 1, 2, * * * ). Then for any   0, with probability at least 1 -  over an i.i.d. draw of sample Sm from an unknown B-bounded-support distribution D, for all d = 1, 2, * * * , and all M d  Md,
+
+err(M d, D) - err(M d, Sm)  O C * B d ln(1/d)/m ,
+
+(3)
+
+
+
+where C := B for distance-based error, or C :=  ln D for classifier-based error (for H2-net).
+
+In particular, for a data distribution D that has metric learning complexity at most d  N, if there are m   d(CB)2 ln(1/d)/ 2 samples, then with probability at least 1 - 
+err(Mmreg, D) - err(M , D)  O( ),
+
+for Mmreg := argmin err(M, Sm) + M dM , M :=CB
+M M
+
+ln(dM )-1/m , dM :=
+
+MTM 2 . F
+
+The measure d above encodes our prior belief on the complexity class Md from which a target metric is selected by a metric learning algorithm given the training sample Sm. In absence of any prior beliefs, d can be set to 1/D (for d = 1, . . . , D) for scale constrained weighting metrics (max = 1). Thus, for an unknown underlying data distribution D with metric learning complexity d, with number of samples just proportional to d, we can find a good weighting metric.
+
+This result also highlights that the generalization error of any weighting metric returned by an algorithm is proportional to the (smallest) norm-bounded class to which it belongs (cf. Eq. 3). If two metrics M1 and M2 have similar empirical errors on a given sample, but have different intrinsic complexities, then the expected risk of the two metrics can be considerably different. We expect the metric with lower intrinsic complexity to yield better generalization error. This partly explains the observed empirical success of norm-regularized optimization for metric learning [7, 8].
+
+Using this as a guiding principle, we can design an improved optimization criteria for metric learning
+
+that jointly minimizes the sample error and a Frobenius norm regularization penalty. In particular,
+
+min
+M M
+
+err(M, Sm)
+
++
+
+
+
+MTM 2 F
+
+(4)
+
+for any error criteria `err' used in a downstream prediction task and a regularization parameter .
+
+Similar optimizations have been studied before [7, 8], here we explore the practical efficacy of
+
+this augmented optimization on existing metric learning algorithms in high noise regimes where a
+
+dataset's intrinsic dimension is much smaller than its representation dimension.
+
+6
+
+Avg. test error Avg. test error Avg. test error
+
+UCI Iris Dataset
+0.8 Random
+0.7 Id. Metric LMNN
+0.6 reg-LMNN ITML reg-ITML
+0.5
+0.4
+0.3
+0.2
+0.1
+0 0 50 100
+Ambient noise dimension
+
+UCI Wine Dataset
+0.7 Random Id. Metric
+0.6 LMNN
+reg-LMNN
+ITML 0.5 reg-ITML
+
+UCI Ionosphere Dataset
+0.5
+0.45
+0.4
+
+0.35
+
+0.4 0.3
+
+0.3 Random 0.25 Id. Metric
+
+LMNN
+
+0.2
+
+reg-LMNN 0.2
+
+ITML
+
+reg-ITML
+
+0.1 0.15
+
+150 0 50 100 150 200 250 300 350 400 450 500
+
+0 20 40 60 80 100 120
+
+Ambient noise dimension
+
+Ambient noise dimension
+
+Figure 1: Nearest-neighbor classification performance of LMNN and ITML metric learning algorithms without regularization (dashed red lines) and with regularization (solid blue lines) on benchmark UCI datasets. The horizontal dotted line is the classification error of random label assignment drawn according to the class proportions, and solid gray line shows classification error of k-NN performance with respect to identity metric (no metric learning) for baseline reference.
+
+5 Empirical Evaluation
+
+Our analysis shows that the generalization error of metric learning can scale with the representation dimension, and regularization can help mitigate this by adapting to the intrinsic metric learning complexity of the given dataset. We want to explore to what degree these effects manifest in practice.
+We select two popular metric learning algorithms, LMNN [1] and ITML [2], that are used to find metrics that improve nearest-neighbor classification quality. These algorithms have varying degrees of regularization built into their optimization criteria: LMNN implicitly regularizes the metric via its "large margin" criterion, while ITML allows for explicit regularization by letting the practitioners specify a "prior" weighting metric. We modified the LMNN optimization criteria as per Eq. (4) to also allow for an explicit norm-regularization controlled by the trade-off parameter .
+We can evaluate how the unregularized criteria (i.e., unmodified LMNN, or ITML with the prior set to the identity matrix) compares to the regularized criteria (i.e., modified LMNN with best , or ITML with the prior set to a low-rank matrix).
+Datasets. We use the UCI benchmark datasets for our experiments: IRIS (4 dim., 150 samples), WINE (13 dim., 178 samples) and IONOSPHERE (34 dim., 351 samples) datasets [11]. Each dataset has a fixed (unknown, but low) intrinsic dimension; we can vary the representation dimension by augmenting each dataset with synthetic correlated noise of varying dimensions, simulating regimes where datasets contain large numbers of uninformative features. Each UCI dataset is augmented with synthetic D-dimensional correlated noise as detailed in Appendix B.
+Experimental setup. Each noise-augmented dataset was randomly split between 70% training, 10% validation, and 20% test samples. We used the default settings for each algorithm. For regularized LMNN, we picked the best performing trade-off parameter  from {0, 0.1, 0.2, ..., 1} on the validation set. For regularized ITML, we seeded with the rank-one discriminating metric, i.e., we set the prior as the matrix with all zeros, except the diagonal entry corresponding to the most discriminating coordinate set to one. All the reported results were averaged over 20 runs.
+Results. Figure 1 shows the nearest-neighbor performance (with k = 3) of LMNN and ITML on noise-augmented UCI datasets. Notice that the unregularized versions of both algorithms (dashed red lines) scale poorly when noisy features are introduced. As the number of uninformative features grows, the performance of both algorithms quickly degrades to that of classification performance in the original unweighted space with no metric learning (solid gray line), showing poor adaptability to the signal in the data.
+The regularized versions of both algorithms (solid blue lines) significantly improve the classification performance. Remarkably, regularized ITML shows almost no degradation in classification perfor-
+
+7
+
+mance, even in very high noise regimes, demonstrating a strong robustness to noise. These results underscore the value of regularization in metric learning, showing that regularization encourages adaptability to the intrinsic complexity and improved robustness to noise.
+6 Discussion and Related Work
+Previous theoretical work on metric learning has focused almost exclusively on analyzing upperbounds on the sample complexity in the distance-based framework, without exploring any intrinsic properties of the input data. Our work improves these results and additionally analyzes the classifierbased framework. It is, to best of our knowledge, the first to provide lower bounds showing that the dependence on D is necessary. Importantly, it is also the first to provide an analysis of sample rates based on a notion of intrinsic complexity of a dataset, which is particularly important in metric learning, where we expect the representation dimension to be much higher than intrinsic complexity.
+[12] studied the norm-regularized convex losses for stable algorithms and showed an upper-bound sublinear in D, which can be relaxed by applying techniques from [13]. We analyze the ERM criterion directly (thus no assumptions are made about the optimization algorithm), and provide a precise characterization of when the problem complexity is independent of D (Lm. 5). Our lowerbound (Thm. 2) shows that the dependence on D is necessary for ERM in the assumption-free case.
+[14] and [15] analyzed the ERM criterion, and are most similar to our results providing an upperbound for the distance-based framework. [14] shows a O(m-1/2) rate for thresholds on bounded convex losses for distance-based metric learning without explicitly studying the dependence on D. Our upper-bound (Thm. 1) improves this result by considering arbitrary (possibly non-convex) distance-based Lipschitz losses and explicitly revealing the dependence on D. [15] provides an alternate ERM analysis of norm-regularized metrics and parallels our norm-bounded analysis in Lemma 5. While they focus on analyzing a specific optimization criterion (thresholds on the hinge loss with norm-regularization), our result holds for general Lipschitz losses. Our Theorem 7 extends it further by explicitly showing when we can expect good generalization performance from a given dataset.
+[16] provides an interesting analysis for robust algorithms by relying upon the existence of a partition of the input space where each cell has similar training and test losses. Their sample complexity bound scales with the partition size, which in general can be exponential in D.
+It is worth emphasizing that none of these closely related works discuss the importance of or leverage the intrinsic structure in data for the metric learning problem. Our results in Section 4 formalize an intuitive notion of dataset's intrinsic complexity for metric learning, and show sample complexity rates that are finely tuned to this metric learning complexity. Our lower bounds indicate that exploiting the structure is necessary to get rates that don't scale with representation dimension D.
+The classifier-based framework we discuss has parallels with the kernel learning and similarity learning literature. The typical focus in kernel learning is to analyze the generalization ability of linear separators in Hilbert spaces [17, 18]. Similarity learning on the other hand is concerned about finding a similarity function (that does not necessarily has a positive semidefinite structure) that can best assist in linear classification [19, 20]. Our work provides a complementary analysis for learning explicit linear transformations of the given representation space for arbitrary hypotheses classes.
+Our theoretical analysis partly justifies the empirical success of norm-based regularization as well. Our empirical results show that such regularization not only helps in designing new metric learning algorithms [7, 8], but can even benefit existing metric learning algorithms in high-noise regimes.
+Acknowledgments
+We would like to thank Aditya Menon for insightful discussions, and the anonymous reviewers for their detailed comments that helped improve the final version of this manuscript.
+8
+
+References
+[1] K.Q. Weinberger and L.K. Saul. Distance metric learning for large margin nearest neighbor classification. Journal of Machine Learning Research (JMLR), 10:207-244, 2009.
+[2] J.V. Davis, B. Kulis, P. Jain, S. Sra, and I.S. Dhillon. Information-theoretic metric learning. International Conference on Machine Learning (ICML), pages 209-216, 2007.
+[3] M. Schultz and T. Joachims. Learning a distance metric from relative comparisons. Neural Information Processing Systems (NIPS), 2004.
+[4] E.P. Xing, A.Y. Ng, M.I. Jordan, and S.J. Russell. Distance metric learning with application to clustering with side-information. Neural Information Processing Systems (NIPS), pages 505-512, 2002.
+[5] B. McFee and G.R.G. Lanckriet. Metric learning to rank. International Conference on Machine Learning (ICML), 2010.
+[6] B. Shaw, B. Huang, and T. Jebara. Learning a distance metric from a network. Neural Information Processing Systems (NIPS), 2011.
+[7] D.K.H. Lim, B. McFee, and G.R.G. Lanckriet. Robust structural metric learning. International Conference on Machine Learning (ICML), 2013.
+[8] M.T. Law, N. Thome, and M. Cord. Fantope regularization in metric learning. Computer Vision and Pattern Recognition (CVPR), 2014.
+[9] M. Anthony and P. Bartlett. Neural network learning: Theoretical foundations. Cambridge University Press, 1999.
+[10] K. Hornik, M. Stinchcombe, and H. White. Multilayer feedforward networks are universal approximators. Neural Networks, 4:359-366, 1989.
+[11] K. Bache and M. Lichman. UCI machine learning repository, 2013.
+[12] R. Jin, S. Wang, and Y. Zhou. Regularized distance metric learning: Theory and algorithm. Neural Information Processing Systems (NIPS), pages 862-870, 2009.
+[13] O. Bousquet and A. Elisseeff. Stability and generalization. Journal of Machine Learning Research (JMLR), 2:499-526, 2002.
+[14] W. Bian and D. Tao. Learning a distance metric by empirical loss minimization. International Joint Conference on Artificial Intelligence (IJCAI), pages 1186-1191, 2011.
+[15] Q. Cao, Z. Guo, and Y. Ying. Generalization bounds for metric and similarity learning. CoRR, abs/1207.5437, 2013.
+[16] A. Bellet and A. Habrard. Robustness and generalization for metric learning. CoRR, abs/1209.1086, 2012.
+[17] Y. Ying and C. Campbell. Generalization bounds for learning the kernel. Conference on Computational Learning Theory (COLT), 2009.
+[18] C. Cortes, M. Mohri, and A. Rostamizadeh. New generalization bounds for learning kernels. International Conference on Machine Learning (ICML), 2010.
+[19] M-F. Balcan, A. Blum, and N. Srebro. Improved guarantees for learning via similarity functions. Conference on Computational Learning Theory (COLT), 2008.
+[20] A. Bellet, A. Habrard, and M. Sebban. Similarity learning for provably accurate sparse linear classification. International Conference on Machine Learning (ICML), 2012.
+[21] Z. Guo and Y. Ying. Generalization classification via regularized similarity learning. Neural Computation, 26(3):497-552, 2014.
+[22] A. Bellet, A. Habrard, and M. Sebban. A survey on metric learning for feature vectors and structured data. CoRR, abs/1306.6709, 2014.
+[23] P. Bartlett and S. Mendelson. Rademacher and Gaussian complexities: Risk bounds and structural results. Journal of Machine Learning Research (JMLR), 3:463-482, 2002.
+[24] R. Vershynin. Introduction to the non-asymptotic analysis of random matrices. In Compressed Sensing, Theory and Applications. 2010.
+9
+

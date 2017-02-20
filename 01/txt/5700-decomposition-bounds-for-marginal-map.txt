@@ -1,0 +1,536 @@
+Decomposition Bounds for Marginal MAP
+
+Wei Ping
+
+Qiang Liu Alexander Ihler
+
+Computer Science, UC Irvine Computer Science, Dartmouth College
+
+{wping,ihler}@ics.uci.edu qliu@cs.dartmouth.edu
+
+Abstract
+Marginal MAP inference involves making MAP predictions in systems defined with latent variables or missing information. It is significantly more difficult than pure marginalization and MAP tasks, for which a large class of efficient and convergent variational algorithms, such as dual decomposition, exist. In this work, we generalize dual decomposition to a generic power sum inference task, which includes marginal MAP, along with pure marginalization and MAP, as special cases. Our method is based on a block coordinate descent algorithm on a new convex decomposition bound, that is guaranteed to converge monotonically, and can be parallelized efficiently. We demonstrate our approach on marginal MAP queries defined on real-world problems from the UAI approximate inference challenge, showing that our framework is faster and more reliable than previous methods.
+
+1 Introduction
+Probabilistic graphical models such as Bayesian networks and Markov random fields provide a useful framework and powerful tools for machine learning. Given a graphical model, inference refers to answering probabilistic queries about the model. There are three common types of inference tasks. The first are max-inference or maximum a posteriori (MAP) tasks, which aim to find the most probable state of the joint probability; exact and approximate MAP inference is widely used in structured prediction [26]. Sum-inference tasks include calculating marginal probabilities and the normalization constant of the distribution, and play a central role in many learning tasks (e.g., maximum likelihood). Finally, marginal MAP tasks are "mixed" inference problems, which generalize the first two types by marginalizing a subset of variables (e.g., hidden variables) before optimizing over the remainder.1 These tasks arise in latent variable models [e.g., 29, 25] and many decision-making problems [e.g., 13]. All three inference types are generally intractable; as a result, approximate inference, particularly convex relaxations or upper bounding methods, are of great interest.
+Decomposition methods provide a useful and computationally efficient class of bounds on inference problems. For example, dual decomposition methods for MAP [e.g., 31] give a class of easy-toevaluate upper bounds which can be directly optimized using coordinate descent [36, 6], subgradient updates [14], or other methods [e.g., 22]. It is easy to ensure both convergence, and that the objective is monotonically decreasing (so that more computation always provides a better bound). The resulting bounds can be used either as stand-alone approximation methods [6, 14], or as a component of search [11]. In summation problems, a notable decomposition bound is tree-reweighted BP (TRW), which bounds the partition function with a combination of trees [e.g., 34, 21, 12, 3]. These bounds are useful in joint inference and learning (or "inferning") frameworks, allowing learning with approximate inference to be framed as a joint optimization over the model parameters and decomposition bound, often leading to more efficient learning [e.g., 23]. However, far fewer methods have been developed for marginal MAP problems.
+1In some literature [e.g., 28], marginal MAP is simply called MAP, and the joint MAP task is called MPE.
+1
+
+In this work, we deveop a decomposition bound that has a number of desirable properties: (1) Generality: our bound is sufficiently general to be applied easily to marginal MAP. (2) Any-time: it yields a bound at any point during the optimization (not just at convergence), so it can be used in an anytime way. (3) Monotonic and convergent: more computational effort gives strictly tighter bounds; note that (2) and (3) are particularly important for high-width approximations, which are expensive to represent and update. (4) Allows optimization over all parameters, including the "weights", or fractional counting numbers, of the approximation; these parameters often have a significant effect on the tightness of the resulting bound. (5) Compact representation: within a given class of bounds, using fewer parameters to express the bound reduces memory and typically speeds up optimization.
+We organize the rest of the paper as follows. Section 2 gives some background and notation, followed by connections to related work in Section 3. We derive our decomposed bound in Section 4, and present a (block) coordinate descent algorithm for monotonically tightening it in Section 5. We report experimental results in Section 6 and conclude the paper in Section 7.
+
+2 Background
+
+Here, we review some background on graphical models and inference tasks. A Markov random field (MRF) on discrete random variables x = [x1, . . . , xn]  X n is a probability distribution,
+
+p(x; ) = exp
+
+(x) - () ; () = log
+
+exp
+
+(x) ,
+
+(1)
+
+F
+
+xX n
+
+F
+
+where F is a set of subsets of the variables, each associated with a factor , and () is the log partition function. We associate an undirected graph G = (V, E) with p(x) by mapping each xi to a node i  V , and adding an edge ij  E iff there exists   F such that {i, j}  . We say node
+i and j are neighbors if ij  E. Then, F is the subset of cliques (fully connected subgraphs) of G.
+
+The use and evaluation of a given MRF often involves different types of inference tasks. Marginalization, or sum-inference tasks perform a sum over the configurations to calculate the log partition function  in (1), marginal probabilities, or the probability of some observed evidence. On the other hand, the maximum a posteriori (MAP), or max-inference tasks perform joint maximization to find configurations with the highest probability, that is, 0() = maxx F (x).
+A generalization of max- and sum- inference is marginal MAP, or mixed-inference, in which we are interested in first marginalizing a subset A of variables (e.g., hidden variables), and then maximizing the remaining variables B (whose values are of direct interest), that is,
+
+AB ()
+
+=
+
+max
+xB
+
+Q(xB
+
+)
+
+=
+
+max log
+xB
+
+xA
+
+exp
+
+(x) ,
+F
+
+(2)
+
+where A  B = V (all the variables) and A  B = . Obviously, both sum- and max- inference are
+
+special cases of marginal MAP when A = V and B = V , respectively.
+
+It will be useful to define an even more general inference task, based on a power sum operator:
+
+i
+f (xi) =
+
+f (xi)1/i i ,
+
+xi xi
+
+where f (xi) is any non-negative function and i is a temperature or weight parameter. The power sum reduces to a standard sum when i = 1, and approaches maxx f (x) when i  0+, so that we define the power sum with i = 0 to equal the max operator.
+
+The power sum is helpful for unifying max- and sum- inference [e.g., 35], as well as marginal
+
+MAP [15]. Specifically, we can apply power sums with different weights i to each variable xi along a predefined elimination order (e.g., [x1, . . . , xn]), to define the weighted log partition function:
+
+ n 1
+
+ () = log exp((x)) = log . . . exp((x)),
+
+(3)
+
+x xn x1
+
+where we note that the value of (3) depends on the elimination order unless all the weights are equal.
+
+Obviously, (3) includes marginal MAP (2) as a special case by setting weights A = 1 and B = 0. This representation provides a useful tool for understanding and deriving new algorithms for general
+
+inference tasks, especially marginal MAP, for which relatively few efficient algorithms exist.
+
+2
+
+3 Related Work
+Variational upper bounds on MAP and the partition function, along with algorithms for providing fast, convergent optimization, have been widely studied in the last decade. In MAP, dual decomposition and linear programming methods have become a dominating approach, with numerous optimization techniques [36, 6, 32, 14, 37, 30, 22], and methods to tighten the approximations [33, 14].
+For summation problems, most upper bounds are derived from the tree-reweighted (TRW) family of convex bounds [34], or more generally conditional entropy decompositions [5]. TRW bounds can be framed as optimizing over a convex combination of tree-structured models, or in a dual representation as a message-passing, TRW belief propagation algorithm. This illustrates a basic tension in the resulting bounds: in its primal form 2 (combination of trees), TRW is inefficient: it maintains a weight and O(|V |) parameters for each tree, and a large number of trees may be required to obtain a tight bound; this uses memory and makes optimization slow. On the other hand, the dual, or free energy, form uses only O(|E|) parameters (the TRW messages) to optimize over the set of all possible spanning trees - but, the resulting optimization is only guaranteed to be a bound at convergence, 3 making it difficult to use in an anytime fashion. Similarly, the gradient of the weights is only correct at convergence, making it difficult to optimize over these parameters; most implementations [e.g., 24] simply adopt fixed weights.
+Thus, most algorithms do not satisfy all the desirable properties listed in the introduction. For example, many works have developed convergent message-passing algorithms for convex free energies [e.g., 9, 10]. However, by optimizing the dual they do not provide a bound until convergence, and the representation and constraints on the counting numbers do not facilitate optimizing the bound over these parameters. To optimize counting numbers, [8] adopt a more restrictive free energy form requiring positive counting numbers on the entropies; but this cannot represent marginal MAP, whose free energy involves conditional entropies (equivalent to the difference between two entropy terms).
+On the other hand, working in the primal domain ensures a bound, but usually at the cost of enumerating a large number of trees. [12] heuristically select a small number of trees to avoid being too inefficient, while [21] focus on trying to speed up the updates on a given collection of trees. Another primal bound is weighted mini-bucket (WMB, [16]), which can represent a large collection of trees compactly and is easily applied to marginal MAP using the weighted log partition function viewpoint [15, 18]; however, existing optimization algorithms for WMB are non-monotonic, and often fail to converge, especially on marginal MAP tasks.
+While our focus is on variational bounds [16, 17], there are many non-variational approaches for marginal MAP as well. [27, 38] provide upper bounds on marginal MAP by reordering the order in which variables are eliminated, and using exact inference in the reordered join-tree; however, this is exponential in the size of the (unconstrained) treewidth, and can easily become intractable. [20] give an approximation closely related to mini-bucket [2] to bound the marginal MAP; however, unlike (weighted) mini-bucket, these bounds cannot be improved iteratively. The same is true for the algorithm of [19], which also has a strong dependence on treewidth. Other examples of marginal MAP algorithms include local search [e.g., 28] and Markov chain Monte Carlo methods [e.g., 4, 39].
+4 Fully Decomposed Upper Bound
+In this section, we develop a new general form of upper bound and provide an efficient, monotonically convergent optimization algorithm. Our new bound is based on fully decomposing the graph into disconnected cliques, allowing very efficient local computation, but can still be as tight as WMB or the TRW bound with a large collection of spanning trees once the weights and shifting variables are chosen or optimized properly. Our bound reduces to dual decomposition for MAP inference, but is applicable to more general mixed-inference settings.
+Our main result is based on the following generalization of the classical Holder's inequality [7]:
+2Despite the term "dual decomposition" used in MAP tasks, in this work we refer to decomposition bounds as "primal" bounds, since they can be viewed as directly bounding the result of variable elimination. This is in contrast to, for example, the linear programming relaxation of MAP, which bounds the result only after optimization.
+3See an example on Ising model in Supplement A.
+3
+
+Theorem 4.1. For a given graphical model p(x; ) in (1) with cliques F = {} and a set of nonnegative weights  = {i  0, i  V }, we define a set of "split weights" w = {wi  0, i  } on each variable-clique pair (i, ), that satisfies | i wi = i. Then we have
+ w
+
+exp (x) 
+
+exp (x) ,
+
+(4)
+
+x F
+
+F x
+
+where the left-hand side is the powered-sum along order [x1, . . . , xn] as defined in (3), and the
+
+right-hand side is the product of the powered-sums on subvector x with weights w along
+
+the same elimination order; that is,
+
+w x
+
+exp
+
+(x)
+
+=
+
+wkc xkc
+
+*
+
+*
+
+*
+
+wxkk11 exp (x) , where
+
+x = [xk1 , . . . , xkc ] should be ranked with increasing index, consisting with the elimination order
+
+[x1, . . . , xn] as used in the left-hand side.
+
+Proof details can be found in Section E of the supplement. A key advantage of the bound (4) is that it decomposes the joint power sum on x into a product of independent power sums over smaller cliques x, which significantly reduces computational complexity and enables parallel computation.
+
+4.1 Including Cost-shifting Variables
+
+In order to increase the flexibility of the upper bound, we introduce a set of cost-shifting or repa-
+
+rameterization variables  = {i(xi) | (i, ), i  } on each variable-factor pair (i, ), which can be optimized to provide a much tighter upper bound. Note that  () can be rewritten as,
+
+
+ () = log exp
+
+i(xi) +
+
+(x) - i(xi) ,
+
+x iV Ni
+
+F
+
+i
+
+where Ni = { |  i} is the set of cliques incident to i. Applying inequality (4), we have that
+
+ () 
+
+wi
+log exp
+
+i(xi) +
+
+w
+log exp (x) -
+
+i(xi) =de=f L(, w), (5)
+
+iV
+
+xi
+
+Ni
+
+F
+
+x
+
+i
+
+where the nodes i  V are also treated as cliques within inequality (4), and a new weight wi is introduced on each variable i; the new weights w = {wi, wi | (i, ), i  } should satisfy
+
+wi +
+
+wi = i, wi  0, wi  0, (i, ).
+
+(6)
+
+Ni
+
+The bound L(, w) is convex w.r.t. the cost-shifting variables  and weights w, enabling an efficient optimization algorithm that we present in Section 5. As we will discuss in Section 5.1, these shifting variables correspond to Lagrange multipliers that enforce a moment matching condition.
+
+4.2 Dual Form and Connection With Existing Bounds
+
+It is straightforward to see that our bound in (5) reduces to dual decomposition [31] when applied on MAP inference with all i = 0, and hence wi = wi = 0. On the other hand, its connection with sum-inference bounds such as WMB and TRW is seen more clearly via a dual representation of (5):
+
+Theorem 4.2. The tightest upper bound obtainable by (5), that is,
+
+min min L(, w) = min max
+
+w
+
+w bL(G)
+
+, b + wiH(xi; bi) +
+
+wiH(xi|xpai ; b) , (7)
+
+iV F i
+
+where b = {bi(xi), b(x) | (i, ), i  } is a set of pseudo-marginals (or beliefs) defined on the singleton variables and the cliques, and L is the corresponding local consistency polytope defined by L(G) = {b | bi(xi) = x\i b(x), xi bi(xi) = 1}. Here, H(*) are their corresponding marginal or conditional entropies, and pai is the set of variables in  that rank later than i, that is, for the global elimination order [x1, . . . , xn], pai = {j   | j i}.
+The proof details can be found in Section F of the supplement. It is useful to compare Theorem 4.2 with other dual representations. As the sum of non-negatively weighted conditional entropies, the bound is clearly convex and within the general class of conditional entropy decompositions (CED) [5], but unlike generic CED it has a simple and efficient primal form (5). 4 Comparing
+
+4The primal form derived in [5] (a geometric program) is computationally infeasible.
+
+4
+
+(a) 3 x 3 grid (b) WMB: covering tree (c) Full decomposition (d) TRW
+Figure 1: Illustrating WMB, TRW and our bound on (a) 3 x 3 grid. (b) WMB uses a covering tree with a minimal number of splits and cost-shifting. (c) Our decomposition (5) further splits the graph into small cliques (here, edges), introducing additional cost-shifting variables but allowing for easier, monotonic optimization. (d) Primal TRW splits the graph into many spanning trees, requiring even more cost-shifting variables. Note that all three bounds attain the same tightness after optimization.
+
+to the dual form of WMB in Theorem 4.2 of [16], our bound is as tight as WMB, and hence the class of TRW / CED bounds attainable by WMB [16]. Most duality-based forms [e.g., 9, 10] are expressed in terms of joint entropies, , b +  cH(b), rather than conditional entropies; while the two can be converted, the resulting counting numbers c will be differences of weights {wi}, 5 which obfuscates its convexity, makes it harder to maintain the relative constraints on the counting numbers during optimization, and makes some counting numbers negative (rendering some methods inapplicable [8]). Finally, like most variational bounds in dual form, the RHS of (7) has a inner maximization and hence guaranteed to bound  () only at its optimum.
+In contrast, our Eq. (5) is a primal bound (hence, a bound for any ). It is similar to the primal form of TRW, except that (1) the individual regions are single cliques, rather than spanning trees of the graph, 6 and (2) the fraction weights w associated with each region are vectors, rather than a single scalar. The representation's efficiency can be seen with an example in Figure 1, which shows a 3 x 3 grid model and three relaxations that achieve the same bound. Assuming d states per variable and ignoring the equality constraints, our decomposition in Figure 1(c) uses 24d cost-shifting parameters (), and 24 weights. WMB (Figure 1(b)) is slightly more efficient, with only 8d parameters for  and and 8 weights, but its lack of decomposition makes parallel and monotonic updates difficult. On the other hand, the equivalent primal TRW uses 16 spanning trees, shown in Figure 1(d), for 16 * 8 * d2 parameters, and 16 weights. The increased dimensionality of the optimization slows convergence, and updates are non-local, requiring full message-passing sweeps on the involved trees (although this cost can be amortized in some cases [21]).
+
+5 Monotonically Tightening the Bound
+
+In this section, we propose a block coordinate descent algorithm (Algorithm 1) to minimize the upper bound L(, w) in (5) w.r.t. the shifting variables  and weights w. Our algorithm has a monotonic convergence property, and allows efficient, distributable local computation due to the full decomposition of our bound. Our framework allows generic powered-sum inference, including max-, sum-, or mixed-inference as special cases by setting different weights.
+
+5.1 Moment Matching and Entropy Matching
+
+We start with deriving the gradient of L(, w) w.r.t.  and w. We show that the zero-gradient equation w.r.t.  has a simple form of moment matching that enforces a consistency between the singleton beliefs with their related clique beliefs, and that of weights w enforces a consistency of marginal and conditional entropies.
+
+Theorem 5.1. (1) For L(, w) in (5), its zero-gradient w.r.t. i(xi) is
+
+L
+
+i(xi)
+
+=
+
+i(xi) - (x)
+x\i
+
+=
+
+0,
+
+(8)
+
+5See more details of this connection in Section F.3 of the supplement. 6While non-spanning subgraphs can be used in the primal TRW form, doing so leads to loose bounds; in
+contrast, our decomposition's terms consist of individual cliques.
+
+5
+
+Algorithm 1 Generalized Dual-decomposition (GDD)
+Input: weights {i | i  V }, elimination order o. Output: the optimal , w giving tightest upper bound L(, w) for  () in (5).
+initialize  = 0 and weights w = {wi, wi}. repeat
+for node i (in parallel with node j, (i, j)  E) do if i = 0 then update Ni = {i|  Ni} with the closed-form update (11); else if i = 0 then update Ni and wNi with gradient descent (8) and(12), combined with line search; end if
+end for until convergence   , w  w, and evaluate L(, w) by (5);
+Remark. GDD solves max-, sum- and mixed-inference by setting different values of weights {i}.
+
+where i(xi)  exp
+
+1 wi
+
+Ni i(xi) can be interpreted as a singleton belief on xi, and (x)
+
+can be viewed as clique belief on x, defined with a chain rule (assuming x = [x1, . . . , xc]),
+
+(x) =
+
+c i=1
+
+(xi|xi+1:c);
+
+(xi|xi+1:c)
+
+=
+
+(Zi-1(xi:c)/Zi(xi+1:c))1/wi , where Zi
+
+is the
+
+partial powered-sum up to x1:i on the clique, that is,
+
+wi w1
+
+Zi(xi+1:c) = * * * exp (x) - i(xi) , Z0(x) = exp (x) - i(xi) ,
+
+xi x1
+
+i
+
+i
+
+where the summation order should be consistent with the global elimination order o = [x1, . . . , xn].
+
+(2) The gradients of L(, w) w.r.t. the weights {wi, wi} are marginal and conditional entropies defined on the beliefs {i, }, respectively,
+
+L wi = H(xi; i),
+
+L wi = H(xi|xi+1:c; ) = - x (x) log (xi|xi+1:c).
+
+(9)
+
+Therefore, the optimal weights should satisfy the following KKT condition
+
+wi H(xi; i) - Hi = 0, wi H(xi|xi+1:c; ) - Hi = 0, (i, )
+
+(10)
+
+where Hi = wiH(xi; i) +  wiH(xi|xi+1:c; ) is the (weighted) average entropy on node i.
+
+The proof details can be found in Section G of the supplement. The matching condition (8) enforces that  = {i,  | (i, )} belong to the local consistency polytope L as defined in Theorem 4.2; similar moment matching results appear commonly in variational inference algorithms [e.g., 34].
+[34] also derive a gradient of the weights, but it is based on the free energy form and is correct only after optimization; our form holds at any point, enabling efficient joint optimization of  and w.
+
+5.2 Block Coordinate Descent
+We derive a block coordinate descent method in Algorithm 1 to minimize our bound, in which we sweep through all the nodes i and update each block Ni = {i(xi) |   Ni} and wNi = {wi, wi |   Ni} with the neighborhood parameters fixed. Our algorithm applies two update types, depending on whether the variables have zero weight: (1) For nodes with i = 0 (corresponding to max nodes i  B in marginal MAP), we derive a closed-form coordinate descent rule for the associated shifting variables Ni ; these nodes do not require to optimize wNi since it is fixed to be zero. (2) For nodes with i = 0 (e.g., sum nodes i  A in marginal MAP), we lack a closed form update for Ni and wNi , and optimize by local gradient descent combined with line search.
+The lack of a closed form coordinate update for nodes i = 0 is mainly because the order of power sums with different weights cannot be exchanged. However, the gradient descent inner loop is still efficient, because each gradient evaluation only involves the local variables in clique .
+Closed-form Update. For any node i with i = 0 (i.e., max nodes i  B in marginal MAP), and its associated Ni = {i(xi) |   Ni}, the following update gives a closed form solution for the zero (sub-)gradient equation in (8) (keeping the other {j|j = i,   Ni} fixed):
+
+6
+
+i(xi)
+
+
+
+|Ni| |Ni| +
+
+1 i(xi)
+
+-
+
+1 |Ni| +
+
+1 i(xi),
+ Ni \
+
+(11)
+
+where |Ni| is the number j\i j(xj ) . Note that
+
+of the
+
+neighborhood update in (11)
+
+cliques, and i(xi) = log works regardless of the weights
+
+w\i x\i
+
+exp
+
+of nodes
+
+(x) {j | j
+
+- 
+
+,   Ni} in the neighborhood cliques; when all the neighboring nodes also have zero weight (j = 0 for j  ,   Ni), it is analogous to the "star" update of dual decomposition for
+
+MAP [31]. The detailed derivation is shown in Proposition H.2 in the supplement.
+
+The update in (11) can be calculated with a cost of only O(|Ni| * d||), where d is the number of states of xi, and || is the clique size, by computing and saving all the shared {i(xi)} before updating Ni . Furthermore, the updates of Ni for different nodes i are independent if they are not directly connected by some clique ; this makes it easy to parallelize the coordinate descent process
+by partitioning the graph into independent sets, and parallelizing the updates within each set.
+
+Local Gradient Descent. For nodes with i = 0 (or i  A in marginal MAP), there is no closedform solution for {i(xi)} and {wi, wi} to minimize the upper bound. However, because of the
+fully decomposed form, the gradient w.r.t. Ni and wNi , (8)-(9), can be evaluated efficiently via local computation with O(|Ni| * d||), and again can be parallelized between nonadjacent nodes.
+
+To handle the normalization constraint (6) on wNi , we use an exponential gradient descent: let
+
+wi = exp(vi)/ gradient w.r.t. vi
+
+exp(vi) and vi
+
++ and
+
+ exp(vi) and wi = exp(vi)/ exp(vi) + transforming back gives the following update
+
+ exp(vi) ; taking the
+
+wi  wi exp - wi H(xi; i) - Hi , wi  wi exp - wi H(xi|xpai ; ) - Hi , (12)
+
+where  is the step size and pai = {j   | j i}. In our implementation, we find that a few gradient steps (e.g., 5) with a backtracking line search using the Armijo rule works well in practice. Other
+
+more advanced optimization methods, such as L-BFGS and Newton's method are also applicable.
+
+6 Experiments
+In this section, we demonstrate our algorithm on a set of real-world graphical models from recent UAI inference challenges, including two diagnostic Bayesian networks with 203 and 359 variables and max domain sizes 7 and 6, respectively, and several MRFs for pedigree analysis with up to 1289 variables, max domain size of 7 and clique size 5.7 We construct marginal MAP problems on these models by randomly selecting half of the variables to be max nodes, and the rest as sum nodes.
+We implement several algorithms that optimize the same primal marginal MAP bound, including our GDD (Algorithm 1), the WMB algorithm in [16] with ibound = 1, which uses the same cliques and a fixed point heuristic for optimization, and an off-the-shelf L-BFGS implementation that directly optimizes our decomposed bound. For comparison, we also computed several related primal bounds, including standard mini-bucket [2] and elimination reordering [27, 38], limited to the same computational limits (ibound = 1). We also tried MAS [20] but found its bounds extremely loose.8
+Decoding (finding a configuration xB) is more difficult in marginal MAP than in joint MAP. We use the same local decoding procedure that is standard in dual decomposition [31]. However, evaluating the objective Q(xB) involves a potentially difficult sum over xA, making it hard to score each decoding. For this reason, we evaluate the score of each decoding, but show the most recent decoding rather than the best (as is standard in MAP) to simulate behavior in practice.
+Figure 2 and Figure 3 compare the convergence of the different algorithms, where we define the iteration of each algorithm to correspond to a full sweep over the graph, with the same order of time complexity: one iteration for GDD is defined in Algorithm 1; for WMB is a full forward and backward message pass, as in Algorithm 2 of [16]; and for L-BFGS is a joint quasi-Newton step on all variables. The elimination order that we use is obtained by a weighted-min-fill heuristic [1] constrained to eliminate the sum nodes first.
+Diagnostic Bayesian Networks. Figure 2(a)-(b) shows that our GDD converges quickly and monotonically on both the networks, while WMB does not converge without proper damping; we
+7See http://graphmod.ics.uci.edu/uai08/Evaluation/Report/Benchmarks. 8The instances tested have many zero probabilities, which make finding lower bounds difficult; since MAS' bounds are symmetrized, this likely contributes to its upper bounds being loose.
+
+7
+
+Bound Bound
+
+10 0
+-10 -20 -30 -40 -50
+0
+
+WMB-0.025 WMB-0.035 WMB-0.045 GDD L-BFGS MBE Elimination reordering Decoded value (WMB) Decoded value (GDD)
+
+5 10 15 Iterations
+
+20
+
+(a) BN-1 (203 nodes)
+
+10
+
+0
+
+-10
+
+-20
+
+-30
+
+-40
+
+-50
+
+-60 0
+
+5 10 15 Iterations
+
+(b) BN-2 (359 nodes)
+
+WMB-0.015 WMB-0.020 WMB-0.025 GDD L-BFGS MBE Elimination reordering Decoded value (WMB) Decoded value (GDD)
+20
+
+Figure 2: Marginal MAP results on BN-1 and BN-2 with 50% randomly selected max-nodes (ad-
+ditional plots are in the supplement B). We plot the upper bounds of different algorithms across
+iterations; the objective function Q(xB) (2) of the decoded solutions xB are also shown (dashed lines). At the beginning, Q(xB) may equal to - because of zero probabiliy.
+
+Upper Bound Upper Bound Upper Bound
+
+-35 -40 -45 -50
+
+WMB-0.01 WMB-0.02 WMB-0.03 WMB-0.04 WMB-0.05 GDD MBE Elim reordering
+
+-55 0 5 10 15 20 Iterations
+(a) pedigree1 (334 nodes)
+
+-60 -80 -100 -120
+
+WMB-0.01 WMB-0.02 WMB-0.03 WMB-0.04 WMB-0.05 GDD MBE Elim reordering
+
+-140
+0 5 10 15 20 Iterations
+(b) pedigree7 (1068 nodes)
+
+-20 -40 -60 -80 -100
+
+WMB-0.01 WMB-0.02 WMB-0.03 WMB-0.04 WMB-0.05 GDD MBE Elim reordering
+
+-120
+
+-140 0
+
+5 10 15 Iterations
+
+20
+
+(c) pedigree9 (1118 nodes)
+
+Figure 3: Marginal MAP inference on three pedigree models (additional plots are in the supplement C). We randomly select half the nodes as max-nodes in these models. We tune the damping rate of WMB from 0.01 to 0.05.
+
+experimented different damping ratios for WMB, and found that it is slower than GDD even with the best damping ratio found (e.g., in Figure 2(a), WMB works best with damping ratio 0.035 (WMB0.035), but is still significantly slower than GDD). Our GDD also gives better decoded marginal MAP solution xB (obtained by rounding the singleton beliefs). Both WMB and our GDD provide a much tighter bound than the non-iterative mini-bucket elimination (MBE) [2] or reordered elimination [27, 38] methods.
+Genetic Pedigree Instances. Figure 3 shows similar results on a set of pedigree instances. Again, GDD outperforms WMB even with the best possible damping, and out-performs the non-iterative bounds after only one iteration (pass through the graph).
+
+7 Conclusion
+In this work, we propose a new class of decomposition bounds for general powered-sum inference, which is capable of representing a large class of primal variational bounds but is much more computationally efficient. Unlike previous primal sum bounds, our bound decomposes into computations on small, local cliques, increasing efficiency and enabling parallel and monotonic optimization. We derive a block coordinate descent algorithm for optimizing our bound over both the cost-shifting parameters (reparameterization) and weights (fractional counting numbers), which generalizes dual decomposition and enjoy similar monotonic convergence property. Taking the advantage of its monotonic convergence, our new algorithm can be widely applied as a building block for improved heuristic construction in search, or more efficient learning algorithms.
+Acknowledgments
+This work is sponsored in part by NSF grants IIS-1065618 and IIS-1254071. Alexander Ihler is also funded in part by the United States Air Force under Contract No. FA8750-14-C-0011 under the DARPA PPAML program.
+
+8
+
+References
+[1] R. Dechter. Reasoning with probabilistic and deterministic graphical models: Exact algorithms. Synthesis Lectures on Artificial Intelligence and Machine Learning, 2013.
+[2] R. Dechter and I. Rish. Mini-buckets: A general scheme for bounded inference. JACM, 2003. [3] J. Domke. Dual decomposition for marginal inference. In AAAI, 2011. [4] A. Doucet, S. Godsill, and C. Robert. Marginal maximum a posteriori estimation using Markov chain
+Monte Carlo. Statistics and Computing, 2002. [5] A. Globerson and T. Jaakkola. Approximate inference using conditional entropy decompositions. In
+AISTATS, 2007. [6] A. Globerson and T. Jaakkola. Fixing max-product: Convergent message passing algorithms for MAP
+LP-relaxations. In NIPS, 2008. [7] G. H. Hardy, J. E. Littlewood, and G. Polya. Inequalities. Cambridge University Press, 1952. [8] T. Hazan, J. Peng, and A. Shashua. Tightening fractional covering upper bounds on the partition function
+for high-order region graphs. In UAI, 2012. [9] T. Hazan and A. Shashua. Convergent message-passing algorithms for inference over general graphs with
+convex free energies. In UAI, 2008. [10] T. Hazan and A. Shashua. Norm-product belief propagation: Primal-dual message-passing for approxi-
+mate inference. IEEE Transactions on Information Theory, 2010. [11] A. Ihler, N. Flerova, R. Dechter, and L. Otten. Join-graph based cost-shifting schemes. In UAI, 2012. [12] J. Jancsary and G. Matz. Convergent decomposition solvers for TRW free energies. In AISTATS, 2011. [13] I. Kiselev and P. Poupart. Policy optimization by marginal MAP probabilistic inference in generative
+models. In AAMAS, 2014. [14] N. Komodakis, N. Paragios, and G. Tziritas. MRF energy minimization and beyond via dual decomposi-
+tion. TPAMI, 2011. [15] Q. Liu. Reasoning and Decisions in Probabilistic Graphical Models-A Unified Framework. PhD thesis,
+University of California, Irvine, 2014. [16] Q. Liu and A. Ihler. Bounding the partition function using Holder's inequality. In ICML, 2011. [17] Q. Liu and A. Ihler. Variational algorithms for marginal MAP. JMLR, 2013. [18] R. Marinescu, R. Dechter, and A. Ihler. AND/OR search for marginal MAP. In UAI, 2014. [19] D. Maua and C. de Campos. Anytime marginal maximum a posteriori inference. In ICML, 2012. [20] C. Meek and Y. Wexler. Approximating max-sum-product problems using multiplicative error bounds.
+Bayesian Statistics, 2011. [21] T. Meltzer, A. Globerson, and Y. Weiss. Convergent message passing algorithms: a unifying view. In
+UAI, 2009. [22] O. Meshi and A. Globerson. An alternating direction method for dual MAP LP relaxation. In
+ECML/PKDD, 2011. [23] O. Meshi, D. Sontag, T. Jaakkola, and A. Globerson. Learning efficiently with approximate inference via
+dual losses. In ICML, 2010. [24] J. Mooij. libDAI: A free and open source C++ library for discrete approximate inference in graphical
+models. JMLR, 2010. [25] J. Naradowsky, S. Riedel, and D. Smith. Improving NLP through marginalization of hidden syntactic
+structure. In EMNLP, 2012. [26] S. Nowozin and C. Lampert. Structured learning and prediction in computer vision. Foundations and
+Trends in Computer Graphics and Vision, 6, 2011. [27] J. Park and A. Darwiche. Solving MAP exactly using systematic search. In UAI, 2003. [28] J. Park and A. Darwiche. Complexity results and approximation strategies for MAP explanations. JAIR,
+2004. [29] W. Ping, Q. Liu, and A. Ihler. Marginal structured SVM with hidden variables. In ICML, 2014. [30] N. Ruozzi and S. Tatikonda. Message-passing algorithms: Reparameterizations and splittings. IEEE
+Transactions on Information Theory, 2013. [31] D. Sontag, A. Globerson, and T. Jaakkola. Introduction to dual decomposition for inference. Optimization
+for Machine Learning, 2011. [32] D. Sontag and T. Jaakkola. Tree block coordinate descent for MAP in graphical models. AISTATS, 2009. [33] D. Sontag, T. Meltzer, A. Globerson, T. Jaakkola, and Y. Weiss. Tightening LP relaxations for MAP using
+message passing. In UAI, 2008. [34] M. Wainwright, T. Jaakkola, and A. Willsky. A new class of upper bounds on the log partition function.
+IEEE Transactions on Information Theory, 2005. [35] Y. Weiss, C. Yanover, and T. Meltzer. MAP estimation, linear programming and belief propagation with
+convex free energies. In UAI, 2007. [36] T. Werner. A linear programming approach to max-sum problem: A review. TPAMI, 2007. [37] J. Yarkony, C. Fowlkes, and A. Ihler. Covering trees and lower-bounds on quadratic assignment. In CVPR,
+2010. [38] C. Yuan and E. Hansen. Efficient computation of jointree bounds for systematic map search. IJCAI, 2009. [39] C. Yuan, T. Lu, and M. Druzdzel. Annealed MAP. In UAI, 2004.
+9
+

@@ -1,0 +1,434 @@
+Softstar: Heuristic-Guided Probabilistic Inference
+
+Mathew Monfort Computer Science Department University of Illinois at Chicago
+Chicago, IL 60607 mmonfo2@uic.edu
+
+Brenden M. Lake Center for Data Science
+New York University New York, NY 10003 brenden@nyu.edu
+
+Brian D. Ziebart Computer Science Department University of Illinois at Chicago
+Chicago, IL 60607 bziebart@uic.edu
+
+Patrick Lucey Disney Research Pittsburgh
+Pittsburgh, PA 15232 patrick.lucey@disneyresearch.com
+
+Joshua B. Tenenbaum Brain and Cognitive Sciences Department
+Massachusetts Institute of Technology Cambridge, MA 02139 jbt@mit.edu
+
+Abstract
+Recent machine learning methods for sequential behavior prediction estimate the motives of behavior rather than the behavior itself. This higher-level abstraction improves generalization in different prediction settings, but computing predictions often becomes intractable in large decision spaces. We propose the Softstar algorithm, a softened heuristic-guided search technique for the maximum entropy inverse optimal control model of sequential behavior. This approach supports probabilistic search with bounded approximation error at a significantly reduced computational cost when compared to sampling based methods. We present the algorithm, analyze approximation guarantees, and compare performance with simulation-based inference on two distinct complex decision tasks.
+1 Introduction
+Inverse optimal control (IOC) [15], also known as inverse reinforcement learning [20, 1] and inverse planning [3], has become a powerful technique for learning to control or make decisions based on expert demonstrations [1, 22]. IOC estimates the utilities of a decision process that rationalizes an expert's demonstrated control sequences. Those estimated utilities can then be used in an (optimal) controller to solve new decision problems, producing behavior that is similar to demonstrations.
+Predictive extensions to IOC [19, 26, 2, 18, 21, 6] recognize the inconsistencies, and inherent suboptimality, of repeated behavior by incorporating uncertainty. They provide probabilistic forecasts of future decisions in which stochasticity is due to this uncertainty rather than the stochasticity of the decision process's dynamics. These models' distributions over plans and policies can typically be defined as softened versions of optimal sequential decision criteria.
+A key challenge for predictive IOC is that many decision sequences are embedded within large decision processes. Symmetries in the decision process can be exploited to improve efficiency [24], but decision processes are not guaranteed to be (close to) symmetric. Approximation approaches to probabilistic structured prediction include approximate maxent IOC [14], heuristic-guided sampling [17], and graph-based IOC [7]. However, few guarantees are provided by these approaches; they are not complete and the set of variable assignments uncovered may not be representative of the model's distribution.
+Seeking to provide stronger guarantees and improve efficiency over previous methods, we present Softstar, a heuristic-guided probabilistic search algorithm for inverse optimal control. Our approach
+1
+
+generalizes the A* search algorithm [8] to calculate distributions over decision sequences in predictive IOC settings allowing for efficient bounded approximations of the near-optimal path distribution through a decision space. This distribution can then be used to update a set of trainable parameters, , that motivate the behavior of the decision process via a cost/reward function [20, 1, 3, 26].
+We establish theoretical guarantees of this approach and demonstrate its effectiveness in two settings: learning stroke trajectories for Latin characters and modeling the ball-handling decision process of professional soccer.
+
+2 Background
+
+2.1 State-space graphs and Heuristic-guided search
+
+In this work, we restrict our consideration to deterministic planning tasks with discrete state spaces. The space of plans and their costs can be succinctly represented using a state-space graph, G = (S, E, cost). With vertices, s  S, representing states of the planning task and directed edges, eab  E, representing available transitions between states sa and sb. The neighbor set of state s, N (s), is the set of states to which s has a directed edge and a cost function, cost(s, s ), represents the relative desirability of transitioning between states s and s .
+The optimal plan from state s1 to goal state sT is a variable-length sequence of states (s1, s2, . . . , sT ) forming a path through the graph minimizing a cumulative penalty. Letting h(s) represent the cost
+of the optimal path from state s to state sT (i.e., the cost-to-go or value of s) and defining h(sT ) 0, the optimal path corresponds to a fixed-point solution of the next state selection criterion [5]:
+
+h(s) = min h(s ) + cost(s, s ),
+s N (s)
+
+st+1 = argmin h(s ) + cost(st, s ).
+s N (st)
+
+(1)
+
+The optimal path distance to the start state, d(s), can be similarly defined (with d(s1) 0) as
+
+d(s) = min d(s ) + cost(s , s).
+s :sN (s )
+
+(2)
+
+Dynamic programming algorithms, such as Dijkstra's [9], search the space of paths through the state-space graph in order of increasing d(s) to find the optimal path. Doing so implicitly considers all paths up to the length of the optimal path to the goal.
+Additional knowledge can significantly reduce the portion of the state space needed to be explored to obtain an optimal plan. For example, A* search [13] explores partial state sequences by expanding states that minimize an estimate, f (s) = d(s) + h(s), combining the minimal cost to reach state s, d(s), with a heuristic estimate of the remaining cost-to-go, h(s). A priority queue is used to keep track of expanded states and their respective estimates. A* search then expands the state at the top of the queue (lowest f (s)) and adds its neighboring states to the queue. When the heuristic estimate is admissible (i.e. h(s)  h(s)  s  S), the algorithm terminates with a guaranteed optimal solution once the best "unexpanded" state's estimate, f (s), is worse than the best discovered path to the goal.
+
+2.2 Predictive inverse optimal control
+Maximum entropy IOC algorithms [26, 25] estimate a stochastic action policy that is most uncertain while still guaranteeing the same expected cost as demonstrated behavior on an unknown cost function [1]. For planning settings with deterministic dynamics, this yields a probability distribution over state sequences that are consistent with paths through the state-space graph, P(s1:T )  e-cost(s1:T ),
+T -1
+where cost(s1:T ) = Tf (st, st+1) is a linearly weighted vector of state-transition features
+t=1
+combined using the feature function, f (st, st+1), and a learned parameter vector, . Calculating the marginal state probabilities of this distribution is important for estimating model parameters. The forward-backward algorithm [4] can be employed, but for large state-spaces it may not be practical.
+
+2
+
+3 Approach
+
+Motivated by the efficiency of heuristic-guided search algorithms for optimal planning, we define an analogous approximation task in the predictive inference setting and present an algorithm that leverages heuristic functions to accomplish this task efficiently with bounded approximation error.
+The problem being addressed is the inefficiency of existing inference methods for reward/cost-based probabilistic models of behavior. We present a method using ideas from heuristic-guided search (i.e., A*) for estimating path distributions through large scale deterministic graphs with bounded approximation guarantees. This is an improvement over previous methods as it results in more accurate distribution estimations without the complexity/sub-optimality concerns of path sampling and is suitable for any problem that can be represented as such a graph.
+Additionally, since the proposed method does not sample paths, but instead searches the space as in A*, it does not need to retrace its steps along a previously searched trajectory to find a new path to the goal. It will instead create a new branch from an already explored state. Sampling would require retracing an entire sequence until this branching state was reached. This allows for improvements in efficiency in addition to the distribution estimation improvements.
+
+3.1 Inference as softened planning
+
+We begin our investigation by recasting the inference task from the perspective of softened planning where the predictive IOC distribution over state sequences factors into a stochastic policy [26],
+
+(st+1|st) = e ,hsoft(st)-hsoft(st+1)-Tf (st,st+1)
+
+(3)
+
+according to a softened cost-to-go , hsoft(s), recurrence that is a relaxation of the Bellman equation:
+
+hsoft(st) = - log
+
+e-cost(st:T ) = softmin hsoft(st+1) + Tf (st, st+1)
+
+st:T st,sT
+
+st+1N (st)
+
+(4)
+
+where
+
+st ,sT
+
+is
+
+the
+
+set
+
+of
+
+all
+
+paths
+
+from
+
+st
+
+to
+
+sT;
+
+the
+
+softmin,
+
+softmin (x) x
+
+- log
+
+e-(x), is a
+
+x
+
+smoothed relaxation of the min function1, and the goal state value is initially 0 and  for others.
+
+A similar softened minimum distance exists in the forward direction from the start state,
+
+dsoft(st) = - log
+
+e-cost(s1:t) = softmin dsoft(st-1) + Tf (st-1, st) .
+
+s1:t s1 ,st
+
+st-1N (st)
+
+By combining forward and backward soft distances, important marginal expectations are obtained
+and used to predict state visitation probabilities and fit the maximum entropy IOC model's parameters [26]. Efficient search and learning require accurate estimates of dsoft and hsoft values since the expected number of occurrences of the transition from sa to sb under the soft path distribution is:
+
+e .-dsoft(sa)-hsoft(sb)-Tf (sa,sb)+dsoft(sT)
+
+(5)
+
+These cost-to-go and distance functions can be computed in closed-form using a geometric series,
+
+B = A(I - A)-1 = A + A2 + A3 + A4 + * * * ,
+
+(6)
+
+where Ai,j = e-cost(si,sj) for any states si and sj  S.
+The (i, j)th entry of B is related to the softmin of all the paths from si to sj. Specifically, the softened cost-to-go can be written as hsoft(si) = - log bsi,sT . Unfortunately, the required matrix inversion operation is computationally expensive, preventing its use in typical inverse optimal control applications. In fact, power iteration methods used for sparse matrix inversion closely resemble the softened Bellman updates of Equation (4) that have instead been used for IOC [25].
+
+1Equivalently, min (x) + softmin (x) - min (x) is employed to avoid overflow/underflow in prac-
+
+xx
+
+x
+
+tice.
+
+3
+
+3.2 Challenges and approximation desiderata
+In contrast with optimal control and planning tasks, softened distance functions, dsoft(s), and costto-go functions, hsoft(s), in predictive IOC are based on many paths rather than a single (best) one. Thus, unlike in A* search, each sub-optimal path cannot simply be ignored; its influence must instead be incorporated into the softened distance calculation (4). This key distinction poses a significantly different objective for heuristic-guided probabilistic search: Find a subset of paths for which the softmin distances closely approximate the softmin of the entire path set. While we would hope that a small subset of paths exists that provides a close approximation, the cost function weights and the structure of the state-space graph ultimately determine if this is the case. With this in mind, we aim to construct a method with the following desiderata for an algorithm that seeks a small approximation set and analyze its guarantees:
+1. Known bounds on approximation guarantees; 2. Convergence to any desired approximation guarantee; 3. Efficienct finding small approximation sets of paths.
+
+3.3 Regimes of Convergence
+In A* search, theoretical results are based on the assumption that all infinite length paths have infinite cost (i.e., any cycle has a positive cost) [13]. This avoids a negative cost cycle regime of non-convergence. Leading to a stronger requirement for our predictive setting are three regimes of convergence for the predictive IOC distribution, characterized by:
+1. An infinite-length most likely plan; 2. A finite-length most likely plan with expected infinite-length plans; and 3. A finite expected plan length.
+The first regime results from the same situation described for optimal planning: reachable cycles of negative cost. The second regime arises when the number of paths grows faster than the penalization of the weights from the additional cost of longer paths (without negative cycles) and is non-convergent. The final regime is convergent.
+An additional assumption is needed in the predictive IOC setting to avoid the second regime of nonconvergence. We assume that a fixed bound on the entropy of the distribution of paths, H(S1:T ) E[- log P (S1:T )]  Hmax, is known.
+Theorem 1 Expected costs under the predictive IOC distribution are related to entropy and softmin path costs by E[cost(S1:T )] = H(S1:T ) - dsoft(sT).
+Together, bounds on the entropy and softmin distance function constrain expected costs under the predictive IOC distribution (Theorem 1).
+
+3.4 Computing approximation error bounds
+
+A* search with a non-monotonic heuristic function guarantees optimality when the priority queue's minimal element has an estimate dsoft(s) + hsoft(s) exceeding the best start-to-goal path cost, dsoft(sT). Though optimality is no longer guaranteed in the softmin search setting, approximations to the softmin distance are obtained by considering a subset of paths (Lemma 1).
+
+Lemma 1 Let  represent the entire set (potentially infinite in size) of paths from state s to sT. We can partition the set  into two sets a and b such that a  b =  and a  b =  and define dsoft as the softmin over all paths in set . Then, given a lower bound estimate for the distance,
+dsoft(s)  dsoft(s), we have e-dsoft(s) - e-dsoaft (s)  e .-dsobft (s)
+
+We establish a bound on the error introduced by considering the set of paths through a set of states S in the following Theorem.
+
+Theorem 2 Given an approximation state subset S  S with neighbors of the approximation set
+
+defined as N (S)
+
+N (s) - S, the approximation loss of exact search for paths through
+
+sS
+
+4
+
+this approximation set (i.e., paths with non-terminal vertices from S and terminal vertices from S  N (S)) is bounded by the softmin of the set's neighbors estimates, e-dsoft(sT) - e-dSsoft (sT)  e- {softminsN(S) dSsoft (s)+hsoft(s)}, where dSsoft (s) is the softmin of all paths with terminal state s and all previous states within S.
+
+Thus, for a dynamic construction of the approximation set S, a bound on approximation error can be maintained by tracking the weights of all states in the neighborhood of that set.
+
+In practice, even computing the exact softened distance function for paths through a small subset of states may be computationally impractical. Theorem 3 establishes the approximate search bounds when only a subset of paths in the approximation set are employed to compute the soft distance.
+
+Theorem 3 If a subset of paths S  S (and  S  S - S represents a set of paths that are prefixes for all of the remaining paths within S) through the approximation set S is employed to compute the soft distance, the error of the resulting estimate is bounded by:
+
+e-dsoft (sT )
+
+-
+
+e-dsoSft  (sT)
+
+
+
+- softmin
+e
+
+softminsN (S) dsoSft  (s)+hsoft(s) ,softminsS dsoftS (s)+hsoft(s)
+
+.
+
+3.5 Softstar: Greedy forward path exploration and backward cost-to-go estimation
+Our algorithm greedily expands nodes by considering the state contributing the most to the approximation bound (Theorem 3). This is accomplished by extending A* search in the following algorithm.
+
+Algorithm 1 Softstar: Greedy forward and approximate backward search with fixed ordering
+Input: State-space graph G, initial state s1, goal sT, heuristic hsoft, and approximation bound Output: Approximate soft distance to goal hSsoft Set hsoft(s) = dsoft(s) = fsoft(s) =   s  S, hsoft(sT) = 0, dsoft(s1) = 0 and fsoft(s1) = hsoft(s1) Insert s1, fsoft(s1) into priority queue P and initialize empty stack O while sosftmP in(fsoft(s)) +  dsoft(sT) do
+Set s  min element popped from P Push s onto O for s  N (s) do
+fsoft(s ) = softmin(fsoft(s ), dsoft(s) +cost(s, s )+hsoft(s )) dsoft(s ) = softmin(dsoft(s ), dsoft(s) +cost(s, s )) (Re-)Insert s , fsoft(s ) into P end
+end while O not empty do
+Set s  top element popped from O for s  N (s) do
+hsoft(s) = softmin(hsoft(s), hsoft(s ) + cost(s, s )) end
+end return hsoft
+
+For insertions to the priority queue, if s already exists in the queue, its estimate is updated to the softmin of its previous estimate and the new insertion estimate. Additionally, the softmin of all of the estimates of elements on the queue can be dynamically updated as elements are added and removed.
+The queue contains some states that have never been explored and some that have. The former correspond to the neighbors of the approximation state set and the latter correspond to the search approximation error within the approximation state set (Theorem 3). The softmin over all elements of the priority queue thus provides a bound on the approximation error of the returned distance measure. The exploration order, O, is a stack containing the order that each state is explored/expanded.
+A loop through the reverse of the node exploration ordering (stack O) generated by the forward search computes complementary backward cost-to-go values, hsoft. The expected number of occur-
+
+5
+
+rences of state transitions can then be calculated for the approximate distribution (5). The bound on the difference between the expected path cost of this approximate distribution and the actual distribution over the entire state set is established in Theorem 4.
+Theorem 4 The cost expectation inaccuracy introduced by employing state set S is bounded by |E[cost(S1:T )] - ES [cost(S1:T )]|  edSsoft (sT)-sosftmPin(fsoft(s)) EP [cost(S1:T )] - ES [cost(S1:T )] ,
+where: ES is the expectation under the approximate state set produced by the algorithm; softmin(fsoft(s)) is the softmin of fsoft for all the states remaining on the priority queue after the first
+sP
+while loop of Algorithm 1; and EP is the expectation over all paths not considered in the second while loop (i.e., remaining on the queue). EP is unknown, but can be bounded using Theorem 1.
+3.6 Completeness guarantee
+The notion of monotonicity extends to the probabilistic setting, guaranteeing that the expansion of a state provides no looser bounds than the unexpanded state (Definition 1).
+Definition 1 A heuristic function hsoft is monotonic if and only if s  S, hsoft(s)  softmin hsoft(s ) + cost(s, s ) .
+s N (s)
+Assuming this, the completeness of the proposed algorithm can be established (Theorem 5).
+Theorem 5 For monotonic heuristic functions and finite softmin distances, convergence to any level of softmin approximation is guaranteed by Algorithm 1.
+4 Experimental Validation
+We demonstrate the effectiveness of our approach on datasets for Latin character construction using sequences of pen strokes and ball-handling decisions of professional soccer players. In both cases we learn the parameters of a state-action cost function that motivates the behavior in the demonstrated data and using the softstar algorithm to estimate the state-action feature distributions needed to update the parameters of the cost function [26]. We refer to the appendix for more information.
+We focus our experimental results on estimating state-action feature distributions through large state spaces for inverse optimal control as there is a lot of room for improvement over standard approaches which typically use sampling based methods to estimate the distributions providing few (if any) approximation guarantees. Softstar directly estimates this distribution with bounded approximation error allowing for a more accurate estimation and more informed parameter updates.
+4.1 Comparison approaches
+We compare our approach to heuristic guided maximum entropy sampling [17], approximate maximum entropy sampling [14], reversible jump Markov chain Monte Carlo (MCMC) [12], and a search that is not guided by heuristics (comparable to Dijkstra's algorithm for planning). For consistency, we use the softmin distance to generate the values of each state in MCMC. Results were collected on an Intel i7-3720QM CPU at 2.60GHz.
+4.2 Character drawing
+We apply our approach to the task of predicting the sequential pen strokes used to draw characters from the Latin alphabet. The task is to learn the behavior of how a person draws a character given some nodal skeleton. Despite the apparent simplicity, applying standard IOC methods is challenging due to the large planning graph corresponding to a fine-grained representation of the task. We demonstrate the effectiveness of our method against other commonly employed techniques.
+Demonstrated data: The data consists of a randomly separated training set of 400 drawn characters, each with a unique demonstrated trajectory, and a separate test set of 52 examples where the handwritten characters are converted into skeletons of nodes within a unit character frame [16].
+6
+
+For example, the character in Figure 1 was drawn using two strokes, red and green respectively. The numbering indicates the start of each stroke.
+
+State and feature representation: The state consists of a two node history
+(previous and current node) and a bitmap signifying which edges are covered/uncovered. The state space size is 2|E|(|V | + 1)2 with |E| edges and |V | nodes. The number of nodes is increased by one to account for the ini-
+tial state. For example, a character with 16 nodes and 15 edges with has a
+corresponding state space of about 9.47 million states.
+
+Figure 1: Character skeleton with two pen strokes.
+
+The initial state has no nodal history and a bitmap with all uncovered edges. The goal state will have a two node history as defined above, and a fully set bitmap representing all edges as covered. Any transition between nodes is allowed, with transitions between neighbors defined as edge draws and all others as pen lifts. The appendix provides additional details on the feature representation.
+
+Heuristic: We consider a heuristic function that combines the (soft) minimum costs of covering
+
+each remaining uncovered edge in a character assuming all moves that do not cross an uncovered
+
+edge have zero cost. Formally, it is expressed using the set of uncovered edges, Eu, and the set of
+
+all
+
+possible
+
+costs
+
+of
+
+traversing
+
+edge
+
+i,
+
+cost(ei),
+
+as
+
+h soft (s)
+
+=
+
+ei Eu
+
+softmin
+ei
+
+cost(ei).
+
+4.3 Professional Soccer
+
+In addition, we apply our approach to the task of modeling the discrete spatial decision process of the ball-handler for single possession open plays in professional soccer. As in the character drawing task, we demonstrate the effectiveness of our approach against other commonly employed techniques.
+
+Demonstrated data: Tracking information from 93 games consisting of player locations and time steps of significant events/actions were pre-processed into sets of sequential actions in single possessions. Each possession may include multiple different team-mates handling the ball at different times resulting in a team decision process on actions rather than single player actions/decisions.
+Discretizing the soccer field into cells leads to a very large decision process when considering actions to each cell at each step. We increase generalization by reformatting the field coordinates so that the origin lies in the center of the team's goal and all playing fields are normalized to 105m by 68m and discretized into 5x4m cells. Formatting the field coordinates based on the distances from the goal of the team in possession doubles the amount of training data for similar coordinates. The positive and negative half planes of the y axis capture which side of the goal the ball is located on.
+We train a spatial decision model on 92 of the games and evaluate the learned ball trajectories on a single test game. The data contains 20,337 training possession sequences and 230 test sequences.
+
+State and feature representation: The state consists of a two action history where an action is designated as a type-cell tuple where the type is the action (pass, shot, clear, dribble, or cross) and the cell is the destination cell with the most recent action containing the ball's current location. There are 1433 possible actions at each step in a trajectory resulting in about 2.05 million possible states.
+There are 28 Euclidean features for each action type and 29 that apply to all action types resulting in 168 total features.We use the same features as the character drawing model and include a different set of features for each action type to learn unique action based cost functions.
+
+Heuristic: We use the softmin cost over all possible actions from the current state as a heuristic. It is admissible if the next state is assumed to always be the goal: hsoft(s) = softmin {cost(s, s )}.
+s N (s)
+
+4.4 Comparison of learning efficiency
+We compare Softstar to other inference procedures for large scale IOC and measure the average test set log-loss, equivalent to the difference between the cost of the demonstrated path, cost(s1:T ), and the softmin distance to the goal, dsoft(goal), - log P (path) = cost(s1:T ) - dsoft(goal).
+
+7
+
+Average Test Log-Loss Average Test Log-Loss
+
+Log-Loss After Each Training Epoch
+
+40
+
+Approximate Max Ent Heuristic Max Ent
+
+250
+
+Approximate Max Ent Heuristic Max Ent
+
+35 SoftStar
+
+SoftStar
+
+200
+
+30
+
+25 150
+
+20 15 100
+
+10
+
+50 5
+
+0 2 4 6 8 10
+
+0 5 10 15 20 25
+
+Training Epoch
+
+Training Epoch
+
+Figure 2: Training efficiency on the Character (left) and Soccer domains (right).
+
+Figure 2 shows the decrease of the test set log-loss after each training epoch. The proposed method learns the models far more efficiently than both approximate max ent IOC [14] and heuristic guided sampling [17]. This is likely due to the more accurate estimation of the feature expectations that results from searching the graph rather than sampling trajectories.
+The improved efficiency of the proposed method is also evident if we analyze the respective time taken to train each model. Softstar took ~5 hours to train 10 epochs for the character model and ~12 hours to train 25 epochs for the soccer model. To compare, heuristic sampling took ~9 hours for the character model and ~17 hours for the soccer model, and approximate max ent took ~10 hours for the character model and ~20 hours for the soccer model.
+
+4.5 Analysis of inference efficiency
+
+In addition to evaluating learning efficiency, we compare the average time efficiency for generating lower bounds on the estimated softmin distance to the goal for each model in Figure 3.
+
+Softmin Distance Estimation as a Function of Time
+200 150
+
+150 100
+100
+
+50
+0 0
+
+MCMC Approximate Max Ent
+
+50
+
+Heuristic Max Ent
+
+Soft Star
+
+0
+
+20 40 60 80 100 0
+
+Seconds
+
+MCMC Approximate Max Ent Heuristic Max Ent Softstar
+20 40 60 80 100 Seconds
+
+Figure 3: Inference efficiency evaluations for the Character (left) and Soccer domains (right).
+
+Estimated Softmin Distance Estimated Softmin Distance
+
+The MCMC approach has trouble with local optima. While the unguided algorithm does not experience this problem, it instead explores a large number of improbable paths to the goal. The proposed method avoids low probability paths and converges much faster than the comparison methods. MCMC fails to converge on both examples even after 1,200 seconds, matching past experience with the character data where MCMC proved incapable of efficient inference.
+5 Conclusions
+In this work, we extended heuristic-guided search techniques for optimal planning to the predictive inverse optimal control setting. Probabilistic search in these settings is significantly more computationally demanding than A* search, both in theory and practice, primarily due to key differences between the min and softmin functions. However, despite this, we found significant performance improvements compared to other IOC inference methods by employing heuristic-guided search ideas.
+Acknowledgements
+This material is based upon work supported by the National Science Foundation under Grant No. #1227495, Purposeful Prediction: Co-robot Interaction via Understanding Intent and Goals.
+
+8
+
+References
+[1] Peter Abbeel and Andrew Y. Ng. Apprenticeship learning via inverse reinforcement learning. In Proceedings International Conference on Machine Learning, pages 1-8, 2004.
+[2] Monica Babes, Vukosi Marivate, Kaushik Subramanian, and Michael L Littman. Apprenticeship learning about multiple intentions. In International Conference on Machine Learning, 2011.
+[3] Chris L. Baker, Joshua B. Tenenbaum, and Rebecca R. Saxe. Goal inference as inverse planning. In Conference of the Cognitive Science Society, 2007.
+[4] Leonard E Baum. An equality and associated maximization technique in statistical estimation for probabilistic functions of markov processes. Inequalities, 3:1-8, 1972.
+[5] Richard Bellman. A Markovian decision process. Journal of Mathematics and Mechanics, 6:679-684, 1957.
+[6] Abdeslam Boularias, Jens Kober, and Jan Peters. Relative entropy inverse reinforcement learning. In Proceedings of the International Conference on Artificial Intelligence and Statistics, pages 182-189, 2011.
+[7] Arunkumar Byravan, Mathew Monfort, Brian Ziebart, Byron Boots, and Dieter Fox. Graph-based inverse optimal control for robot manipulation. In Proceedings of the International Joint Conference on Artificial Intelligence, 2015.
+[8] Rina Dechter and Judea Pearl. Generalized best-first search strategies and the optimality of a*. J. ACM, July 1985.
+[9] Edsger W. Dijkstra. A note on two problems in connexion with graphs. Numerische Mathematik, 1959.
+[10] John Duchi, Elad Hazan, and Yoram Singer. Adaptive subgradient methods for online learning and stochastic optimization. Journal of Machine Learning Research, July 2011.
+[11] Jacqueline J. Goodnow and Rochelle A. Levine. the grammar of action: Sequence and syntax in children's copying. Cognitive Psychology, 4(1):82 - 98, 1973.
+[12] Peter J. Green. Reversible jump markov chain monte carlo computation and bayesian model determination. Biometrika, 82:711-732, 1995.
+[13] Peter E. Hart, Nils J. Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems Science and Cybernetics, 4:100-107, 1968.
+[14] De-An Huang, Amir massoud Farahman, Kris M. Kitani, and J. Andrew Bagnell. Approximate maxent inverse optimal control and its application for mental simulation of human interactions. In AAAI, 2015.
+[15] Rudolf E. Kalman. When is a linear control system optimal? Trans. ASME, J. Basic Engrg., 86:51-60, 1964.
+[16] Brenden M Lake, Ruslan Salakhutdinov, and Josh Tenenbaum. One-shot learning by inverting a compositional causal process. In NIPS, 2013.
+[17] Mathew Monfort, Brenden M. Lake, Brian D. Ziebart, and Joshua B. Tenenbaum. Predictive inverse optimal control in large decision processes via heuristic-based search. In ICML Workshop on Robot Learning, 2013.
+[18] Mathew Monfort, Anqi Liu, and Brian Ziebart. Intent prediction and trajectory forecasting via predictive inverse linear-quadratic regulation. In AAAI, 2015.
+[19] Gergely Neu and Csaba Szepesvari. Apprenticeship learning using inverse reinforcement learning and gradient methods. In Proceedings UAI, pages 295-302, 2007.
+[20] Andrew Y. Ng and Stuart Russell. Algorithms for inverse reinforcement learning. In Proceedings International Conference on Machine Learning, 2000.
+[21] Deepak Ramachandran and Eyal Amir. Bayesian inverse reinforcement learning. In Proceedings International Joint Conferences on Artificial Intelligence, pages 2586-2591, 2007.
+[22] Nathan D. Ratliff, J. Andrew Bagnell, and Martin A. Zinkevich. Maximum margin planning. In Proceedings International Conference on Machine Learning, pages 729-736, 2006.
+[23] Ilya Sutskever, James Martens, George E. Dahl, and Geoffrey E. Hinton. On the importance of initialization and momentum in deep learning. In International Conference on Machine Learning, 2013.
+[24] Paul Vernaza and Drew Bagnell. Efficient high dimensional maximum entropy modeling via symmetric partition functions. In Advances in Neural Information Processing Systems, pages 575-583, 2012.
+[25] Brian D. Ziebart, J. Andrew Bagnell, and Anind K. Dey. Modeling interaction via the principle of maximum causal entropy. In International Conference on Machine Learning, 2010.
+[26] Brian D. Ziebart, Andrew Maas, J. Andrew Bagnell, and Anind K. Dey. Maximum entropy inverse reinforcement learning. In Association for the Advancement of Artificial Intelligence, 2008.
+9
+

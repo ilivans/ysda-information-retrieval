@@ -1,0 +1,1117 @@
+Asynchronous stochastic convex optimization: the noise is in the noise and SGD don't care
+
+Sorathan Chaturapruek1 John C. Duchi2 Chris Re1 Departments of 1Computer Science, 2Electrical Engineering, and 2Statistics
+Stanford University
+Stanford, CA 94305 {sorathan,jduchi,chrismre}@stanford.edu
+
+Abstract
+We show that asymptotically, completely asynchronous stochastic gradient procedures achieve optimal (even to constant factors) convergence rates for the solution of convex optimization problems under nearly the same conditions required for asymptotic optimality of standard stochastic gradient procedures. Roughly, the noise inherent to the stochastic approximation scheme dominates any noise from asynchrony. We also give empirical evidence demonstrating the strong performance of asynchronous, parallel stochastic optimization schemes, demonstrating that the robustness inherent to stochastic approximation problems allows substantially faster parallel and asynchronous solution methods. In short, we show that for many stochastic approximation problems, as Freddie Mercury sings in Queen's Bohemian Rhapsody, "Nothing really matters."
+
+1 Introduction
+
+We study a natural asynchronous stochastic gradient method for the solution of minimization problems of the form
+
+minimize f (x) := EP [F (x; W )] = F (x; )dP (),
+
+
+(1)
+
+where x  F (x; ) is convex for each   , P is a probability distribution on , and the vector x  Rd. Stochastic gradient techniques for the solution of problem (1) have a long history in
+
+optimization, starting from the early work of Robbins and Monro [19] and continuing on through
+
+Ermoliev [7], Polyak and Juditsky [16], and Nemirovski et al. [14]. The latter two show how certain
+
+long stepsizes and averaging techniques yield more robust and asymptotically optimal optimization
+
+schemes, and we show how their results extend to practical parallel and asynchronous settings.
+
+We consider an extension of previous stochastic gradient methods to a natural family of asynchronous gradient methods [3], where multiple processors can draw samples from the distribution P and asynchronously perform updates to a centralized (shared) decision vector x. Our iterative scheme is based on the HOGWILD! algorithm of Niu et al. [15], which is designed to asynchronously solve certain stochastic optimization problems in multi-core environments, though our analysis and iterations are different. In particular, we study the following procedure, where each processor runs asynchronously and independently of the others, though they maintain a shared integer iteration counter k; each processor P asynchronously performs the following:
+(i) Processor P reads current problem data x (ii) Processor P draws a random sample W  P , computes g = F (x; W ), and increments the
+centralized counter k (iii) Processor P updates x  x - kg sequentially for each coordinate j = 1, 2, . . . , d by incre-
+menting [x]j  [x]j - k[g]j, where the scalars k are a non-increasing stepsize sequence.
+
+1
+
+Our main results show that because of the noise inherent to the sampling process for W , the errors introduced by asynchrony in iterations (i)-(iii) are asymptotically negligible: they do not matter. Even more, we can efficiently construct an x from the asynchronous process possessing optimal convergence rate and asymptotic variance. This has consequences for solving stochastic optimization problems on multi-core and multi-processor systems; we can leverage parallel computing without performing any synchronization, so that given a machine with m processors, we can read data and perform updates m times as quickly as with a single processor, and the error from reading stale information on x becomes asymptotically negligible. In Section 2, we state our main convergence theorems about the asynchronous iteration (i)-(iii) for solving problem (1). Our main result, Theorem 1, gives explicit conditions under which our results hold, and we give applications to specific stochastic optimization problems as well as a general result for asynchronous solution of operator equations. Roughly, all we require for our (optimal) convergence results is that the Hessian of f be positive definite near x = argminx f (x) and that the gradients f (x) be smooth.
+Several researchers have provided and analyzed asynchronous algorithms for optimization. Bertsekas and Tsitsiklis [3] provide a comprehensive study both of models of asynchronous computation and analyses of asynchronous numerical algorithms. More recent work has studied asynchronous gradient procedures, though it often imposes strong conditions on gradient sparsity, conditioning of the Hessian of f , or allowable types of asynchrony; as we show, none are essential. Niu et al. [15] propose HOGWILD! and show that under sparsity and smoothness assumptions (essentially, that the gradients F (x; W ) have a vanishing fraction of non-zero entries, that f is strongly convex, and F (x; ) is Lipschitz for all ), convergence guarantees similar to the synchronous case are possible; Agarwal and Duchi [1] showed under restrictive ordering assumptions that some delayed gradient calculations have negligible asymptotic effect; and Duchi et al. [4] extended Niu et al.'s results to a dual averaging algorithm that works for non-smooth, non strongly-convex problems, so long as certain gradient sparsity assumptions hold. Researchers have also investigated parallel coordinate descent solvers; Richtarik and Takac [18] and Liu et al. [13] show how certain "nearseparability" properties of an objective function f govern convergence rate of parallel coordinate descent methods, the latter focusing on asynchronous schemes. As we show, large-scale stochastic optimization renders many of these problem assumptions unnecessary.
+In addition to theoretical results, in Section 3 we give empirical results on the power of parallelism and asynchrony in the implementation of stochastic approximation procedures. Our experiments demonstrate two results: first, even in non-asymptotic finite-sample settings, asynchrony introduces little degradation in solution quality, regardless of data sparsity (a common assumption in previous analyses); that is, asynchronously-constructed estimates are statistically efficient. Second, we show that there is some subtlety in implementation of these procedures in real hardware; while increases in parallelism lead to concomitant linear improvements in the speed with which we compute solutions to problem (1), in some cases we require strategies to reduce hardware resource competition between processors to achieve the full benefits of asynchrony.
+Notation A sequence of random variables or vectors Xn converges in distribution to Z, denoted Xn d Z, if E[f (Xn)]  E[f (Z)] for all bounded continuous functions f . We let Xn p Z denote convergence in probability, meaning that limn P( Xn - Z > ) = 0 for any  > 0. The notation N(, ) denotes the multivariate Gaussian with mean  and covariance .
+2 Main results
+Our main results repose on a few standard assumptions often used for the analysis of stochastic optimization procedures, which we now detail, along with a few necessary definitions. We let k denote the iteration counter used throughout the asynchronous gradient procedure. Given that we compute g = F (x; W ) with counter value k in the iterations (i)-(iii), we let xk denote the (possibly inconsistent) particular x used to compute g, and likewise say that g = gk, noting that the update to x is then performed using k. In addition, throughout paper, we assume there is some finite bound M <  such that no processor reads information more than M steps out of date.
+2.1 Asynchronous convex optimization
+We now present our main theoretical results for solving the stochastic convex problem (1), giving the necessary assumptions on f and F (*; W ) for our results. Our first assumption roughly states that f has quadratic expansion near the (unique) optimal point x and is smooth.
+2
+
+Assumption A. The function f has unique minimizer x and is twice continuously differentiable in
+
+the neighborhood of x with positive definite Hessian H = 2f (x)  0 and there is a covariance
+
+matrix   0 such that
+
+E[F (x; W )F (x; W )] = .
+
+Additionally, there exists a constant C <  such that the gradients F (x; W ) satisfy
+
+E[ F (x; W ) - F (x; W ) 2]  C x - x 2 for all x  Rd.
+
+(2)
+
+Lastly, f has L-Lipschitz continuous gradient: f (x) - f (y)  L x - y for all x, y  Rd.
+
+Assumption A guarantees the uniqueness of the vector x minimizing f (x) over Rd and ensures that f is well-behaved enough for our asynchronous iteration procedure to introduce negligible noise
+
+over a non-asynchronous procedure. In addition to Assumption A, we make one of two additional
+
+assumptions. In the first case, we assume that f is strongly convex:
+
+Assumption B. The function f is -strongly convex over all of Rd for some  > 0, that is,
+
+f (y)  f (x) + f (x), y - x +  x - y 2 2
+
+for x, y  Rd.
+
+(3)
+
+Our alternate assumption is a Lipschitz assumption on f itself, made by virtue of a second moment
+
+bound on F (x; W ).
+
+Assumption B'. There exists a constant G <  such that for all x  Rd,
+
+E[ F (x; W ) 2]  G2.
+
+(4)
+
+With our assumptions in place, we state our main theorem.
+
+Theorem 1. Let the iterates xk be generated by the asynchronous process (i), (ii), (iii) with stepsize
+
+choice
+
+k
+
+=
+
+k- ,
+
+where
+
+
+
+
+
+(
+
+1 2
+
+,
+
+1)
+
+and
+
+
+
+>
+
+0.
+
+Let
+
+Assumption
+
+A
+
+and
+
+either
+
+of
+
+Assumptions
+
+B
+
+or B' hold. Then
+
+1n
+
+n
+(xk - x) d N
+
+0, H-1H-1
+
+=N
+
+0, (2f (x))-1(2f (x))-1
+
+.
+
+k=1
+
+Before moving to example applications of Theorem 1, we note that its convergence guarantee is
+
+generally unimprovable even by numerical constants. Indeed, for classical statistical problems, the covariance H-1H-1 is the inverse Fisher information, and by the Le Cam-Hajek local minimax
+
+theorems [9] and results on Bahadur efficiency [21, Chapter 8], this is the optimal covariance matrix,
+
+and
+
+the
+
+best
+
+possible
+
+rate
+
+is
+
+n-
+
+1 2
+
+.
+
+As
+
+for
+
+function
+
+values,
+
+using
+
+the
+
+delta
+
+method
+
+[e.g.
+
+10,
+
+Theorem
+
+1.8.12], we can show the optimal convergence rate of 1/n on function values.
+
+Corollary 1. Let the conditions of Theorem 1 hold.
+
+Then n f
+
+1 n
+
+n k=1
+
+xk
+
+- f (x)
+
+d
+
+1 2
+
+tr
+
+H -1 
+
+* 21, where 21 denotes a chi-squared random variable with 1 degree of freedom, and
+
+H = 2f (x) and  = E[F (x; W )F (x; W )].
+
+2.2 Examples
+We now give two classical statistical optimization problems to illustrate Theorem 1. We verify that the conditions of Assumptions A and B or B' are not overly restrictive.
+
+Linear regression Standard linear regression problems satisfies the conditions of Assumption B.
+
+In this case, the data  = (a, b)  Rd x R and the objective F (x; ) =
+
+1 2
+
+(
+
+a, x
+
+- b)2. If we have
+
+moment
+
+bounds
+
+E[
+
+a
+
+4 2
+
+]
+
+<
+
+,
+
+E[b2]
+
+<
+
+
+
+and
+
+H
+
+=
+
+E[aa]
+
+
+
+0,
+
+we
+
+have
+
+2f (x)
+
+=
+
+H,
+
+and
+
+the assumptions of Theorem 1 are certainly satisfied. Standard modeling assumptions yield more
+
+concrete guarantees. For example, if b = a, x +  where  is independent mean-zero noise with
+
+E[2] = 2, the minimizer of f (x) = E[F (x; W )] is x, we have a, x - b = -, and
+
+E[F (x; W )F (x; W )] = E[( a, x -b)aa( a, x -b)] = E[aa2] = 2E[aa] = 2H.
+
+In particular, the asynchronous iterates satisfy
+
+1n
+
+n
+(xk - x) d N(0, 2H-1) = N
+
+0, 2E[aa]-1
+
+,
+
+k=1
+
+which is the (minimax optimal) asymptotic covariance of the ordinary least squares estimate of x.
+
+3
+
+Logistic regression As long as the data has finite second moment, logistic regression problems satisfy all the conditions of Assumption B' in Theorem 1. We have  = (a, b)  Rd x {-1, 1} and instantaneous objective F (x; ) = log(1 + exp(-b a, x )). For fixed , this function is Lipschitz
+continuous and has gradient and Hessian
+
+F
+
+(x;
+
+)
+
+=
+
+-
+
+1
+
++
+
+1 exp(b
+
+a, x ) ba
+
+and
+
+2F (x; )
+
+=
+
+eb a,x (1 + eb a,x
+
+)2 aa,
+
+where F (x; ) is Lipschitz continuous as
+
+2F (x; (a, b))
+
+
+
+1 4
+
+a
+
+22.
+
+So long as E[
+
+a
+
+2 2
+
+]
+
+<
+
+
+
+and E[2F (x; W )]  0 (i.e. E[aa] is positive definite), Theorem 1 applies to logistic regression.
+
+2.3 Extension to nonlinear problems
+
+We prove Theorem 1 by way of a more general result on finding the zeros of a residual operator R : Rd  Rd, where we only observe noisy views of R(x), and there is unique x such that R(x) = 0. Such situations arise, for example, in the solution of stochastic monotone operator problems (cf. Juditsky, Nemirovski, and Tauvel [8]). In this more general setting, we consider the
+following asynchronous iterative process, which extends that for the convex case outlined previously.
+Each processor P performs the following asynchronously and independently:
+
+(i) Processor P reads current problem data x
+(ii) Processor P receives vector g = R(x) + , where  is a random (conditionally) mean-zero noise vector, and increments a centralized counter k
+(iii) Processor P updates x  x - kg sequentially for each coordinate j = 1, 2, . . . , d by incrementing [x]j = [x]j - k[g]j.
+
+As in the convex case, we associate vectors xk and gk with the update performed using k, and we
+
+let k denote the noise vector used to construct gk. These iterates and assignment of indices imply
+
+that xk has the form
+
+k-1
+
+xk = - iEkigi,
+
+(5)
+
+i=1
+
+where Eki  {0, 1}dxd is a diagonal matrix whose jth diagonal entry captures that coordinate j of the ith gradient has been incorporated into iterate xk.
+
+We define the an increasing sequence of -fields Fk by
+
+Fk =  1, . . . , k, Eij : i  k + 1, j  i ,
+
+(6)
+
+that is, the noise variables k are adapted to the filtration Fk, and these -fields are the smallest containing both the noise and all index updates that have occurred and that will occur to compute xk+1. Thus we have xk+1  Fk, and our mean-zero assumption on the noise  is
+
+E[k | Fk-1] = 0.
+
+We base our analysis on Polyak and Juditsky's study [16] of stochastic approximation procedures,
+so we enumerate a few more requirements--modeled on theirs--for our results on convergence of the asynchronous iterations for solving the nonlinear equality R(x) = 0. We assume there is a Lyapunov function V satisfying V (x)   x 2 for all x  Rd, V (x) - V (y)  L x - y for all x, y, that V (0) = 0, and V (0) = 0. This implies
+
+
+
+x 2  V (x)  V (0) +
+
+V (0), x - 0
+
++
+
+L 2
+
+x
+
+2
+
+=
+
+L 2
+
+x2
+
+(7)
+
+and V (x) 2  L2 x 2  (L2/)V (x). We make the following assumptions on the residual R.
+
+Assumption C. There exists a matrix H  Rdxd with H  0, a parameter 0 <   1, constant C < , and  > 0 such that if x satisfies x - x  ,
+
+R(x) - H(x - x)  C x - x 1+ .
+
+4
+
+Assumption C essentially requires that R is differentiable at x with derivative matrix H  0. We also make a few assumptions on the noise process ; specifically, we assume  implicitly depends on x  Rd (so that we may write k = (xk)), and that the following assumption holds.
+Assumption D. The noise vector (x) decomposes as (x) = (0) + (x), where (0) is a process satisfying E[k(0)k(0) | Fk-1] p   0 for a matrix   Rdxd, supk E[ k(0) 2 | Fk-1] <  with probability 1, and E[ k(x) 2 | Fk-1]  C x - x 2 for a constant C <  and all x  Rd.
+
+As in the convex case, we make one of two additional assumptions, which should be compared with Assumptions B and B'. The first is that R gives globally strong information about x.
+Assumption E (Strongly convex residuals). There exists a constant 0 > 0 such that for all x  Rd, V (x - x), R(x)  0V (x - x).
+
+Alternatively, we may make an assumption on the boundedness of R, which we shall see suffices for proving our main results.
+
+Assumption E' (Bounded residuals). There exist 0 > 0 and  > 0 such that
+
+inf
+0< x-x 
+
+V (x - x), R(x) V (x - x)
+
+ 0
+
+and
+
+inf
+< x-x
+
+V (x - x), R(x) > 0.
+
+In addition there exists C <  such that, R(x)  C and E[ k 2 | Fk-1]  C2 for all k and x.
+
+With these assumptions in place, we obtain the following more general version of Theorem 1; in-
+
+deed, we show that Theorem 1 is a consequence of this result.
+
+Theorem 2. Let V be a function satisfying inequality (7), and let Assumptions C and D hold. Let
+
+the
+
+stepsizes
+
+k
+
+=
+
+k- ,
+
+where
+
+1 1+
+
+<
+
+
+
+<
+
+1.
+
+Let
+
+one
+
+of
+
+Assumptions
+
+E
+
+or
+
+E'
+
+hold.
+
+Then
+
+1 n
+
+n
+(xk - x) d N
+
+0, H-1H-1
+
+.
+
+k=1
+
+We may compare this result to Polyak and Juditsky's Theorem 2 [16], which gives identical asymptotic convergence guarantees but with somewhat weaker conditions on the function V and stepsize sequence k. Our stronger assumptions, however, allow our result to apply even in fully asynchronous settings.
+
+2.4 Proof sketch
+
+We provide rigorous proofs in the long version of this paper [5], providing an amputated sketch
+
+here. First, to show that Theorem 1 follows from Theorem 2, we set R(x) = f (x) and V (x) =
+
+1 2
+
+x 2. We can then show that Assumption A, which guarantees a second-order Taylor expansion,
+
+implies Assumption C with  = 1 and H = 2f (x). Moreover, Assumption B (or B') implies
+
+Assumption E (respectively, E'), while to see that Assumption D holds, we set (0) = F (x; W ),
+
+taking  = E[F (x; W )F (x; W )] and (x) = F (x; W ) - F (x; W ), and applying
+
+inequality (2) of Assumption A to satisfy Assumption D with the vector .
+
+The proof of Theorem 2 is somewhat more involved. Roughly, we show the asymptotic equivalence
+
+of the sequence xk from expression (5) to the easier to analyze sequence xk = -
+
+k-1 i=1
+
+i
+
+gi
+
+.
+
+Asymptotically, we obtain E[ xk - xk 2] = O(k2), while the iterates xk--in spite of their incorrect
+
+gradient calculations--are close enough to a correct stochastic gradient iterate that they possess
+
+optimal asymptotic normality properties. This "close enough" follows by virtue of the squared error
+
+bounds for  in Assumption D, which guarantee that k essentially behaves like an i.i.d. sequence
+
+asymptotically (after application of the Robbins-Siegmund martingale convergence theorem [20]),
+
+which we then average to obtain a central-limit-theorem.
+
+3 Experimental results
+We provide empirical results studying the performance of asynchronous stochastic approximation schemes on several simulated and real-world datasets. Our theoretical results suggest that asynchrony should introduce little degradation in solution quality, which we would like to verify; we
+
+5
+
+also investigate the engineering techniques necessary to truly leverage the power of asynchronous
+stochastic procedures. In our experiments, we focus on linear and logistic regression, the examples given in Section 2.2; that is, we have data (ai, bi)  Rd x R (for linear regression) or (ai, bi)  Rd x {-1, 1} (for logistic regression), for i = 1, . . . , N , and objectives
+
+f (x)
+
+=
+
+1 2N
+
+N
+( ai, x
+
+- bi)2
+
+and
+
+f (x)
+
+=
+
+1 N
+
+N
+log
+
+1 + exp(-bi ai, x ) .
+
+i=1 i=1
+
+(8)
+
+We perform each of our experiments using a 48-core Intel Xeon machine with 1 terabyte of RAM,
+
+and have put code and binaries to replicate our experiments on CodaLab [6]. The Xeon architecture
+
+puts each core onto one of four sockets, where each socket has its own memory. To limit the impact
+
+of communication overhead in our experiments, we limit all experiments to at most 12 cores, all
+
+on the same socket. Within an experiment--based on the empirical expectations (8)--we iterate in
+
+epochs, meaning that our stochastic gradient procedure repeatedly loops through all examples, each exactly once.1 Within an epoch, we use a fixed stepsize , decreasing the stepsize by a factor of .9
+
+between each epoch (this matches the experimental protocol of Niu et al. [15]). Within each epoch,
+
+we choose examples in a randomly permuted order, where the order changes from epoch to epoch
+
+(cf. [17]). To address issues of hardware resource contention (see Section 3.2 for more on this), in
+
+some cases we use a mini-batching strategy. Abstractly, in the formulation of the basic problem (1),
+this means that in each calculation of a stochastic gradient g we draw B  1 samples W1, . . . , WB i.i.d. according to P , then set
+
+g(x) = 1 B
+
+B
+
+F (x; Wb).
+
+b=1
+
+(9)
+
+The mini-batching strategy (9) does not change the (asymptotic) convergence guarantees of asyn-
+
+chronous stochastic gradient descent, as the covariance matrix  = E[g(x)g(x)] satisfies
+
+
+
+=
+
+1 B
+
+E[F
+
+(x
+
+;
+
+W )F (x;
+
+W )],
+
+while
+
+the
+
+total
+
+iteration
+
+count
+
+is
+
+reduced
+
+by
+
+the
+
+a
+
+factor
+
+B.
+
+Lastly, we measure the performance of optimization schemes via speedup, defined as
+
+speedup
+
+=
+
+average
+
+epoch runtime on average epoch
+
+a single runtime
+
+core using H on m cores
+
+OGWILD!.
+
+(10)
+
+In our experiments, as increasing the number m of cores does not change the gap in optimality f (xk) - f (x) after each epoch, speedup is equivalent to the ratio of the time required to obtain an -accurate solution using a single processor/core to that required to obtain -accurate solution using
+m processors/cores.
+
+3.1 Efficiency and sparsity
+For our first set of experiments, we study the effect that data sparsity has on the convergence behavior of asynchronous methods--sparsity has been an essential part of the analysis of many asynchronous and parallel optimization schemes [15, 4, 18], while our theoretical results suggest it should be unimportant--using the linear regression objective (8). We generate synthetic linear regression problems with N = 106 examples in d = 103 dimensions via the following procedure. Let   (0, 1] be the desired fraction of non-zero gradient entries, and let  be a random projection operator that zeros out all but a fraction  of the elements of its argument, meaning that for a  Rd, (a) uniformly at random chooses d elements of a, leaves them identical, and zeroes the remaining elements. We generate data for our linear regression drawing a random vector u  N(0, I), then constructing bi = ai, u + i, i = 1, . . . , N , where i i.i.d. N(0, 1), ai = (ai), ai i.i.d. N(0, I), and (ai) denotes an independent random sparse projection of ai. To measure optimality gap, we directly compute x = (AT A)-1AT b, where A = [a1 a2 * * * aN ]  RNxd.
+In Figure 1, we plot the results of simulations using densities   {.005, .01, .2, 1} and mini-batch size B = 10, showing the gap f (xk) - f (x) as a function of the number of epochs for each of the given sparsity levels. We give results using 1, 2, 4, and 10 processor cores (increasing degrees of asynchrony), and from the plots, we see that regardless of the number of cores, the convergence
+1Strictly speaking, this violates the stochastic gradient assumption, but it allows direct comparison with the original HOGWILD! code and implementation [15].
+
+6
+
+behavior is nearly identical, with very minor degradations in performance for the sparsest data. (We plot the gaps f (xk) - f (x) on a logarithmic axis.) Moreover, as the data becomes denser, the more asynchronous methods--larger number of cores--achieve performance essentially identical to the fully synchronous method in terms of convergence versus number of epochs. In Figure 2, we plot the speedup achieved using different numbers of cores. We also include speedup achieved using multiple cores with explicit synchronization (locking) of the updates, meaning that instead of allowing asynchronous updates, each of the cores globally locks the decision vector when it reads, unlocks and performs mini-batched gradient computations, and locks the vector again when it updates the vector. We can see that the performance curve is much worse than than the withoutlocking performance curve across all densities. That the locking strategy also gains some speedup when the density is higher is likely due to longer computation of the gradients. However, the lockingstrategy performance is still not competitive with that of the without-locking strategy.
+
+100 101 102
+
+10 cores
+
+10 cores
+
+10 cores
+
+10 cores
+
+10-1
+
+8 cores 4 cores
+
+100
+
+8 cores 4 cores
+
+100
+
+8 cores 4 cores
+
+100
+
+8 cores 4 cores
+
+1 core
+
+1 core
+
+1 core
+
+1 core
+
+10-2
+
+10-2
+
+10-1
+
+10-2
+
+10-3
+
+10-4
+
+10-4
+
+10-2
+
+10-4
+
+0 5 10 15 20 0 5 10 15 20 0
+
+Epochs
+
+Epochs
+
+(a)  = .005
+
+(b)  = .01
+
+5 10 15 20 0
+Epochs
+(c)  = .2
+
+5 10 15
+Epochs
+(d)  = 1
+
+20
+
+Figure 1. (Exponential backoff stepsizes) Optimality gaps for synthetic linear regression experiments showing effects of data sparsity and asynchrony on f (xk)-f (x). A fraction  of each vector ai  Rd is non-zero.
+
+f (xk) - f (x)
+
+10
+linear speedup without locking 8 with locking
+6
+
+10
+linear speedup without locking 8 with locking
+6
+
+10
+linear speedup without locking 8 with locking
+6
+
+10
+linear speedup without locking 8 with locking
+6
+
+4444
+
+2222
+
+0 2
+
+46
+Cores
+
+8
+
+(a)  = .005
+
+0 10 2
+
+46
+Cores
+
+8
+
+(b)  = .01
+
+0 10 2
+
+46
+Cores
+
+8
+
+(c)  = .2
+
+0 10 2
+
+46
+Cores
+
+8
+
+(d)  = 1
+
+Figure 2. (Exponential backoff stepsizes) Speedups for synthetic linear regression experiments showing effects of data sparsity on speedup (10). A fraction  of each vector ai  Rd is non-zero.
+
+10
+
+3.2 Hardware issues and cache locality
+We detail a small set of experiments investigating hardware issues that arise even in implementation of asynchronous gradient methods. The Intel x86 architecture (as with essentially every processor architecture) organizes memory in a hierarchy, going from L1 to L3 (level 1 to level 3) caches of increasing sizes. An important aspect of the speed of different optimization schemes is the relative fraction of memory hits, meaning accesses to memory that is cached locally (in order of decreasing speed, L1, L2, or L3 cache). In Table 1, we show the proportion of cache misses at each level of the memory hierarchy for our synthetic regression experiment with fully dense data ( = 1) over the execution of 20 epochs, averaged over 10 different experiments. We compare memory contention when the batch size B used to compute the local asynchronous gradients (9) is 1 and 10. We see that the proportion of misses for the fastest two levels--1 and 2--of the cache for B = 1 increase significantly with the number of cores, while increasing the batch size to B = 10 substantially mitigates cache incoherency. In particular, we maintain (near) linear increases in iteration speed with little degradation in solution quality (the gap f (x) - f (x) output by each of the procedures with and without batching is identical to within 10-3; cf. Figure 1(d)).
+7
+
+No batching (B = 1)
+
+Number of cores fraction of L1 misses fraction of L2 misses fraction of L3 misses epoch average time (s)
+speedup
+
+1 0.0009 0.5638 0.6152 4.2101 1.00
+
+4 0.0017 0.6594 0.4528 1.6577
+2.54
+
+8 0.0025 0.7551 0.3068 1.4052 3.00
+
+10 0.0026 0.7762 0.2841 1.3183
+3.19
+
+Batch size B = 10
+
+Number of cores fraction of L1 misses fraction of L2 misses fraction of L3 misses epoch average time (s)
+speedup
+
+1 0.0012 0.5420 0.5677 4.4286 1.00
+
+4 0.0011 0.5467 0.5895 1.1868
+3.73
+
+8 0.0011 0.5537 0.5714 0.6971 6.35
+
+10 0.0011 0.5621 0.5578 0.6220
+7.12
+
+Table 1. Memory traffic for batched updates (9) versus non-batched updates (B = 1) for a dense linear regression problem in d = 103 dimensions with a sample of size N = 106. Cache misses are substantially higher with B = 1.
+
+3.3 Real datasets
+
+We perform experiments using three different real-world datasets: the Reuters RCV1 corpus [11], the Higgs detection dataset [2], and the Forest Cover dataset [12]. Each represents a binary classification problem which we formulate using logistic regression. We briefly detail statistics for each:
+
+(1) Reuters RCV1 dataset consists of N  7.81 * 105 data vectors (documents) ai  {0, 1}d with d  5 * 104 dimensions; each vector has sparsity approximately  = 3 * 10-3. Our task is to classify each document as being about corporate industrial topics (CCAT) or not.
+
+(2) The Higgs detection dataset consists of N = 106 data vectors ai  Rd0 , with d0 = 28. We
+quantize each coordinate into 5 bins containing equal fraction of the coordinate values and encode each vector ai as a vector ai  {0, 1}5d0 whose non-zero entries correspond to quantiles
+into which coordinates fall. The task is to detect (simulated) emissions from a linear accelerator.
+
+(3) The Forest Cover dataset consists of N  5.7 * 105 data vectors ai  {-1, 1}d with d = 54, and the task is to predict forest growth types.
+
+10-1
+
+10-1
+
+10-1
+
+10 cores 8 cores
+
+10 cores 8 cores
+
+10 cores
+8 cores Figure 3. (Exponential
+
+4 cores
+
+4 cores
+
+4 cores backoff stepsizes) Op-
+
+1 core
+
+1 core
+
+10-2
+
+10-2
+
+1 core
+
+timality gaps f (xk) -
+
+10-2 f (x) on the (a) RCV1,
+
+(b) Higgs, and (c) Forest
+
+10-3
+
+10-3
+
+Cover datasets.
+
+0 5 10 15 20
+Epochs
+(a) RCV1 ( = .003)
+
+10-3
+
+0 5 10 15 20 0 5 10 15 20
+
+Epochs
+
+Epochs
+
+(b) Higgs ( = 1)
+
+(c) Forest ( = 1)
+
+10
+
+9
+
+linear speedup without locking
+
+8
+
+10
+
+9
+
+linear speedup without locking
+
+8
+
+10
+
+9
+
+linear speedup without locking
+
+8
+
+777
+
+666
+
+555
+
+444
+
+333
+
+222
+
+1 2
+
+1
+
+4 6 8 10
+
+2
+
+Cores
+
+1
+
+4 6 8 10
+
+2
+
+Cores
+
+4 6 8 10
+Cores
+
+(a) RCV1 ( = .003)
+
+(b) Higgs ( = 1)
+
+(c) Forest ( = 1)
+
+Figure 4. (Exponential backoff stepsizes) Logistic regression experiments showing speedup (10) on the (a) RCV1, (b) Higgs, and (c) Forest Cover datasets.
+
+In Figure 3, we plot the gap f (xk) - f (x) as a function of epochs, giving standard error intervals over 10 runs for each experiment. There is essentially no degradation in objective value for the
+different numbers of processors, and in Figure 4, we plot speedup achieved using 1, 4, 8, and 10 cores with batch sizes B = 10. Asynchronous gradient methods achieve speedup of between 6x and 8x on each of the datasets using 10 cores.
+
+f (xk) - f (x)
+
+8
+
+References
+
+[1] A. Agarwal and J. C. Duchi. Distributed delayed stochastic optimization. In Advances in
+
+Neural Information Processing Systems 24, 2011.
+
+[2] P. Baldi, P. Sadowski, and D. Whiteson. Searching for exotic particles in high-energy physics
+
+with deep learning. Nature Communications, 5, July 2014.
+
+[3] D. P. Bertsekas and J. N. Tsitsiklis. Parallel and Distributed Computation: Numerical Meth-
+
+ods. Prentice-Hall, Inc., 1989.
+
+[4] J. C. Duchi, M. I. Jordan, and H. B. McMahan. Estimation, optimization, and parallelism when
+
+data is sparse. In Advances in Neural Information Processing Systems 26, 2013.
+
+[5] J. C. Duchi, S. Chaturapruek, and C. Re. Asynchronous stochastic convex optimization.
+
+arXiv:1508.00882 [math.OC], 2015.
+
+[6] J. C. Duchi, S. Chaturapruek, and C. Re. Asynchronous stochastic convex optimization, 2015.
+
+URL https://www.codalab.org/worksheets/. Code for reproducing experiments.
+
+[7] Y. M. Ermoliev. On the stochastic quasi-gradient method and stochastic quasi-Feyer sequences.
+
+Kibernetika, 2:72-83, 1969.
+
+[8] A. Juditsky, A. Nemirovski, and C. Tauvel. Solving variational inequalities with the stochastic
+
+mirror-prox algorithm. Stochastic Systems, 1(1):17-58, 2011.
+
+[9] L. Le Cam and G. L. Yang. Asymptotics in Statistics: Some Basic Concepts. Springer, 2000.
+
+[10] E. L. Lehmann and G. Casella. Theory of Point Estimation, Second Edition. Springer, 1998.
+
+[11] D. Lewis, Y. Yang, T. Rose, and F. Li. RCV1: A new benchmark collection for text catego-
+
+rization research. Journal of Machine Learning Research, 5:361-397, 2004.
+
+[12] M. Lichman.
+
+UCI machine learning repository, 2013.
+
+URL
+
+http://archive.ics.uci.edu/ml.
+
+[13] J. Liu, S. J. Wright, C. Re, V. Bittorf, and S. Sridhar. An asynchronous parallel stochastic
+
+coordinate descent algorithm. In Proceedings of the 31st International Conference on Machine
+
+Learning, 2014.
+
+[14] A. Nemirovski, A. Juditsky, G. Lan, and A. Shapiro. Robust stochastic approximation approach
+
+to stochastic programming. SIAM Journal on Optimization, 19(4):1574-1609, 2009.
+
+[15] F. Niu, B. Recht, C. Re, and S. Wright. Hogwild: a lock-free approach to parallelizing stochas-
+
+tic gradient descent. In Advances in Neural Information Processing Systems 24, 2011.
+
+[16] B. T. Polyak and A. B. Juditsky. Acceleration of stochastic approximation by averaging. SIAM
+
+Journal on Control and Optimization, 30(4):838-855, 1992.
+
+[17] B. Recht and C. Re. Beneath the valley of the noncommutative arithmetic-geometric mean
+
+inequality: conjectures, case-studies, and consequences. In Proceedings of the Twenty Fifth
+
+Annual Conference on Computational Learning Theory, 2012.
+
+[18] P. Richtarik and M. Takac. Parallel coordinate descent methods for big data
+
+optimization.
+
+Mathematical Programming, page Online first, 2015.
+
+URL
+
+http://link.springer.com/article/10.1007/s10107-015-0901-6.
+
+[19] H. Robbins and S. Monro. A stochastic approximation method. Annals of Mathematical
+
+Statistics, 22:400-407, 1951.
+
+[20] H. Robbins and D. Siegmund. A convergence theorem for non-negative almost supermartin-
+
+gales and some applications. In Optimizing Methods in Statistics, pages 233-257. Academic
+
+Press, New York, 1971.
+
+[21] A. W. van der Vaart. Asymptotic Statistics. Cambridge Series in Statistical and Probabilistic
+
+Mathematics. Cambridge University Press, 1998. ISBN 0-521-49603-9.
+
+9
+
