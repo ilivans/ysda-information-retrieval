@@ -1,23 +1,27 @@
+#!/usr/bin/env python
 import cPickle
 from nltk.tokenize import RegexpTokenizer
 
-tokenize = RegexpTokenizer('\w+').tokenize
+tokenize = RegexpTokenizer("\w+").tokenize
 
 
-if __name__=='__main__':
-    iindex = cPickle.load(open('indexer.pkl', 'rb'))
+def main():
+    inverted_index = cPickle.load(open("iindex.pkl", "rb"))
+
     while True:
-        query = raw_input('Type in a query')
+        query = raw_input("\nType your query:\n")
+        docs = set()
+        for i, word in enumerate(tokenize(query)):
+            word = word.lower()
+            if word not in inverted_index:
+                docs = set()
+                break
+            if not i:
+                docs = inverted_index[word]
+            else:
+                docs = docs & inverted_index[word]
+        print "\n".join(list(docs)[:10])
 
-    docs = set()
-    for i, w in enumerate(tokenize(query)):
-        w = w.lower()
-        if not i:
-            docs = iindex[w]
-        else:
-            docs = docs & iindex[w]
-    for j, d in enumerate(docs):
-        if j < 10:
-            print d
-        else:
-            break
+
+if __name__ == "__main__":
+    main()
