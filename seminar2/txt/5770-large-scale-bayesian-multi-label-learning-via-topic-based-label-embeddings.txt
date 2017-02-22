@@ -1,0 +1,578 @@
+Large-Scale Bayesian Multi-Label Learning via Topic-Based Label Embeddings
+
+Piyush Rai, Changwei Hu, Ricardo Henao, Lawrence Carin
+
+CSE Dept, IIT Kanpur
+
+ECE Dept, Duke University
+
+piyush@cse.iitk.ac.in, {ch237,r.henao,lcarin}@duke.edu
+
+Abstract
+We present a scalable Bayesian multi-label learning model based on learning lowdimensional label embeddings. Our model assumes that each label vector is generated as a weighted combination of a set of topics (each topic being a distribution over labels), where the combination weights (i.e., the embeddings) for each label vector are conditioned on the observed feature vector. This construction, coupled with a Bernoulli-Poisson link function for each label of the binary label vector, leads to a model with a computational cost that scales in the number of positive labels in the label matrix. This makes the model particularly appealing for real-world multi-label learning problems where the label matrix is usually very massive but highly sparse. Using a data-augmentation strategy leads to full local conjugacy in our model, facilitating simple and very efficient Gibbs sampling, as well as an Expectation Maximization algorithm for inference. Also, predicting the label vector at test time does not require doing an inference for the label embeddings and can be done in closed form. We report results on several benchmark data sets, comparing our model with various state-of-the art methods.
+1 Introduction
+Multi-label learning refers to the problem setting in which the goal is to assign to an object (e.g., a video, image, or webpage) a subset of labels (e.g., tags) from a (possibly very large) set of labels. The label assignments of each example can be represented using a binary label vector, indicating the presence/absence of each label. Despite a significant amount of prior work, multi-label learning [7, 6] continues to be an active area of research, with a recent surge of interest [1, 25, 18, 13, 10] in designing scalable multi-label learning methods to address the challenges posed by problems such as image/webpage annotation [18], computational advertising [1, 18], medical coding [24], etc., where not only the number of examples and data dimensionality are large but the number of labels can also be massive (several thousands to even millions).
+Often, in multi-label learning problems, many of the labels tend to be correlated with each other. To leverage the label correlations and also handle the possibly massive number of labels, a common approach is to reduce the dimensionality of the label space, e.g., by projecting the label vectors to a subspace [10, 25, 21], learning a prediction model in that space, and then projecting back to the original space. However, as the label space dimensionality increases and/or the sparsity in the label matrix becomes more pronounced (i.e., very few ones), and/or if the label matrix is only partially observed, such methods tend to suffer [25] and can also become computationally prohibitive.
+To address these issues, we present a scalable, fully Bayesian framework for multi-label learning. Our framework is similar in spirit to the label embedding methods based on reducing the label space dimensionality [10, 21, 25]. However, our framework offers the following key advantages: (1) computational cost of training our model scales in the number of ones in the label matrix, which makes our framework easily scale in cases where the label matrix is massive but sparse; (2) our likelihood model for the binary labels, based on a Bernoulli-Poisson link, more realistically models the extreme sparsity of the label matrix as compared to the commonly employed logistic/probit link; and (3) our model is more interpretable - embeddings naturally correspond to topics where each topic is a distribution over labels. Moreover, at test time, unlike other Bayesian methods [10], we do not need to infer the label embeddings of the test example, thereby leading to faster predictions.
+
+1
+
+In addition to the modeling flexibility that leads to a robust, interpretrable, and scalable model, our framework enjoys full local conjugacy, which allows us to develop simple Gibbs sampling, as well as an Expectation Maximization (EM) algorithm for the proposed model, both of which are simple to implement in practice (and amenable for parallelization).
+
+2 The Model
+
+We assume that the training data are given in the form of N examples represented by a feature matrix X  RDxN , along with their labels in a (possibly incomplete) label matrix Y  {0, 1}LxN . The goal is to learn a model that can predict the label vector y  {0, 1}L for a test example x  RD.
+
+We model the binary label vector yn of the nth example by thresholding a count-valued vector mn
+
+yn = 1(mn  1)
+
+(1)
+
+which, for each individual binary label yln  yn, l = 1, . . . , L, can also be written as yln =
+1(mln  1). In Eq. (1), mn = [m1n, . . . , mLn]  ZL denotes a latent count vector of size L and
+
+is assumed drawn from a Poisson
+
+mn  Poisson(n)
+
+(2)
+
+Eq (2) denotes drawing each component of mn independently, from a Poisson distribution, with rate equal to the corresponding component of n  RL+, which is defined as
+
+n = Vun
+
+(3)
+
+Here V  RL+xK and un  RK+ (typically K L). Note that the K columns of V can be thought of as atoms of a label dictionary (or "topics" over labels) and un can be thought of as the atom
+weights or embedding of the label vector yn (or "topic proportions", i.e., how active each of the K
+topics is for example n). Also note that Eq. (1)-(3) can be combined as
+
+yn = f (n) = f (Vun)
+
+(4)
+
+where f jointly denotes drawing the latent counts mn from a Poisson (Eq. 2) with rate n = Vun, followed by thresholding mn at 1 (Eq. 1). In particular, note that marginalizing out mn from Eq. 1 leads to yn  Bernoulli(1 - exp(-n)). This link function, termed as the Bernoulli-Poisson
+link [28, 9], has also been used recently in modeling relational data with binary observations.
+
+In Eq. (4), expressing the label vector yn  {0, 1}L in terms of Vun is equivalent to a low-rank
+assumption on the L x N label matrix Y = [y1 . . . yN ]: Y = f (VU), where V = [v1 . . . vK ]  RL+xK and U = [u1 . . . uN ]  RK+ xN , which are modeled as follows
+
+vk  Dirichlet(1L) ukn  Gamma(rk, pkn(1 - pkn)-1)
+
+(5) (6)
+
+pkn = (wk xn) wk  Nor(0, )
+
+(7) (8)
+
+(z) = 1/(1 + exp(-z)),  = diag(1-1, . . . , D-1), and hyperparameters rk, 1, . . . , D are given improper gamma priors. Since columns of V are Dirichlet drawn, they correspond to distributions
+(i.e., topics) over the labels. It is important to note here that the dependence of the label embedding un = {ukn}Kk=1 on the feature vector xn is achieved by making the scale parameter of the gamma prior on {ukn}Kk=1 depend on {pkn}Kk=1 which in turn depends on the features xn via regression weight W = {wk}Kk=1 (Eq. 6 and 8).
+
+Figure 1: Graphical model for the generative process of the label vector. Hyperpriors omitted for brevity. 2
+
+2.1 Computational scalability in the number of positive labels
+
+For the Bernoulli-Poisson likelihood model for binary labels, we can write the conditional poste-
+
+rior [28, 9] of the latent count vector mn as
+
+(mn|yn, V, un)  yn Poisson+(Vun)
+
+(9)
+
+where Poisson+ denotes the zero-truncated Poisson distribution with support only on the positive integers, and denotes the element-wise product. Eq. 9 suggests that the zeros in yn will result in the corresponding elements of the latent count vector mn being zero, almost surely (i.e., with probability one). As shown in Section 3, the sufficient statistics of the model parameters do not
+
+depend on latent counts that are equal to zero; such latent counts can be simply ignored during the
+
+inference. This aspect leads to substantial computational savings in our model, making it scale only
+
+in the number of positive labels in the label matrix. In the rest of the exposition, we will refer to our
+
+model as BMLPL to denote Bayesian Multi-label Learning via Positive Labels.
+
+2.2 Asymmetric Link Function
+In addition to the computational advantage (i.e., scaling in the number of non-zeros in the label matrix), another appealing aspect of our multi-label learning framework is that the Bernoulli-Poisson likelihood is also a more realistic model for highly sparse binary data as compared to the commonly used logistic/probit likelihood. To see this, note that the Bernoulli-Poisson model defines the probability of an observation y being one as p(y = 1|) = 1 - exp(-) where  is the positive rate parameter. For a positive  on the X axis, the rate of growth of the plot of p(y = 1|) on the Y axis from 0.5 to 1 is much slower than the rate it drops from 0.5 to 0. This benavior of the BernoulliPoisson link will encourage a much fewer number of nonzeros in the observed data as compared to the number of zeros. On the other hand, a logistic and probit approach both 0 and 1 at the same rate, and therefore cannot model the sparsity/skewness of the label matrix like the Bernoulli-Poisson link. Therefore, in contrast to multilabel learning models based on logistic/probit likelihood function or standard loss functions such as the hinge-loss [25, 14] for the binary labels, our proposed model provides better robustness against label imbalance.
+
+3 Inference
+
+A key aspect of our framework is that the conditional posteriors of all the model parameters are available in closed form using data augmentation strategies that we will describe below. In particular, since we model binary label matrix as thresholded counts, we are also able to leverage some of the inference methods proposed for Bayesian matrix factorization of count-valued data [27] to derive an efficient Gibbs sampler for our model.
+
+Inference
+
+in
+
+our
+
+model
+
+requires
+
+estimating
+
+V
+
+
+
+LxK
+R+
+
+,
+
+W
+
+
+
+RDxK ,
+
+U
+
+
+
+K
+R+
+
+xN
+
+,
+
+and
+
+the
+
+hyperparameters of the model. As we will see below, the latent count vectors {mn}Nn=1 (which are
+
+functions of V and U) provide sufficient statistics for the model parameters. Each element of mn
+
+(if the corresponding element in yn is one) is drawn from a truncated Poisson distribution
+
+mln  Poisson+(Vl,:un) = Poisson+(ln)
+
+(10)
+
+Vl,: denotes the lth row of V and ln =
+
+K k=1
+
+kln
+
+=
+
+K k=1
+
+vlk
+
+ukn
+
+.
+
+Thus we can also write
+
+mln =
+
+K k=1
+
+mlkn
+
+where
+
+mlkn
+
+
+
+Poisson+(kln)
+
+=
+
+Poisson+ (vlk ukn ).
+
+On the other hand, if yln = 0 then mln = 0 with probability one (Eq. (9)), and therefore need not be sampled because it does not affect the sufficient statistics of the model parameters.
+
+Using the equivalence of Poisson and multinomial distribution [27], we can express the decomposi-
+
+tion mln =
+
+K k=1
+
+mlkn
+
+as
+
+a
+
+draw
+
+from
+
+a
+
+multinomial
+
+[ml1n, . . . , mlKn]  Mult(mln; l1n, . . . , lKn)
+
+(11)
+
+where lkn =
+
+.vlk ukn
+
+K k=1
+
+vlk ukn
+
+This allows us to exploit the Dirichlet-multinomial conjugacy and
+
+helps designing efficient Gibbs sampling and EM algorithms for doing inference in our model. As
+
+discussed before, the computational cost of both algorithms scales in the number of ones in the
+
+label matrix Y, which males our model especially appealing for dealing with multilabel learning
+
+problems where the label matrix is massive but highly sparse.
+
+3
+
+3.1 Gibbs Sampling
+
+Gibbs sampling for our model proceeds as follows
+
+Sampling
+
+V:
+
+Using
+
+Eq.
+
+11
+
+and
+
+the
+
+Dirichlet-multinomial
+
+conjugacy,
+
+each
+
+column
+
+of
+
+V
+
+
+
+LxK
+R+
+
+can be sampled as
+
+vk  Dirichlet( + m1k, . . . ,  + mLk)
+
+(12)
+
+where mlk = n mlnk, l = 1, . . . , L.
+
+Sampling U: Using the gamma-Poisson conjugacy, each entry of U  R+KxN can be sampled as
+
+ukn  Gamma(rk + mkn, pkn)
+
+(13)
+
+where mkn = l mlnk and pkn = (wk xn).
+
+Sampling W: Since mkn = l mlnk and mlnk  Poisson+(vlkukn), p(mkn|ukn) is also Poisson. Further, since p(ukn|r, pkn) is gamma, we can integrate out ukn from p(mkn|ukn) which gives
+
+mkn = NegBin(rk, pkn)
+
+where NegBin(., .) denotes the negative Binomial distribution.
+
+Although the negative Binomial is not conjugate to the Gaussian prior on wk, we leverage the PolyaGamma strategy [17] data augmentation to "Gaussianify" the negative Binomial likelihood. Doing
+this, we are able to derive closed form Gibbs sampling updates wk, k = 1, . . . , K. The PolyaGamma (PG) strategy is based on sampling a set of auxiliary variables, one for each observation
+(which, in the context of sampling wk, are the latent counts mkn). For sampling wk, we draw N Polya-Gamma random variables [17] k1, . . . , kN (one for each training example) as
+
+kn  PG(mkn + rk, wk xn) where PG(., .) denotes the Polya-Gamma distribution [17].
+
+(14)
+
+Given these PG variables, the posterior distribution of wk is Gaussian Nor(wk , wk ) where wk = (XkX + -1)-1 wk = wk Xk
+
+(15) (16)
+
+where k = diag(k1, . . . , kN ) and k = [(mk1 - rk)/2, . . . , (mkN - rk)/2] .
+Sampling the hyperparameters: The hyperparameter rk is given a gamma prior and can be sampled easily. The other hyperparameters 1, . . . , D are estimated using Type-II maximum likelihood estimation [22].
+
+3.2 Expectation Maximization
+
+The Gibbs sampler described in Section 3.1 is efficient and has a computational complexity that scales in the number of ones in the label matrix. To further scale up the inference, we also develop an efficient Expectation-Maximization (EM) inference algorithm for our model. In the E-step, we need to compute the expectations of the local variables U, the latent counts, and the Polya-Gamma variables k1, . . . , kN , for k = 1, . . . , K. These expectations are available in closed form and can thus easily be computed. In particular, the expectation of each Polya-Gamma variable kn is very efficient to compute and is available in closed form [20]
+
+E[kn]
+
+=
+
+(mkn + rk) 2wk xn
+
+tanh(wk
+
+xn/2)
+
+(17)
+
+The M-step involves a maximization w.r.t. V and W, which essentially involves solving for their maximum-a-posteriori (MAP) estimates, which are available in closed form. In particular, as shown in [20], estimating wk requires solving a linear system which, in our case, is of the form
+
+Skwk = dk
+
+(18)
+
+where Sk = XkX + -1, dk = Xk, k and k are defined as in Section 3.1, except that the Polya-Gamma random variables are replaced by their expectations given by Eq. 17. Note that Eq. 18
+
+4
+
+can be straighforwardly solved as wk = S-k 1dk. However, convergence of the EM algorithm [20] does not require solving for wk exactly in each EM iteration and running a couple of iterations of any of the various iterative methods that solves a linear system of equations can be used for this step. We use the Conjugate Gradient [2] method to solve this, which also allows us to exploit the sparsity in X and k to very efficiently solve this system of equations, even when D and N are very large. Although in this paper, we only use the batch EM, it is possible to speed it up even further using an online version of this EM algorithm, as shown in [20]. The online EM processes data in small minibatches and in each EM iteration updates the sufficient statistics of the global parameters. In our case, these sufficient statistics include Sk and dk, for k = 1, . . . , K, and can be updated as
+S(kt+1) = (1 - t)S(kt) + tX(t)(kt)X(t) d(kt+1) = (1 - t)d(kt) + tX(t)(kt)
+where X(t) denotes the set of examples in the current minibatch, and (kt) and (kt) denote quantities that are computed using the data from the current minibatch.
+
+3.3 Predicting Labels for Test Examples Predicting the label vector y  {0, 1}L for a new test example x  RD can be done as
+
+p(y = 1|x) = (1 - exp(-Vu))p(u)du
+u
+
+If using Gibbs sampling, the integral above can be approximated using samples {u(m)}Mm=1 from
+
+the posterior of u. It is also possible to integrate out u (details skipped for brevity) and get closed
+
+form estimates of probability of each label yl in terms of the model parameters V and W, and it is
+
+given by
+
+p(yl
+
+=
+
+1|x)
+
+=
+
+1
+
+-
+
+K k=1
+
+[Vlk
+
+1 exp(wk
+
+x)
+
++
+
+1]rk
+
+(19)
+
+4 Computational Cost
+
+Computing the latent count mln for each nonzero entry yln in Y requires computing [ml1n, . . . , mlKn], which takes O(K) time; therefore computing all the latent counts takes O(nnz(Y)K) time, which is very efficient if Y has very few nonzeros (which is true of most realworld multi-label learning problems). Estimating V, U, and the hyperparameters is relatively cheap
+and can be done very efficiently. The Polya-Gamma variables, when doing Gibbs sampling, can be
+efficiently sampled using methods described in [17]; and when doing EM, these can be even more
+cheaply computed because the Polya-Gamma expectations, which are available in closed form (as
+a hyperbolic tan function), can be very efficiently computed [20]. The most dominant step is estimating W; when doing Gibbs sampling, if done naively, it would O(DK3) time if sampling W row-wise, and O(KD3) time if sampling column-wise. However, if using the EM algorithm, estimating W can be done much more efficiently, e.g., using Conjugate Gradient updates because, it is not even required to solved for W exactly in each iteration of the EM algorithm [20]. Also note that since most of the parameters updates for different k = 1, . . . , K, n = 1, . . . , N are all independent
+of each other, our Gibbs sampler and the EM algorithms can be easily parallelized/block-updated.
+
+5 Connection: Topic Models with Meta-Data
+As discussed earlier, our multi-label learning framework is similar in spirit to a topic model as the label embeddings naturally correspond to topics - each Dirichlet-drawn column vk of the matrix V  RL+xK can be seen as representing a "topic". In fact, our model, interestingly, can directly be seen as a topic model [3, 27] where we have side-information associated with each document (e.g., document features). For example, if each document yn  {0, 1}L (in a bag-of-words representation with vocabulary of size L) may also have some meta-data xn  RD associated with it. Our model can therefore also be used to perform topic modeling of text documents with such meta-data [15, 12, 29, 19] in a robust and scalable manner.
+
+5
+
+6 Related Work
+Despite a significant number of methods proposed in the recent years, learning from multi-label data continues to remain an active area of research, especially due to the recent surge of interest in learning when the output space (i.e., the number of labels) is massive. To handle the huge dimensionality of the label space, a common approach is to embed the labels in a lower-dimensional space, e.g., using methods such as Canonical Correlation Analysis or other methods for jointly embedding feature and label vectors [26, 5, 23], Compressed Sensing[8, 10], or by assuming that the matrix consisting of the weight vectors of all the labels is a low-rank matrix [25]. Another interesting line of work on label embedding methods makes use of random projections to reduce the label space dimensionality [11, 16], or use methods such as multitask learning (each label is a task).
+Our proposed framework is most similar in spirit to the aforementioned class of label embedding based methods (we compare with some of these in our experiments). In contrast to these methods, our framework reduces the label-space dimensionality via a nonlinear mapping (Section 2), our framework has accompanying inference algorithms that scale in the number of positive labels 2.1, has an underlying generative model that more realistically models the imbalanced nature of the labels in the label matrix (Section 2.2), can deal with missing labels, and is easily parallelizable. Also, the connection to topic models provide a nice interpretability to the results, which is usually not possible with the other methods (e.g., in our model, the columns of the matrix V can be seen as a set of topics over the labels; in Section 7.2, we show an experiment on this). Moreover, although in this paper, we have focused on the multi-label learning problem, our framework can also be applied for multiclass problems via the one-vs-all reduction, in which case the label matrix is usually very sparse (each column of the label matrix represents the labels of a single one-vs-all binary classification problem).
+Finally, although not a focus of this paper, some other important aspects of the multi-label learning problem have also been looked at in recent work. For example, fast prediction at test time is an important concern when the label space is massive. To deal with this, some recent work focuses on methods that only incur a logarithmic cost (in the number of labels) at test time [1, 18], e.g., by inferring and leveraging a tree structure over the labels.
+
+7 Experiments
+
+We evaluate the proposed multi-label learning framework on four benchmark multi-label data sets bibtex, delicious, compphys, eurlex [25], with their statistics summarized in Table 1. The data sets we use in our experiments have both feature and label dimensions that range from a few hundreds to a several thousands. In addition, the feature and/or label matrices are also quite sparse.
+
+Data set bibtex delicious compphys eurlex
+
+D 1836 500 33,284 5000
+
+L 159 983 208 3993
+
+Training set
+
+Ntrain L
+
+4880
+
+2.40
+
+12920
+
+19.03
+
+161 9.80
+
+17413
+
+5.30
+
+D 68.74 18.17 792.78 236.69
+
+Ntest 2515 3185 40 1935
+
+Test set L
+2.40 19.00 11.83 5.32
+
+D 68.50 18.80 899.20 240.96
+
+Table 1: Statistics of the data sets used in our experiments. L denotes average number of positive labels per example; D denotes the average number of nonzero features per example.
+
+We compare the proposed model BMLPL with four state-of-the-art methods. All these methods, just like our method, are based on the assumption that the label vectors live in a low dimensional space.
+* CPLST: Conditional Principal Label Space Transformation [5]: CPLST is based on embedding the label vectors conditioned on the features.
+* BCS: Bayesian Compressed Sensing for multi-label learning [10]: BCS is a Bayesian method that uses the idea of doing compressed sensing on the labels [8].
+* WSABIE: It assumes that the feature as well as the label vectors live in a low dimensional space. The model is based on optimizing a weighted approximate ranking loss [23].
+* LEML: Low rank Empirical risk minimization for multi-label learning [25]. For LEML, we report the best results across the three loss functions (squared, logistic, hinge) they propose.
+
+6
+
+Table 2 shows the results where we report the Area Under the ROC Curve (AUC) for each method on all the data sets. For each method, as done in [25], we vary the label space dimensionality from 20% - 100% of L, and report the best results. For BMLPL, both Gibbs sampling and EM based inference perform comparably (though EM runs much faster than Gibbs); here we report results obtained with EM inference only (Section 7.4 provides another comparison between these two inference methods). The EM algorithms were run for 1000 iterations and they converged in all the cases.
+As shown in the results in Table 2, in almost all of the cases, the proposed BMLPL model performs better than the other methods (except for compphys data sets where the AUC is slightly worse than LEML). The better performance of our model justifies the flexible Bayesian formulation and also shows the evidence of the robustness provided by the asymmetric link function against sparsity and label imbalance in the label matrix (note that the data sets we use have very sparse label matrices).
+
+bibtex delicious compphys eurlex
+
+CPLST 0.8882 0.8834 0.7806 -
+
+BCS 0.8614 0.8000 0.7884 -
+
+WSABIE 0.9182 0.8561 0.8212 0.8651
+
+LEML 0.9040 0.8894 0.9274 0.9456
+
+BMLPL 0.9210 0.8950 0.9211 0.9520
+
+Table 2: Comparison of the various methods in terms of AUC scores on all the data sets. Note: CPLST and BCS were not feasible to run on the eurlex data, so we are unable to report those numbers here.
+
+7.1 Results with Missing Labels
+
+Our generative model for the label matrix can also handle missing labels (the missing labels may include both zeros or ones). We perform an experiment on two of the data sets - bibtex and compphys - where only 20% of the labels from the label matrix are revealed (note that, of all these revealed labels, our model uses only the positive labels), and compare our model with LEML and BCS (both are capable of handling missing labels). The results are shown in Table 3. For each method, we set K = 0.4L. As the results show, our model yields better results as compared to the competing methods even in the presence of missing labels.
+
+BCS LEML BMLPL
+
+bibtex
+
+0.7871 0.8332 0.8420
+
+compphys 0.6442 0.7964 0.8012
+
+Table 3: AUC scores with only 20% labels observed.
+
+7.2 Qualitative Analysis: Topic Modeling on Eurlex Data
+
+Since in our model, each column of the L x K matrix V represents a distribution (i.e., a "topic") over the labels, to assess its ability of discovering meaningful topics, we run an experiment on the Eurlex data with K = 20 and look at each column of V. The Eurlex data consists of 3993 labels (each of which is a tags; a document can have a subset of the tags), so each column in V is of that size. In Table 4, we show five of the topics (and top five labels in each topic, based on the magnitude of the entries in the corresponding column of V). As shown in Table 4, our model is able to discover clear and meaningful topics from the Eurlex data, which shows its usefulness as a topic model when each document yn  {0, 1}L has features in form of meta data xn  RD associated with it.
+
+Topic 1 (Nuclear) nuclear safety nuclear power station radioactive effluent radioactive waste radioactive pollution
+
+Topic 2 (Agreements) EC agreement trade agreement EC interim agreement trade cooperation EC coop. agree.
+
+Topic 3 (Environment) environmental protection waste management env. monitoring dangerous substance pollution control measures
+
+Topic 4 (Stats & Data) community statistics statistical method agri. statistics statistics data transmission
+
+Topic 5 (Fishing Trade) fishing regulations fishing agreement fishery management fishing area conservation of fish stocks
+
+Table 4: Most probable words in different topics.
+
+7
+
+7.3 Scalability w.r.t. Number of Positive Labels
+To demonstrate the linear scalability in the number of positive labels, we run an experiment on the Delicious data set by varying the number of positive labels used for training the model from 20% to 100% (to simulate this, we simply treat all the other labels as zeros, so as to have a constant label matrix size). We run each experiment for 100 iterations (using EM for the inference) and report the running time for each case. Fig. 2 (left) shows the results which demonstrates the roughly linear scalability w.r.t. the number of positive labels. This experiment is only meant for a small illustration. Note than the actual scalability will also depend on the relative values of D and L and the sparsity of Y. In any case, the amount of computations the involve the labels (both positive and negatives) only depend on the positive labels, and this part, for our model, is clearly linear in the number of positive labels in the label matrix.
+
+Time Taken
+AUC
+
+800
+
+700
+
+600
+
+500
+
+400
+
+300
+
+200 20%
+
+40%
+
+60%
+
+60%
+
+100%
+
+Fraction of Positive Labels
+
+0.9 EM-CG EM-Exact
+0.85 Gibbs
+0.8
+
+0.75
+
+0.7
+
+0.65 10-2
+
+100 Time 102
+
+104
+
+Figure 2: (Left) Scalability w.r.t. number of positive labels. (Right) Time vs accuracy comparison for Gibbs and EM (with exact and with CG based M steps)
+
+7.4 Gibbs Sampling vs EM
+
+We finally show another experiment comparing both Gibbs sampling and EM for our model in terms of accuracy vs running time. We run each inference method only for 100 iterations. For EM, we try two settings: EM with an exact M step for W, and EM with an approximate M step where we run 2 steps of conjugate gradient (CG). Fig. 2 (right), shows a plot comparing each inference method in terms of the accuracy vs running time. As Fig. 2 (right) shows, the EM algorithms (both exact as well as the one that uses CG) attain reasonably high AUC scores in a short amount of time, which the Gibbs sampling takes much longer per iteration and seems to converge rather slowly. Moreover, remarkably, EM with 2 iterations CG in each M steps seems to perform comparably to the EM with an exact M step, while running considerably faster. As for the Gibbs sampler, although it runs slower than the EM based inference, it should be noted that the Gibbs sampler would still be considerably faster than other fully Bayesian methods for multi-label prediction (such as BCS [10]) because it only requires evaluating the likelihoods over the positive labels in the label matrix). Moreover, the step involving sampling of the W matrix can be made more efficient by using cholesky decompositions which can avoid matrix inversions needed for computing the covariance of the Gaussian posterior on wk.
+8 Discussion and Conclusion
+
+We have presented a scalable Bayesian framework for multi-label learning. In addition to providing a flexible model for sparse label matrices, our framework is also computationally attractive and can scale to massive data sets. The model is easy to implement and easy to parallelize. Both full Bayesian inference via simple Gibbs sampling and EM based inference can be carried out in this model in a computationally efficient way. Possible future work includes developing online Gibbs and online EM algorithms to further enhance the scalability of the proposed framework to handle even bigger data sets. Another possible extension could be to additionally impose label correlations more explicitly (in addition to the low-rank structure already imposed by the current model), e.g., by replacing the Dirichlet distribution on the columns of V with logistic normal distributions [4]. Because our framework allows efficiently computing the predictive distribution of the labels (as shown in Section 3.3), it can be easily extend for doing active learning on the labels [10]. Finally, although here we only focused on multi-label learning, our framework can be readily used as a robust and scalable alternative to methods that perform binary matrix factorization with side-information.
+Acknowledgements This research was supported in part by ARO, DARPA, DOE, NGA and ONR
+
+8
+
+References
+[1] Rahul Agrawal, Archit Gupta, Yashoteja Prabhu, and Manik Varma. Multi-label learning with millions of labels: Recommending advertiser bid phrases for web pages. In WWW, 2013.
+[2] Dimitri P Bertsekas. Nonlinear programming. Athena scientific Belmont, 1999.
+[3] David M Blei, Andrew Y Ng, and Michael I Jordan. Latent dirichlet allocation. JMLR, 2003.
+[4] Jianfei Chen, Jun Zhu, Zi Wang, Xun Zheng, and Bo Zhang. Scalable inference for logistic-normal topic models. In NIPS, 2013.
+[5] Yao-Nan Chen and Hsuan-Tien Lin. Feature-aware label space dimension reduction for multi-label classification. In NIPS, 2012.
+[6] Eva Gibaja and Sebastian Ventura. Multilabel learning: A review of the state of the art and ongoing research. Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery, 2014.
+[7] Eva Gibaja and Sebastian Ventura. A tutorial on multilabel learning. ACM Comput. Surv., 2015.
+[8] Daniel Hsu, Sham Kakade, John Langford, and Tong Zhang. Multi-label prediction via compressed sensing. In NIPS, 2009.
+[9] Changwei Hu, Piyush Rai, and Lawrence Carin. Zero-truncated poisson tensor factorization for massive binary tensors. In UAI, 2015.
+[10] Ashish Kapoor, Raajay Viswanathan, and Prateek Jain. Multilabel classification using bayesian compressed sensing. In NIPS, 2012.
+[11] Nikos Karampatziakis and Paul Mineiro. Scalable multilabel prediction via randomized methods. arXiv preprint arXiv:1502.02710, 2015.
+[12] Dae I Kim and Erik B Sudderth. The doubly correlated nonparametric topic model. In NIPS, 2011.
+[13] Xiangnan Kong, Zhaoming Wu, Li-Jia Li, Ruofei Zhang, Philip S Yu, Hang Wu, and Wei Fan. Large-scale multi-label learning with incomplete label assignments. In SDM, 2014.
+[14] Xin Li, Feipeng Zhao, and Yuhong Guo. Conditional restricted boltzmann machines for multi-label learning with incomplete labels. In AISTATS, 2015.
+[15] David Mimno and Andrew McCallum. Topic models conditioned on arbitrary features with dirichletmultinomial regression. In UAI, 2008.
+[16] Paul Mineiro and Nikos Karampatziakis. Fast label embeddings for extremely large output spaces. In ICLR Workshop, 2015.
+[17] Nicholas G Polson, James G Scott, and Jesse Windle. Bayesian inference for logistic models using polya- gamma latent variables. Journal of the American Statistical Association, 108(504):1339-1349, 2013.
+[18] Yashoteja Prabhu and Manik Varma. FastXML: a fast, accurate and stable tree-classifier for extreme multi-label learning. In KDD, 2014.
+[19] Maxim Rabinovich and David Blei. The inverse regression topic model. In ICML, 2014.
+[20] James G Scott and Liang Sun. Expectation-maximization for logistic regression. arXiv preprint arXiv:1306.0040, 2013.
+[21] Farbound Tai and Hsuan-Tien Lin. Multilabel classification with principal label space transformation. Neural Computation, 2012.
+[22] Michael E Tipping. Bayesian inference: An introduction to principles and practice in machine learning. In Advanced lectures on machine Learning, pages 41-62. Springer, 2004.
+[23] Jason Weston, Samy Bengio, and Nicolas Usunier. WSABIE: Scaling up to large vocabulary image annotation. In IJCAI, 2011.
+[24] Yan Yan, Glenn Fung, Jennifer G Dy, and Romer Rosales. Medical coding classification by leveraging inter-code relationships. In KDD, 2010.
+[25] Hsiang-Fu Yu, Prateek Jain, Purushottam Kar, and Inderjit S Dhillon. Large-scale multi-label learning with missing labels. In ICML, 2014.
+[26] Yi Zhang and Jeff G Schneider. Multi-label output codes using canonical correlation analysis. In AISTATS, 2011.
+[27] M. Zhou, L. A. Hannah, D. Dunson, and L. Carin. Beta-negative binomial process and poisson factor analysis. In AISTATS, 2012.
+[28] Mingyuan Zhou. Infinite edge partition models for overlapping community detection and link prediction. In AISTATS, 2015.
+[29] Jun Zhu, Ni Lao, Ning Chen, and Eric P Xing. Conditional topical coding: an efficient topic model conditioned on rich features. In KDD, 2011.
+9
+

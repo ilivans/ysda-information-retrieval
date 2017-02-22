@@ -1,0 +1,625 @@
+Fast Second-Order Stochastic Backpropagation for Variational Inference
+
+Kai Fan Duke University kai.fan@stat.duke.edu
+
+Ziteng Wang HKUST
+wangzt2012@gmail.com
+
+Jeffrey Beck Duke University jeff.beck@duke.edu
+
+James T. Kwok HKUST
+jamesk@cse.ust.hk
+
+Katherine Heller Duke University kheller@gmail.com
+
+Abstract
+We propose a second-order (Hessian or Hessian-free) based optimization method for variational inference inspired by Gaussian backpropagation, and argue that quasi-Newton optimization can be developed as well. This is accomplished by generalizing the gradient computation in stochastic backpropagation via a reparametrization trick with lower complexity. As an illustrative example, we apply this approach to the problems of Bayesian logistic regression and variational auto-encoder (VAE). Additionally, we compute bounds on the estimator variance of intractable expectations for the family of Lipschitz continuous function. Our method is practical, scalable and model free. We demonstrate our method on several real-world datasets and provide comparisons with other stochastic gradient methods to show substantial enhancement in convergence rates.
+1 Introduction
+Generative models have become ubiquitous in machine learning and statistics and are now widely used in fields such as bioinformatics, computer vision, or natural language processing. These models benefit from being highly interpretable and easily extended. Unfortunately, inference and learning with generative models is often intractable, especially for models that employ continuous latent variables, and so fast approximate methods are needed. Variational Bayesian (VB) methods [1] deal with this problem by approximating the true posterior that has a tractable parametric form and then identifying the set of parameters that maximize a variational lower bound on the marginal likelihood. That is, VB methods turn an inference problem into an optimization problem that can be solved, for example, by gradient ascent.
+Indeed, efficient stochastic gradient variational Bayesian (SGVB) estimators have been developed for auto-encoder models [17] and a number of papers have followed up on this approach [28, 25, 19, 16, 15, 26, 10]. Recently, [25] provided a complementary perspective by using stochastic backpropagation that is equivalent to SGVB and applied it to deep latent gaussian models. Stochastic backpropagation overcomes many limitations of traditional inference methods such as the meanfield or wake-sleep algorithms [12] due to the existence of efficient computations of an unbiased estimate of the gradient of the variational lower bound. The resulting gradients can be used for parameter estimation via stochastic optimization methods such as stochastic gradient decent(SGD) or adaptive version (Adagrad) [6].
+Equal Contribution to this work Refer to Hong Kong University of Science and Technology
+1
+
+Unfortunately, methods such as SGD or Adagrad converge slowly for some difficult-to-train models, such as untied-weights auto-encoders or recurrent neural networks. The common experience is that gradient decent always gets stuck near saddle points or local extrema. Meanwhile the learning rate is difficult to tune. [18] gave a clear explanation on why Newton's method is preferred over gradient decent, which often encounters under-fitting problem if the optimizing function manifests pathological curvature. Newton's method is invariant to affine transformations so it can take advantage of curvature information, but has higher computational cost due to its reliance on the inverse of the Hessian matrix. This issue was partially addressed in [18] where the authors introduced Hessian free (HF) optimization and demonstrated its suitability for problems in machine learning.
+In this paper, we continue this line of research into 2nd order variational inference algorithms. Inspired by the property of location scale families [8], we show how to reduce the computational cost of the Hessian or Hessian-vector product, thus allowing for a 2nd order stochastic optimization scheme for variational inference under Gaussian approximation. In conjunction with the HF optimization, we propose an efficient and scalable 2nd order stochastic Gaussian backpropagation for variational inference called HFSGVI. Alternately, L-BFGS [3] version, a quasi-Newton method merely using the gradient information, is a natural generalization of 1st order variational inference.
+The most immediate application would be to look at obtaining better optimization algorithms for variational inference. As to our knowledge, the model currently applying 2nd order information is LDA [2, 14], where the Hessian is easy to compute [11]. In general, for non-linear factor models like non-linear factor analysis or the deep latent Gaussian models this is not the case. Indeed, to our knowledge, there has not been any systematic investigation into the properties of various optimization algorithms and how they might impact the solutions to optimization problem arising from variational approximations.
+The main contributions of this paper are to fill such gap for variational inference by introducing a novel 2nd order optimization scheme. First, we describe a clever approach to obtain curvature information with low computational cost, thus making the Newton's method both scalable and efficient. Second, we show that the variance of the lower bound estimator can be bounded by a dimension-free constant, extending the work of [25] that discussed a specific bound for univariate function. Third, we demonstrate the performance of our method for Bayesian logistic regression and the VAE model in comparison to commonly used algorithms. Convergence rate is shown to be competitive or faster.
+
+2 Stochastic Backpropagation
+In this section, we extend the Bonnet and Price theorem [4, 24] to develop 2nd order Gaussian backpropagation. Specifically, we consider how to optimize an expectation of the form Eq [f (z|x)], where z and x refer to latent variables and observed variables respectively, and expectation is taken w.r.t distribution q and f is some smooth loss function (e.g. it can be derived from a standard variational lower bound [1]). Sometimes we abuse notation and refer to f (z) by omitting x when no ambiguity exists. To optimize such expectation, gradient decent methods require the 1st derivatives, while Newton's methods require both the gradients and Hessian involving 2nd order derivatives.
+
+2.1 Second Order Gaussian Backpropagation
+
+If the distribution q is a dz-dimensional Gaussian N (z|, C), the required partial derivative is easily computed with a lower algorithmic cost O(d2z) [25]. By using the property of Gaussian distribution, we can compute the 2nd order partial derivative of EN (z|,C)[f (z)] as follows:
+
+2i,j EN (z|,C)[f (z)] = EN (z|,C)[2zi,zj f (z)] = 2Cij EN (z|,C)[f (z)],
+
+2
+Ci,j
+
+,Ck,l
+
+EN
+
+(z|,C)
+
+[f
+
+(z)]
+
+=
+
+1 4
+
+EN
+
+(z|,C)
+
+[4zi
+
+,zj
+
+,zk
+
+,zl
+
+f
+
+(z)],
+
+2i,Ck,l EN (z|,C)[f (z)]
+
+=
+
+1 2 EN (z|,C)
+
+3zi,zk,zl f (z)
+
+.
+
+(1) (2) (3)
+
+Eq. (1), (2), (3) (proof in supplementary) have the nice property that a limited number of samples from q are sufficient to obtain unbiased gradient estimates. However, note that Eq. (2), (3) needs to calculate the third and fourth derivatives of f (z), which is highly computationally inefficient. To avoid the calculation of high order derivatives, we use a co-ordinate transformation.
+
+2
+
+2.2 Covariance Parameterization for Optimization
+
+By constructing the linear transformation (a.k.a. reparameterization) z =  + R , where  N (0, Idz ), we can generate samples from any Gaussian distribution N (, C) by simulating data
+from a standard normal distribution, provided the decomposition C = RR holds. This fact allows us to derive the following theorem indicating that the computation of 2nd order derivatives can be
+scalable and programmed to run in parallel.
+
+Theorem 1 (Fast Derivative). If f is a twice differentiable function and z follows Gaussian dis-
+
+tribution N (, C), C = RR , where both the mean  and R depend on a d-dimensional pa-
+
+rameter  = (l)dl=1, i.e. (), R(), we have 2,REN (,C)[f (z)] = E N (0,Idz )[ 2REN (,C)[f (z)] = E N (0,Idz )[( T )  H]. This then implies
+
+ H], and
+
+( + R ) l EN (,C)[f (z)] = E N (0,I) g l ,
+
+(4)
+
+2l1 l2 EN (,C) [f (z)]
+
+=
+
+E N (0,I)
+
+( + R ) ( + R )
+
+2( + R )
+
+H +g
+
+ l1
+
+ l2
+
+l1 l2
+
+, (5)
+
+where  is Kronecker product, and gradient g, Hessian H are evaluated at  + R in terms of f (z).
+
+If we consider the mean and covariance matrix as the variational parameters in variational inference,
+the first two results w.r.t , R make parallelization possible, and reduce computational cost of the
+Hessian-vector multiplication due to the fact that (A  B)vec(V ) = vec(AV B). If the model has
+few parameters or a large resource budget (e.g. GPU) is allowed, Theorem 1 launches the foundation for exact 2nd order derivative computation in parallel. In addition, note that the 2nd order gradient
+computation on model parameter  only involves matrix-vector or vector-vector multiplication, thus leading to an algorithmic complexity that is O(d2z) for 2nd order derivative of , which is the same as 1st order gradient [25]. The derivative computation at function f is up to 2nd order, avoiding to calculate 3rd or 4th order derivatives. One practical parametrization assumes a diagonal covariance matrix C = diag{12, ..., d2z }. This reduces the actual computational cost compared with Theorem 1, albeit the same order of the complexity (O(d2z)) (see supplementary material). Theorem 1 holds for a large class of distributions in addition to Gaussian distributions, such as student t-distribution.
+If the dimensionality d of embedded parameter  is large, computation of the gradient G and Hessian H (differ from g, H above) will be linear and quadratic w.r.t d, which may be unacceptable. Therefore, in the next section we attempt to reduce the computational complexity w.r.t d.
+
+2.3 Apply Reparameterization on Second Order Algorithm
+
+In standard Newton's method, we need to compute the Hessian matrix and its inverse, which is intractable for limited computing resources. [18] applied Hessian-free (HF) optimization method in deep learning effectively and efficiently. This work largely relied on the technique of fast Hessian matrix-vector multiplication [23]. We combine reparameterization trick with Hessian-free or quasiNewton to circumvent matrix inverse problem.
+
+Hessian-free Unlike quasi-Newton methods HF doesn't make any approximation on the Hessian.
+
+HF needs to compute Hv, where v is any vector that has the matched dimension to H, and then uses conjugate gradient algorithm to solve the linear system Hv = -F () v, for any objective
+
+function F . [18] gives a reasonable explanation for Hessian free optimization. In short, unlike a
+
+pre-training method that places the parameters in a search region to regularize[7], HF solves issues
+
+of pathological curvature in the objective by taking the advantage of rescaling property of Newton's
+
+method.
+
+By
+
+definition
+
+H v
+
+=
+
+lim0
+
+F (+v)-F () 
+
+indicating
+
+that
+
+H v
+
+can
+
+be
+
+numerically
+
+computed by using finite differences at . However, this numerical method is unstable for small .
+
+In this section, we focus on the calculation of Hv by leveraging a reparameterization trick. Specifically, we apply an R-operator technique [23] for computing the product Hv exactly. Let F = EN (,C)[f (z)] and reparametrize z again as Sec. 2.2, we do variable substitution    + v
+after gradient Eq. (4) is obtained, and then take derivative on . Thus we have the following analyt-
+
+3
+
+Algorithm 1 Hessian-free Algorithm on Stochastic Gaussian Variational Inference (HFSGVI)
+
+Parameters: Minibatch Size B, Number of samples to estimate the expectation M (= 1 as default),
+
+Input: Observation X (and Y if required), Lower bound function L = EN (,C)[fL]
+
+Output: Parameter  after having converged.
+
+1: for t = 1, 2, . . . do
+
+2: xBb=1  Randomly draw B datapoints from full data set X;
+
+3:
+
+M mb =1
+
+
+
+sample
+
+M
+
+times
+
+from
+
+N (0, I)
+
+for
+
+each
+
+xb;
+
+4:
+
+Define
+
+gradient
+
+G()
+
+=
+
+1 M
+
+b
+
+mb
+
+gb,m
+
+(+R 
+
+mb ) ,
+
+gb,m
+
+=
+
+z(fL(z|xb))|z=+R
+
+;mb
+
+5: Define function B(, v) = G( + v)|=0, where v is a d-dimensional vector;
+
+6: Using Conjugate Gradient algorithm to solve linear system: B(t, pt) = -G(t);
+
+7: t+1 = t + pt;
+
+8: end for
+
+ical expression for Hessian-vector multiplication:
+
+Hv =
+
+ F ( + v)  =0
+
+=
+
+  EN (0,I)
+
+g
+
+ (() + R() )  +v =0
+
+  (() + R() )
+
+= EN (0,I)  g
+
+ +v
+
+.
+=0
+
+(6)
+
+Eq. (6) is appealing since it does not need to store the dense matrix and provides an unbiased Hv estimator with a small sample size. In order to conduct the 2nd order optimization for variational inference, if the computation of the gradient for variational lower bound is completed, we only need to add one extra step for gradient evaluation via Eq. (6) which has the same computational complexity as Eq. (4). This leads to a Hessian-free variational inference method described in Algorithm 1.
+
+For the worst case of HF, the conjugate gradient (CG) algorithm requires at most d iterations to terminate, meaning that it requires d evaluations of Hv product. However, the good news is that CG leads to good convergence after a reasonable number of iterations. In practice we found that it may not necessary to wait CG to converge. In other words, even if we set the maximum iteration K in CG to a small fixed number (e.g., 10 in our experiments, though with thousands of parameters), the performance does not deteriorate. The early stoping strategy may have the similar effect of Wolfe condition to avoid excessive step size in Newton's method. Therefore we successfully reduce the complexity of each iteration to O(Kdd2z), whereas O(dd2z) is for one SGD iteration.
+L-BFGS Limited memory BFGS utilizes the information gleaned from the gradient vector to approximate the Hessian matrix without explicit computation, and we can readily utilize it within our framework. The basic idea of BFGS approximates Hessian by an iterative algorithm Bt+1 = Bt + GtGt /tt - Bttt Bt/t Btt, where Gt = Gt - Gt-1 and t = t - t-1. By Eq. (4), the gradient Gt at each iteration can be obtained without any difficulty. However, even if this low rank approximation to the Hessian is easy to invert analytically due to the Sherman-Morrison formula, we still need to store the matrix. L-BFGS will further implicitly approximate this dense Bt or B-t 1 by tracking only a few gradient vectors and a short history of parameters and therefore has a linear memory requirement. In general, L-BFGS can perform a sequence of inner products with the K most recent t and Gt, where K is a predefined constant (10 or 15 in our experiments). Due to the space limitations, we omit the details here but none-the-less will present this algorithm in experiments section.
+
+2.4 Estimator Variance
+The framework of stochastic backpropagation [16, 17, 19, 25] extensively uses the mean of very few samples (often just one) to approximate the expectation. Similarly we approximate the left side of Eq. (4), (5), (6) by sampling few points from the standard normal distribution. However, the magnitude of the variance of such an estimator is not seriously discussed. [25] simply explored the variance quantitatively for separable functions.[19] merely borrowed the variance reduction technique from reinforcement learning by centering the learning signal in expectation and performing variance normalization. Here, we will generalize the treatment of variance to a broader family, Lipschitz continuous function.
+
+4
+
+Theorem 2 (Variance Bound). If f is an L-Lipschitz differentiable function and  N (0, Idz ),
+
+then E[(f (
+
+) - E[f (
+
+)])2]
+
+
+
+L2  2 4
+
+.
+
+The proof of Theorem 2 (see supplementary) employs the properties of sub-Gaussian distributions
+and the duplication trick that are commonly used in learning theory. Significantly, the result implies
+a variance bound independent of the dimensionality of Gaussian variable. Note that from the proof, we can only obtain the E e(f( )-E[f( )])  eL222/8 for  > 0. Though this result is enough to illustrate the variance independence of dz, we can in fact tighten it to a sharper upper bound by a constant scalar, i.e. e2L2/2, thus leading to the result of Theorem 2 with Var(f ( ))  L2. If
+all the results above hold for smooth (twice continuous and differentiable) functions with Lipschitz
+constant L then it holds for all Lipschitz functions by a standard approximation argument. This
+means the condition can be relaxed to Lipschitz continuous function.
+
+Corollary 3 (Bias Bound). P
+
+1 M
+
+M m=1
+
+f
+
+(
+
+m) - E[f (
+
+)]
+
+t
+
+ 2e-
+
+2M t2 2 L2
+
+.
+
+It is also worth mentioning that the significant corollary of Theorem 2 is probabilistic inequality to measure the convergence rate of Monte Carlo approximation in our setting. This tail bound, together with variance bound, provides the theoretical guarantee for stochastic backpropagation on Gaussian variables and provides an explanation for why a unique realization (M = 1) is enough in practice. By reparametrization, Eq. (4), (5, (6) can be formulated as the expectation w.r.t the isotropic Gaussian distribution with identity covariance matrix leading to Algorithm 1. Thus we can rein in the number of samples for Monte Carlo integration regardless dimensionality of latent variables z. This seems counter-intuitive. However, we notice that larger L may require more samples, and Lipschitz constants of different models vary greatly.
+
+3 Application on Variational Auto-encoder
+Note that our method is model free. If the loss function has the form of the expectation of a function w.r.t latent Gaussian variables, we can directly use Algorithm 1. In this section, we put the emphasis on a standard framework VAE model [17] that has been intensively researched; in particular, the function endows the logarithm form, thus bridging the gap between Hessian and fisher information matrix by expectation (see a survey [22] and reference therein).
+3.1 Model Description
+Suppose we have N i.i.d. observations X = {x(i)}Ni=1, where x(i)  RD is a data vector that can take either continuous or discrete values. In contrast to a standard auto-encoder model constructed by a neural network with a bottleneck structure, VAE describes the embedding process from the prospective of a Gaussian latent variable model. Specifically, each data point x follows a generative model p(x|z), where this process is actually a decoder that is usually constructed by a non-linear transformation with unknown parameters  and a prior distribution p(z). The encoder or recognition model q(z|x) is used to approximate the true posterior p(z|x), where  is similar to the parameter of variational distribution. As suggested in [16, 17, 25], multi-layered perceptron (MLP) is commonly considered as both the probabilistic encoder and decoder. We will later see that this construction is equivalent to a variant deep neural networks under the constrain of unique realization for z. For this model and each datapoint, the variational lower bound on the marginal likelihood is,
+log p(x(i))  Eq(z|x(i))[log p(x(i)|z)] - DKL(q(z|x(i)) p(z)) = L(x(i)). (7)
+We can actually write the KL divergence into the expectation term and denote (, ) as . By the previous discussion, this means that our objective is to solve the optimization problem arg max i L(x(i)) of full dataset variational lower bound. Thus L-BFGS or HF SGVI algorithm can be implemented straightforwardly to estimate the parameters of both generative and recognition models. Since the first term of reconstruction error appears in Eq. (7) with an expectation form on latent variable, [17, 25] used a small finite number M samples as Monte Carlo integration with reparameterization trick to reduce the variance. This is, in fact, drawing samples from the standard normal distribution. In addition, the second term is the KL divergence between the variational distribution and the prior distribution, which acts as a regularizer.
+
+5
+
+3.2 Deep Neural Networks with Hybrid Hidden Layers
+
+In the experiments, setting M = 1 can not only achieve excellent performance but also speed up
+
+the program. In this special case, we discuss the relationship between VAE and traditional deep
+
+auto-encoder. For binary inputs, denote the output as y, we have log p(x|z) =
+
+D j=1
+
+xj
+
+log yj
+
++
+
+(1 - xj) log(1 - yj), which is exactly the negative cross-entropy. It is also apparent that log p(x|z)
+
+is equivalent to negative squared error loss for continuous data. This means that maximizing the
+
+lower bound is roughly equal to minimizing the loss function of a deep neural network (see Figure
+
+1 in supplementary), except for different regularizers. In other words, the prior in VAE only im-
+
+poses a regularizer in encoder or generative model, while L2 penalty for all parameters is always
+
+considered in deep neural nets. From the perspective of deep neural networks with hybrid hidden
+
+nodes, the model consists of two Bernoulli layers and one Gaussian layer. The gradient computation
+
+can simply follow a variant of backpropagation layer by layer (derivation given in supplementary).
+
+To further see the rationale of setting M = 1, we will investigate the upper bound of the Lipschitz
+
+constant under various activation functions in the next lemma. As Theorem 2 implies, the variance
+
+of approximate expectation by finite samples mainly relies on the Lipschitz constant, rather than
+
+dimensionality. According to Lemma 4, imposing a prior or regularization to the parameter can
+
+control both the model complexity and function smoothness. Lemma 4 also implies that we can get
+
+the upper bound of the Lipschitz constant for the designed estimators in our algorithm.
+
+Lemma 4. For a sigmoid activation function g in deep neural networks with one Gaussian layer z,
+
+z  N (, C), C = R R. Let z =  + R , then the Lipschitz constant of g(Wi,( + R ) + bi)
+
+is bounded by
+
+1 4
+
+Wi,R
+
+2, where Wi, is ith row of weight matrix and bi is the ith element bias.
+
+Similarly, for hyperbolic tangent or softplus function, the Lipschitz constant is bounded by Wi,R 2.
+
+4 Experiments
+We apply our 2nd order stochastic variational inference to two different non-conjugate models. First, we consider a simple but widely used Bayesian logistic regression model, and compare with the most recent 1st order algorithm, doubly stochastic variational inference (DSVI) [28], designed for sparse variable selection with logistic regression. Then, we compare the performance of VAE model with our algorithms.
+
+4.1 Bayesian Logistic Regression
+
+Given a dataset {xi, yi}Ni=1, where each instance xi  RD includes the default feature 1 and yi  {-1, 1} is the binary label, the Bayesian logistic regression models the probability of out-
+
+puts conditional on features and the coefficients  with an imposed prior. The likelihood and the
+
+prior can usually take the form as
+
+N i=1
+
+g(yixi
+
+)
+
+and
+
+N (0, )
+
+respectively,
+
+where
+
+g
+
+is
+
+sigmoid
+
+function and  is a diagonal covariance matrix for simplicity. We can propose a variational Gaussian
+
+distribution q(|, C) to approximate the posterior of regression parameter. If we further assume a
+
+diagonal C, a factorized form
+
+D j=1
+
+q(j |j
+
+,
+
+j
+
+)
+
+is
+
+both
+
+efficient
+
+and
+
+practical
+
+for
+
+inference.
+
+Unlike
+
+iteratively optimizing  and , C as in variational EM, [28] noticed that the calculation of the gra-
+
+dient w.r.t the lower bound indicates the updates of  can be analytically worked out by variational
+
+parameters, thus resulting a new objective function for the representation of lower bound that only
+
+relies on , C (details refer to [28]). We apply our algorithm to this variational logistic regression on
+
+three appropriate datasets: DukeBreast and Leukemia are small size but high-dimensional for
+
+sparse logistic regression, and a9a which is large. See Table 1 for additional dataset descriptions.
+
+Fig. 1 shows the convergence of Gaussian variational lower bound for Bayesian logistic regression in terms of running time. It is worth mentioning that the lower bound of HFSGVI converges within 3 iterations on the small datasets DukeBreast and Leukemia. This is because all data points are fed to all algorithms and the HFSGVI uses a better approximation of the Hessian matrix to proceed 2nd order optimization. L-BFGS-SGVI also take less time to converge and yield slightly larger lower bound than DSVI. In addition, as an SGD-based algorithm, it is clearly seen that DSVI is less stable for small datasets and fluctuates strongly even at the later optimized stage. For the large a9a, we observe that HFSGVI also needs 1000 iterations to reach a good lower bound and becomes less stable than the other two algorithms. However, L-BFGS-SGVI performs the best
+
+6
+
+Table 1: Comparison on number of misclassification
+
+Dataset(size: #train/test/feature)
+
+DSVI train test
+
+L-BFGS-SGVI HFSGVI train test train test
+
+DukeBreast(38/4/7129) 0 2 0 1 0 0
+
+Leukemia(38/34/7129) 0 3 0 3 0 3
+
+A9a(32561/16281/123) 4948 2455 4936 2427 4931 2468
+
+Lower Bound Lower Bound Lower Bound
+
+Duke Breast 0
+
+Leukemia 0
+
+-1 x 104
+
+A9a
+
+-50 -100
+
+-20 -1.1
+-40
+-60 -1.2
+
+-150 -200 -250
+0
+
+DSVI L-BFGS-SGVI HFSGVI
+20 40 60 80 time(s)
+
+-80 -100 -120 -140
+0
+
+DSVI L-BFGS-SGVI HFSGVI
+20 40 60 80 time(s)
+
+-1.3 -1.4 -1.5
+0
+
+DSVI L-BFGS-SGVI HFSGVI
+100 200 300 400 500 time(s)
+
+Figure 1: Convergence rate on logistic regression (zoom out or see larger figures in supplementary)
+
+both in terms of convergence rate and the final lower bound. The misclassification report in Table 1 reflects the similar advantages of our approach, indicating a competitive predication ability on various datasets. Finally, it is worth mentioning that all three algorithms learn a set of very sparse regression coefficients on the three datasets (see supplement for additional visualizations).
+
+4.2 Variational Auto-encoder
+We also apply the 2nd order stochastic variational inference to train a VAE model (setting M = 1 for Monte Carlo integration to estimate expectation) or the equivalent deep neural networks with hybrid hidden layers. The datasets we used are images from the Frey Face, Olivetti Face and MNIST. We mainly learned three tasks by maximizing the variational lower bound: parameter estimation, images reconstruction and images generation. Meanwhile, we compared the convergence rate (running time) of three algorithms, where in this section the compared SGD is the Ada version [6] that is recommended for VAE model in [17, 25]. The experimental setting is as follows. The initial weights are randomly drawn from N (0, 0.012I) or N (0, 0.0012I), while all bias terms are initialized as 0. The variational lower bound only introduces the regularization on the encoder parameters, so we add an L2 regularizer on decoder parameters with a shrinkage parameter 0.001 or 0.0001. The number of hidden nodes for encoder and decoder is the same for all auto-encoder model, which is reasonable and convenient to construct a symmetric structure. The number is always tuned from 200 to 800 with 100 increment. The mini-batch size is 100 for L-BFGS and Ada, while larger mini-batch is recommended for HF, meaning it should vary according to the training size.
+The detailed results are shown in Fig. 2 and 3. Both Hessian-free and L-BFGS converge faster than Ada in terms of running time. HFSGVI also performs competitively with respet to generalization on testing data. Ada takes at least four times as long to achieve similar lower bound. Theoretically, Newton's method has a quadratic convergence rate in terms of iteration, but with a cubic algorithmic complexity at each iteration. However, we manage to lower the computation in each iteration to linear complexity. Thus considering the number of evaluated training data points, the 2nd order algorithm needs much fewer step than 1st order gradient descent (see visualization in supplementary on MNIST). The Hessian matrix also replaces manually tuned learning rates, and the affine invariant property allows for automatic learning rate adjustment. Technically, if the program can run in parallel with GPU, the speed advantages of 2nd order algorithm should be more obvious [21].
+Fig. 2(b) and Fig. 3(b) are reconstruction results of input images. From the perspective of deep neural network, the only difference is the Gaussian distributed latent variables z. By corollary of Theorem 2, we can roughly tell the mean  is able to represent the quantity of z, meaning this layer is actually a linear transformation with noise, which looks like dropout training [5]. Specifically, Olivetti includes 64x64 pixels faces of various persons, which means more complicated models or preprocessing [13] (e.g. nearest neighbor interpolation, patch sampling) is needed. However, even when simply learning a very bottlenecked auto-encoder, our approach can achieve acceptable results. Note that although we have tuned the hyperparameters of Ada by cross-validation, the best result is still a bunch of mean faces. For manifold learning, Fig. 2(c) represents how the
+
+7
+
+1600
+
+Frey Face
+
+1400
+
+1200
+
+Lower Bound
+
+1000 800 600 400 2000
+
+Ada train Ada test L-BFGS-SGVI train L-BFGS-SGVI test HFSGVI train HFSGVI test
+
+0.5 1 1.5 time(s)
+(a) Convergence
+
+2 x 104
+
+(b) Reconstruction
+
+(c) Manifold by Generative Model
+
+Figure 2: (a) shows how lower bound increases w.r.t program running time for different algorithms; (b) illustrates the reconstruction ability of this auto-encoder model when dz = 20 (left 5 columns are randomly sampled from dataset); (c) is the learned manifold of generative model when dz = 2.
+
+6000
+
+Olivetti Face
+
+4000
+
+Lower Bound
+
+2000 0
+-2000 -40000
+
+Ada train Ada test L-BFGS-SGVI train L-BFGS-SGVI test HFSGVI train HFSGVI test
+
+0.5 1 1.5 time (s)
+(a) Convergence
+
+2 x 104
+
+(b) HFSGVI v.s L-BFGS-SGVI v.s. Ada-SGVI
+
+Figure 3: (a) shows running time comparison; (b) illustrates reconstruction comparison without patch sampling, where dz = 100: top 5 rows are original faces.
+
+learned generative model can simulate the images by HFSGVI. To visualize the results, we choose the 2D latent variable z in p(x|z), where the parameter  is estimated by the algorithm. The two coordinates of z take values that were transformed through the inverse CDF of the Gaussian distribution from equal distance grid (10x10 or 20x20) on the unit square. Then we merely use the
+generative model to simulate the images. Besides these learning tasks, denoising, imputation [25]
+and even generalizing to semi-supervised learning [16] are possible application of our approach.
+
+5 Conclusions and Discussion
+In this paper we proposed a scalable 2nd order stochastic variational method for generative models with continuous latent variables. By developing Gaussian backpropagation through reparametrization we introduced an efficient unbiased estimator for higher order gradients information. Combining with the efficient technique for computing Hessian-vector multiplication, we derived an efficient inference algorithm (HFSGVI) that allows for joint optimization of all parameters. The algorithmic complexity of each parameter update is quadratic w.r.t the dimension of latent variables for both 1st and 2nd derivatives. Furthermore, the overall computational complexity of our 2nd order SGVI is linear w.r.t the number of parameters in real applications just like SGD or Ada. However, HFSGVI may not behave as fast as Ada in some situations, e.g., when the pixel values of images are sparse due to fast matrix multiplication implementation in most softwares.
+Future research will focus on some difficult deep models such as RNNs [10, 27] or Dynamic SBN [9]. Because of conditional independent structure by giving sampled latent variables, we may construct blocked Hessian matrix to optimize such dynamic models. Another possible area of future work would be reinforcement learning (RL) [20]. Many RL problems can be reduced to compute gradients of expectations (e.g., in policy gradient methods) and there has been series of exploration in this area for natural gradients. However, we would suggest that it might be interesting to consider where stochastic backpropagation fits in our framework and how 2nd order computations can help.
+Acknolwedgement This research was supported in part by the Research Grants Council of the Hong Kong Special Administrative Region (Grant No. 614513).
+
+8
+
+References
+[1] Matthew James Beal. Variational algorithms for approximate Bayesian inference. PhD thesis, 2003.
+[2] David M Blei, Andrew Y Ng, and Michael I Jordan. Latent dirichlet allocation. Journal of Machine Learning Research, 3, 2003.
+[3] Joseph-Frederic Bonnans, Jean Charles Gilbert, Claude Lemarechal, and Claudia A Sagastizabal. Numerical optimization: theoretical and practical aspects. Springer Science & Business Media, 2006.
+[4] Georges Bonnet. Transformations des signaux aleatoires a travers les systemes non lineaires sans memoire. Annals of Telecommunications, 19(9):203-220, 1964.
+[5] George E Dahl, Tara N Sainath, and Geoffrey E Hinton. Improving deep neural networks for lvcsr using rectified linear units and dropout. In ICASSP, 2013.
+[6] John Duchi, Elad Hazan, and Yoram Singer. Adaptive subgradient methods for online learning and stochastic optimization. Journal of Machine Learning Research, 12:2121-2159, 2011.
+[7] Dumitru Erhan, Yoshua Bengio, Aaron Courville, Pierre-Antoine Manzagol, Pascal Vincent, and Samy Bengio. Why does unsupervised pre-training help deep learning? Journal of Machine Learning Research, 11:625-660, 2010.
+[8] Thomas S Ferguson. Location and scale parameters in exponential families of distributions. Annals of Mathematical Statistics, pages 986-1001, 1962.
+[9] Zhe Gan, Chunyuan Li, Ricardo Henao, David Carlson, and Lawrence Carin. Deep temporal sigmoid belief networks for sequence modeling. In NIPS, 2015.
+[10] Karol Gregor, Ivo Danihelka, Alex Graves, and Daan Wierstra. Draw: A recurrent neural network for image generation. In ICML, 2015.
+[11] James Hensman, Magnus Rattray, and Neil D Lawrence. Fast variational inference in the conjugate exponential family. In NIPS, 2012.
+[12] Geoffrey E Hinton, Peter Dayan, Brendan J Frey, and Radford M Neal. The "wake-sleep" algorithm for unsupervised neural networks. Science, 268(5214):1158-1161, 1995.
+[13] Geoffrey E Hinton and Ruslan R Salakhutdinov. Reducing the dimensionality of data with neural networks. Science, 313(5786):504-507, 2006.
+[14] Matthew D Hoffman, David M Blei, Chong Wang, and John Paisley. Stochastic variational inference. Journal of Machine Learning Research, 14(1):1303-1347, 2013.
+[15] Mohammad E Khan. Decoupled variational gaussian inference. In NIPS, 2014.
+[16] Diederik P Kingma, Shakir Mohamed, Danilo Jimenez Rezende, and Max Welling. Semi-supervised learning with deep generative models. In NIPS, 2014.
+[17] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. In ICLR, 2014.
+[18] James Martens. Deep learning via hessian-free optimization. In ICML, 2010.
+[19] Andriy Mnih and Karol Gregor. Neural variational inference and learning in belief networks. In ICML, 2014.
+[20] Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A Rusu, Joel Veness, Marc G Bellemare, Alex Graves, Martin Riedmiller, Andreas K Fidjeland, Georg Ostrovski, et al. Human-level control through deep reinforcement learning. Nature, 518(7540):529-533, 2015.
+[21] Jiquan Ngiam, Adam Coates, Ahbik Lahiri, Bobby Prochnow, Quoc V Le, and Andrew Y Ng. On optimization methods for deep learning. In ICML, 2011.
+[22] Razvan Pascanu and Yoshua Bengio. Revisiting natural gradient for deep networks. arXiv preprint arXiv:1301.3584, 2013.
+[23] Barak A Pearlmutter. Fast exact multiplication by the hessian. Neural computation, 6(1):147-160, 1994.
+[24] Robert Price. A useful theorem for nonlinear devices having gaussian inputs. Information Theory, IRE Transactions on, 4(2):69-72, 1958.
+[25] Danilo Jimenez Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In ICML, 2014.
+[26] Tim Salimans. Markov chain monte carlo and variational inference: Bridging the gap. In ICML, 2015.
+[27] Ilya Sutskever, Oriol Vinyals, and Quoc VV Le. Sequence to sequence learning with neural networks. In NIPS, 2014.
+[28] Michalis Titsias and Miguel Lazaro-Gredilla. Doubly stochastic variational bayes for non-conjugate inference. In ICML, 2014.
+9
+

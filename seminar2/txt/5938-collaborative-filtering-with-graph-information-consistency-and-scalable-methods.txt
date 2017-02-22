@@ -1,0 +1,1000 @@
+Collaborative Filtering with Graph Information: Consistency and Scalable Methods
+
+Nikhil Rao
+
+Hsiang-Fu Yu
+
+Pradeep Ravikumar
+
+Inderjit S. Dhillon
+
+{nikhilr, rofuyu, paradeepr, inderjit}@cs.utexas.edu Department of Computer Science University of Texas at Austin
+
+Abstract
+Low rank matrix completion plays a fundamental role in collaborative filtering applications, the key idea being that the variables lie in a smaller subspace than the ambient space. Often, additional information about the variables is known, and it is reasonable to assume that incorporating this information will lead to better predictions. We tackle the problem of matrix completion when pairwise relationships among variables are known, via a graph. We formulate and derive a highly efficient, conjugate gradient based alternating minimization scheme that solves optimizations with over 55 million observations up to 2 orders of magnitude faster than state-of-the-art (stochastic) gradient-descent based methods. On the theoretical front, we show that such methods generalize weighted nuclear norm formulations, and derive statistical consistency guarantees. We validate our results on both real and synthetic datasets.
+
+1 Introduction
+Low rank matrix completion approaches are among the most widely used collaborative filtering methods, where a partially observed matrix is available to the practitioner, who needs to impute the missing entries. Specifically, suppose there exists a ratings matrix Y 2 Rmn, and we only observe a subset of the entries Yij, 8(i, j) 2 , || = N  mn. The goal is to estimate Yi,j, 8(i, j) 2/ . To this end, one typically looks to solve one of the following (equivalent) programs:
+
+Z
+
+=
+
+arg
+
+min
+Z
+
+1 2
+
+kP(Y
+
+W ,
+
+H
+
+=
+
+arg
+
+min
+W,H
+
+1 2
+
+kP
+
+(Y
+
+Z)k2F + zkZk
+
+W HT )k2F +
+
+w
+2
+
+kW
+
+k2F
+
++
+
+h
+2
+
+kH
+
+k2F
+
+(1) (2)
+
+where the nuclear norm kZk, given by the sum of singular values, is a tight convex relaxation of the non convex rank penalty, and is equivalent to the regularizer in (2). P(*) is the projection operator that only retains those entries of the matrix that lie in the set . In many cases however, one not only has the partially observed ratings matrix, but also has access to additional information about the relationships between the variables involved. For example, one might have access to a social network of users. Similarly, one might have access to attributes of items, movies, etc. The nature of the attributes can be fairly arbitrary, but it is reasonable to assume that "similar" users/items share "similar" attributes. A natural question to ask then, is if one can take advantage of this additional information to make better predictions. In this paper, we assume that the row and column variables lie on graphs. The graphs may naturally be part of the data (social networks, product co-purchasing graphs) or they can be constructed from available features. The idea then is to incorporate this additional structural information into the matrix completion setting.
+
+1
+
+We not only require the resulting optimization program to enforce additional constraints on Z, but we also require it to admit efficient optimization algorithms. We show in the sections that follow that this in fact is indeed the case. We also perform a theoretical analysis of our problem when the observed entries of Y are corrupted by additive white Gaussian noise. To summarize, the contributions of our paper are as follows:
+* We provide a scalable algorithm for matrix completion graph with structural information. Our method relies on efficient Hessian-vector multiplication schemes, and is orders of magnitude faster than (stochastic) gradient descent based approaches.
+* We make connections with other structured matrix factorization frameworks. Notably, we show that our method generalizes the weighted nuclear norm [21], and methods based on Gaussian generative models [27].
+* We derive consistency guarantees for graph regularized matrix completion, and empirically show that our bound is smaller than that of traditional matrix completion, where graph information is ignored.
+* We empirically validate our claims, and show that our method achieves comparable error rates to other methods, while being significantly more scalable.
+Related Work and Key Differences For convex methods for matrix factorization, Haeffele et al. [9] provided a framework to use regularizers with norms other than the Euclidean norm in (2). Abernethy et al. [1] considered a kernel based embedding of the data, and showed that the resulting problem can be expressed as a norm minimization scheme. Srebro and Salakhutdinov [21] introduced a weighted nuclear norm, and showed that the method enjoys superior performance as compared to standard matrix completion under a non-uniform sampling scheme. We show that the graph based framework considered in this paper is in fact a generalization of the weighted nuclear norm problem, with non-diagonal weight matrices. In the context of matrix factorization with graph structural information, [5] considered a graph regularized nonnegative matrix factorization framework and proposed a gradient descent based method to solve the problem. In the context of recommendation systems in social networks, Ma et al. [14] modeled the weight of a graph edge1 explicitly in a re-weighted regularization framework. Li and Yeung [13] considered a similar setting to ours, but a key point of difference between all the aforementioned methods and our paper is that we consider the partially observed ratings case. There are some works developing algorithms for the situation with partially observations [12, 26, 27]; however, none of them provides statistical guarantees. Weighted norm minimization has been considered before ([16, 21]) in the context of low rank matrix completion. The thrust of these methods has been to show that despite suboptimal conditions (correlated data, non-uniform sampling), the sample complexity does not change. None of these methods use graph information. We are interested in a complementary question: Given variables conforming to graph information, can we obtain better guarantees under uniform sampling to those achieved by traditional methods?
+
+2 Graph-Structured Matrix Factorization
+Assume that the "true" target matrix can be factorized as Z? = W ?(H?)T , and there exist a graph (V w, Ew) whose adjacency matrix encodes the relationships between the m rows of W ? and a graph (V h, Eh) for n rows of H?. In particular, two rows (or columns) connected by an edge in the graph are "close" to each other in the Euclidean distance. In the context of graph-based embedding, [3, 4] proposed a smoothing term of the form
+
+1 2
+
+X
+
+Eiwj (wi
+
+i,j
+
+wj)2 = tr(W T Lap(Ew)W )
+
+(3)
+
+where matrix
+
+Lap(Ew with Diwi
+
+) :=PDw = ji
+
+Ew is the Eiwj. Adding
+
+graph Laplacian for (V w (3) into the minimization
+
+, Ew), where Dw is the problem (2) encourages
+
+diagonal solutions
+
+where wi  wj when Eiwj is large. A similar argument holds for H? and the associated graph
+
+Laplacian Lap(Eh).
+
+1The authors call this the "trust" between links in a social network
+
+2
+
+We would thus not only want the target matrix to be low rank, but also want the variables W, H to be faithful to the underlying graph structure. To this end, we consider the following problem:
+
+min
+W,H
+
+1 2
+
+kP
+
+Y
+
+WHT
+
+k2F +
+
+L
+2
+
+{tr(W
+
+T
+
+Lap(Ew)W ) + tr(HT
+
+Lap(E h )H )}+
+
+(4)
+
+w
+2
+
+kW
+
+k2F
+
++
+
+h
+2
+
+kH
+
+k2F
+
+ min
+W,H
+
+1 2
+
+kP
+
+Y
+
+WHT
+
+k2F
+
++
+
+1 2
+
+tr(W T LwW ) + tr(HT LhH)
+
+(5)
+
+where Lw := L Lap(Ew) + wIm, and Lh is defined similarly. Note that we subsume the regularization parameters in the definition of Lw, Lh. Note that kW k2F = tr(W T ImW ).
+
+The regularizer in (5) encourages solutions that are smooth with respect to the corresponding graphs. However, the Laplacian matrix can be replaced by other (positive, semi-definite) matrices that encourage structure by different means. Indeed, a very general class of Laplacian based regularizers was considered in [20], where one can replace Lw by a function:
+
+X|V | hx,  (Lap(E))xi where  (Lap(E))   ( i)qiqiT ,
+
+i=1
+where {( i, qi)} constitute the eigen-system of Lap(E) and  ( i) is a scalar function of the eigenvalues. Our case corresponds to  (*) being the identity function. We briefly summarize other schemes that fit neatly into (5), apart from the graph regularizer we consider:
+
+Covariance matrices for variables: [27] proposed a kernelized probabilistic matrix factorization (KPMF), which is a generative model to incorporate covariance information of the variables into matrix factorization. They assumed that each row of W ?, H? is generated according to a multivariate Gaussian, and solving the corresponding MAP estimation procedure yields exactly (5), with Lw = Cw 1 and Lh = Ch 1, where Cw, Ch are the associated covariance matrices.
+
+Feature matrices for variables: Assume that there is a feature matrix X 2 Rmd for objects
+
+associated rows. For such X, one can construct a graph (and hence a Laplacian) using various
+
+methods such as k-nearest neighbors, -nearest neighbors etc. Moreover, one can assume that there
+
+exists a kernel a Laplacian.
+
+k(xi,
+
+xj
+
+)
+
+that
+
+encodes
+
+pairwise
+
+relations,
+
+and
+
+we
+
+can
+
+use
+
+the
+
+Kernel
+
+Gram
+
+matrix
+
+as
+
+We can thus see that problem (5) is a very general scheme, and can incorporate information available in many different forms. In the sequel, we assume the matrices Lw, Lh are given. In the theoretical analysis in Section 5, for ease of exposition, we further assume that the minimum eigenvalues of Lw, Lh are unity. A general (nonzero) minimum eigenvalue will merely introduce multiplicative constants in our bounds.
+
+3 GRALS: Graph Regularized Alternating Least Squares
+In this section, we propose efficient algorithms for (5), which is convex with respect to W or H separately. This allows us to employ alternating minimization methods [25] to solve the problem. When Y is fully observed, Li and Yeung [13] propose an alternating minimization scheme using block steepest descent. We deal with the partially observed setting, and propose to apply conjugate gradient (CG), which is known to converge faster than steepest descent, to solve each subproblem. We propose a very efficient Hessian-vector multiplication routine that results in the algorithm being highly scalable, compared to the (stochastic) gradient descent approaches in [14, 27].
+
+We assume that Y 2 Rmn, W 2 Rmk and H 2 Rnk. When optimizing H with W fixed, we obtain the following sub-problem.
+
+min
+H
+
+f (H)
+
+=
+
+1 2
+
+kP
+
+Y
+
+WHT
+
+k2F
+
++
+
+1 2
+
+tr(HT LhH).
+
+(6)
+
+Optimizing W is nonsingular,
+
+while (6) is
+
+H fixed is similar, strongly convex.2
+
+and We
+
+thus first
+
+we only show the details for solving (6). Since Lh present our algorithm for the fully observed case,
+
+since it sets the groundwork for the partially observed setting.
+
+2In fact, a nonsingular Lh can be handled using proximal updates, and our algorithm will still apply
+
+3
+
+Algorithm 1 Hv-Multiplication for g(s)
+
+* *
+
+GIniivteianl:izMataiotrnic:eGs L=h,WWT W
+
+* Multiplication: r2g(s0)s:
+
+1 Input: S 2 Rnk s.t.
+
+s = vec(S)
+
+2 3
+
+AReturSnG: v+ec(LAh)S
+
+Algorithm 2 Hv-Multiplication for g(s)
+
+* *
+
+Given: Matrices Multiplication:
+
+Lh, W, r2g(s0
+
+ )s:
+
+1 Input: S 2 Rkn s.t.
+
+s = vec(S)
+
+2 3 4
+
+CkjompuPteiK2j=(w[kiT1s, j.
+
+. . , kn )wi
+
+]
+
+s.t.
+
+AK Return:
+
++ SLh vec(A)
+
+3.1 Fully Observed Case
+
+As in [5, 13] among others, there may be scenarios where Y is completely observed, and the goal
+
+is to find the row/column embeddings that conform to the corresponding graphs. In this case, the
+
+loss term in (6) is simply kY following Sylvester equation for
+
+W an
+
+H n
+
+T k2F k
+
+. Thus, setting matrix H:
+
+rf (H)
+
+=
+
+0
+
+is
+
+equivalent
+
+to
+
+solving
+
+the
+
+HW T W + LhH = Y T W.
+
+(7)
+
+(7) admits a closed form solution. However the standard Bartels-Stewart algorithm for the Sylvester equation requires transforming both W T W and Lh into Schur form (diagonal in our case where W T W and Lh are symmetric) by the QR algorithm, which is time consuming for a large Lh. Thus, we consider applying conjugate gradient (CG) to minimize f (H) directly. We define the following quadratic function:
+
+g(s)
+
+:=
+
+1 2
+
+sT
+
+M
+
+s
+
+vec Y T W T s, s 2 Rnk, M = Ik  Lh + (W T W )  In
+
+It is not hard to show that f (H) = g(vec(H)) and so we apply CG to minimize g(s).
+
+The most crucial step in CG is the Hessian-vector multiplication. Using the identity (BT  A) vec(X) = vec(AXB), it follows that
+
+(Ik  Lh) s = vec(LhS) , and (W T W )  In s = vec SW T W ,
+
+where vec(S) = s. Thus the Hessian-vector multiplication can be implemented by a series of matrix multiplications as follows.
+M s = vec LhS + S(W T W ) ,
+
+where W T W can be pre-computed and stored in O(k2) space. The details are presented in Algo-
+
+rithm 1. number
+
+oTfhneotnimzeercoosm. pSleinxciteyifnormaossitnpgrlaecCtiGcalitaepraptliiocnatiisoOns(nknisz(gLehn)ekra+llynskm2)a,llw, htheerecnonmzp(l*e)xiistythies
+
+essentially O(nnz(Lh)k) as long as nk  nnz(Lh).
+
+3.2 Partially Observed In this case, the loss term
+
+Case of (6)
+
+becomes
+
+P (i,j)2(Yij
+
+wiT hj)2, where wiT is the i-th row of W
+
+and hj is the j-th column of HT . Similar to the fully observed case, we can define:
+
+g(s)
+
+:=
+
+1 2
+
+sT
+
+Ms
+
+vec W T Y T s,
+
+where Bj 2
+
+M = Rkk .
+
+B Bj
+
++ =
+
+LPh i2Ijkw, iBwiT2,
+
+Rnknk is a where j =
+
+block diagonal matrix with n diagonal blocks {i : (i, j) 2 }. Again, we can see f (H) =
+
+g(vec HT ). Note that the transpose HT is used here instead of H, which is used in the fully
+
+observed case.
+
+For a given s, let S = [s1, . . . sj, . . . sn] be a matrix such that vec(S) = s and K =
+
+[k1, . . . , kj, . . . , kn] with kj = Bjsj. Then Bs = vec(K). Note that since n can be very large in
+
+practice, it may not be feasible to compute and store all Bj in the beginning. Alternatively, Bjsj
+
+can be computed in O(|j|k) time as follows.
+
+X
+
+Bj sj =
+
+(wiT sj )wi.
+
+i2j
+
+4
+
+Thus Bs can be computed in O(||k) time, and the Hessian-vector multiplication Ms can be
+
+ditoenraetiionnOfo(r|m|ikni+mnizninzg(Lgh)(ks))
+
+time. See Algorithm is also very cheap.
+
+2
+
+for
+
+a
+
+detailed
+
+procedure.
+
+As
+
+a
+
+result,
+
+each
+
+CG
+
+Remark on Convergence. In [2], it is shown that any local minimizer of (5) is a global minimizer of (5) if k is larger than the true rank of the underlying matrix.3 From [25], the alternating minimization procedure is guaranteed to globally converge to a block coordinate-wise minimum4 of (5). The converged point might not be a local minimizer, but it still yields good performance in practice. Most importantly, since the updates are cheap to perform, our algorithm scales well to large datasets.
+
+4 Convex Connection via Generalized Weighted Nuclear Norm
+We now show that the regularizer in (5) can be cast as a generalized version of the weighted nuclear norm. The weights in our case will correspond to the scaling factors introduced on the matrices W, H due to the eigenvalues of the shifted graph Laplacians Lw, Lh respectively.
+
+4.1 A weighted atomic norm:
+
+From [7], we know that the nuclear norm is the gauge function induced by the atomic set: A = {wihTi : kwik = khik = 1}. Note that all rank one matrices in A have unit Frobenius norm. Now, assume P = [p1, . . . , pm] 2 Rmm is a basis of Rm and Sp 1/2 is a diagonal matrix with (Sp 1/2)ii 0 encoding the "preference" over the space spanned by pi. The more the preference, the larger the value. Similarly, consider the basis Q and the preference Sq 1/2 for Rn. Let A =
+P Sp 1/2 and B = QSq 1/2, and consider the following "preferential" atomic set:
+
+A := { i = wihTi : wi = Aui, hi = Bvi, kuik = kvik = 1}.
+
+(8)
+
+Clearly, each atom in A has non-unit Frobenius norm. This atomic set allows for biasing of the solutions towards certain atoms. We then define a corresponding atomic norm:
+
+XX
+
+kZkA = inf
+
+|ci| s.t. Z =
+
+ci i.
+
+(9)
+
+i 2A
+
+i 2A
+
+It is not hard to verify that kZkA is a norm and {Z : kZkA   } is closed and convex.
+
+4.2 Equivalence to Graph Regularization
+
+The graph regularization (5) can be shown to be a special case of the atomic norm (9), as a consequence of the following result:
+
+Theorem 1. For any A = P Sp 1/2, B = QSq 1/2, and corresponding weighted atomic set A ,
+
+kZ kA
+
+= inf
+W,H
+
+1 2
+
+{kA
+
+1W k2F + kB
+
+1Hk2F }
+
+s.t.
+
+Z = WHT.
+
+We prove this result in Appendix A. Theorem 1 immediately leads us to the following equivalence result:
+
+Corollary 1. We have
+
+Let Lw
+
+= UwSwUwT
+
+and Lh = UhShUhT
+
+be the eigen decomposition for Lw and Lh.
+
+Tr W T LwW = kA 1W k2F ,
+
+and Tr HT LhH = kB 1Hk2F ,
+
+where A = UwSw 1/2 and B = UhSh 1/2. As a result, kM kA with the preference pair (Uw, Sw 1/2)
+
+for the column space and the preference pair equivalent for the graph regularization using
+
+(Uh Lw
+
+,aSndh
+
+1/2) Lh.
+
+for
+
+row
+
+space
+
+is
+
+a
+
+weighted
+
+atomic
+
+norm
+
+The results above allow us to obtain the dual weighted atomic norm for a matrix Z
+
+kZ kA
+
+=
+
+kAT
+
+ZB
+
+k
+
+=
+
+kSw
+
+1 2
+
+UwT
+
+Z Uh Sh
+
+1
+2k
+
+3The authors actually show this for a more general class of regularizers. 4Nash equilibrium is used in [25].
+
+(10)
+
+5
+
+which is a weighted spectral norm. An elementary proof of this result can be found in Appendix B. Note that we can then write
+
+kZkA = kA
+
+1ZB
+
+T k
+
+=
+
+1
+kSw2
+
+Uw
+
+1
+
+Z
+
+Uh
+
+T
+
+1
+Sh2
+
+k
+
+(11)
+
+In [21], the authors consider a norm similar to (11), but with A, B being diagonal matrices. In the spirit of their nomenclature, we refer to the norm in (11) as the generalized weighted nuclear norm.
+
+5 Statistical Consistency in the Presence of Noisy Measurements
+In this section, we derive theoretical guarantees for the graph regularized low rank matrix estimators. We first introduce some additional notation. We assume that there is a m  n matrix Z? of rank k with kZ?kF = 1, and N = || entries of Z? are uniformly sampled5 and revealed to us (i.e., Y = P(Z?)). We further assume an one-to-one mapping between the set of observed indices  and {1, 2, . . . , N } so that the tth measurement is given by
+
+yt
+
+=
+
+Yi(t),j(t)
+
+=
+
+hei(t)eTj(t), Z?i
+
++
+
+p mn
+
+t
+
+t  N (0, 1).
+
+(12)
+
+where h*, *i denotes the matrix trace inner product, and i(t), j(t) is a randomly selected coordinate pair from [m][n]. Let A, B are corresponding matrices defined in Corollary 1 for the given Lw, Lh. W.L.O.G, we assume that the minimum singular value of both Lw and Lh is 1. We then define the following graph based complexity measures:
+
+g (Z )
+
+:=
+
+p mn
+
+kA kA
+
+1ZB 1ZB
+
+T T
+
+k1 kF
+
+,
+
+g(Z) :=
+
+kA kA
+
+1ZB 1ZB
+
+T k T kF
+
+(13)
+
+where k * k1 is the element-wise 1 norm. Finally, we assume that the true matrix Z? can be expressed as a linear combination of atoms from (8) (we define ? := g(Z?)):
+
+Z? = AU ?(V ?)T BT , U ? 2 Rmk, V ? 2 Rnk,
+
+(14)
+
+Our goal in this section will be to characterize the solution to the following convex program, where the constraint set precludes selection of overly complex matrices in the sense of (13):
+
+( s)
+
+Z
+
+=
+
+arg min
+Z2C
+
+1 N
+
+kP(Y
+
+Z)k2F + kZkA where C :=
+
+Z : g(Z) g(Z)  c0
+
+N log(m + n)
+
+,
+
+where c0 is a constant depending on ?.
+
+(15)
+
+Apoiqnutimcketnhootdeso[n6]s,oolvr ignrgee(d1y5)m: estihnocedskd*ekvAeloipsead
+
+weighted nuclear norm, one specifically for atomic norm
+
+can resort to proximal constrained minimiza-
+
+tion [18, 22]. The latter are particularly attractive, since the greedy step reduces to computing the
+
+maximum singular vectors which can be efficiently computed using power methods. However, such
+
+methods will first involve computing the eigen decompositions of the graph Laplacians, and then
+
+storing the large, dense matrices A, B. We refrain from resorting to such methods in Section 6, and
+
+instead use the efficient framework derived in Section 3. We now state our main theoretical result:
+
+Theorem 2. Suppose we observe N entries of the form (12) from a matrix Z? 2 Rmn, with
+
+? := g(Z?) and which can be represeqnted using at most k atoms from (8). Let Z be the minimizer
+
+of the convex problem (15) with
+
+C1
+
+(m+n)
+
+log(m+n) N
+
+.
+
+Then,
+
+with
+
+high
+
+probability,
+
+we
+
+have
+
+kZ
+
+Z?k2F  C?2 max
+
+1,
+
+2
+
+k(m
+
++
+
+n) log(m N
+
++
+
+n)
+
++
+
+O
+
+ ?2 N
+
+
+
+where C, C1 are positive constants.
+
+See Appendix C for the detailed proof. A proof sketch is as follows:
+
+5Our results can be generalized to non uniform sampling schemes as well.
+
+6
+
+Proof Sketch: There are three major portions of the proof:
+
+* *
+
+UaUtssmiinnoggs(tt1hk0e)af,taowcmtetsch,aawnt eZdec?rainhvaesshaoubwnoiutknFZdr?ofkboAerntihuespdnuokarl(mAnoparnpmdenocdfaintxhbCee.g1re)axdpireenstseodf
+
+as a combination of the loss L(Z), given
+
+*
+
+bFyinkarllyL, u(Zsi)nkgA(1=3),kwSew
+
+d12eUfiwTneraLn(oZti)oUnhoSfhre12sktr.ic(Atepdpsetnrodnixg
+
+C.2) convexity
+
+(RSC)
+
+that
+
+the
+
+"error"
+
+matrices Z? Z lie in. The proof follows closely along the lines of the equivalent result
+
+in [16], with appropriate modifications to accommodate our generalized weighted nuclear
+
+norm. (Appendix C.3).
+
+5.1 Comparison to Standard Matrix Completion:
+
+It is instructive to consider our result in the context of noisy matrix completion with uniform samples.
+
+In this case, one would replace Lw, Lh by identity available. Specifically, the "standard" notion of
+
+matrices, spikiness
+
+e(ffnect:i=velypimgnnokrkiZZnkkg1Fg)radpehfiinnefdorimna[t1io6n]
+
+will apply, and the corresponding error bound (Theorem 2) will have ? replaced by n(Z?). In
+
+general, it is hard to quantify the relationship between g and n, and a detailed comparison is an
+
+interesting topic for future work. However, we show below using simulations for various scenarios
+
+that the former is much smaller than the latter. We generate m  m matrices of rank k = 10,
+
+M = U V T with U, V being random orthonormal matrices and  having diagonal elements picked
+
+from a uniform[0, 1] distribution. We generate graphs at random using the schemes discussed below,
+
+and set Z = AM BT , with A, B as defined in Corollary 1. We then compute n, g for various m.
+
+Comparing g to n: Most real world graphs exhibit a power law degree distribution. We generated graphs with the ith node having degree (m  ip) with varying negative p values. Figure 1(a) shows that as p ! 0 from below, the gains received from using our norm is clear compared to the standard nuclear norm. We also observe that in general the weighted formulation is never worse then unweighted (The dotted magenta line is n/g = 1). The same applies for random graphs, where there is an edge between each (i, j) with varying probability p (Figure 1(b)).
+
+ g
+
+/
+
+ n
+
+25 m = 100 m = 200
+20 m = 300
+15
+10
+5
+0 -0.1 -0.2 -0.5 -1 -1.5 -2
+p
+(a) Power Law
+
+
+n
+
+/
+
+
+g
+
+5 m = 100
+m = 200 4 m = 300
+
+3
+
+2
+
+1 0.1 0.15 0.2 0.25 0.5
+p
+(b) Random
+
+1
+
+MSE
+
+x 10-4 6 5
+
+GWNN NN
+
+4
+
+3
+
+2
+
+1
+
+0 01234
+# measurements x 1000
+(c) Sample Complexity
+
+Figure 1: (a), (b): Ratio of spikiness measures for traditional matrix completion and our formulation. (c): Sample complexity for the nuclear norm (NN) and generalized weighted nuclear norm (GWNN)
+
+Sample Complexity: We tested the sample complexity needed to recover a m = n = 200, k = 20 matrix, generated from a power law distributed graph with p = 0.5. Figure 1(c) again outlines that the atomic formulation requires fewer examples to get an accurate recovery. We average the results over 10 independent runs, and we used [18] to solve the atomic norm constrained problem.
+6 Experiments on Real Datasets
+Comparison to Related Formulations: We compare GRALS to other methods that incorporate side information for matrix completion: the ADMM method of [12] that regularizes the entire target matrix; using known features (IMC) [10, 24]; and standard matrix completion (MC). We use the MOVIELENS 100k dataset,6 that has user/movie features along with the ratings matrix. The dataset contains user features (such as age (numeric), gender (binary), and occupation), which we map
+6http://grouplens.org/datasets/movielens/
+7
+
+RMSE
+
+1.25 1.2
+1.15 1.1
+1.05 1
+0.95 0.9 -4
+
+-2
+
+024 log10(time) (s)
+
+ADMM MC GRALS
+68
+
+Figure 2: Time comparison of different methods on MOVIELENS 100k
+
+Method IMC Global mean User mean Movie mean ADMM MC GRALS
+
+RMSE 1.653 1.154 1.063 1.033 0.996 0.973 0.945
+
+Table 1: RMSE on the MOVIELENS dataset
+
+Dataset Flixster ([11]) Douban ([14]) YahooMusic ([8])
+
+Table 2: Data statistics. # users # items # ratings 147,612 48,794 8,196,077 129,490 58,541 16,830,839 249,012 296,111 55,749,965
+
+# links 2,538,746 1,711,802 57,248,136
+
+rank used 10 10 20
+
+into a 22 dimensional feature vector per user. We then construct a 10-nearest neighbor graph using the euclidean distance metric. We do the same for the movies, except in this case we have an 18 dimensional feature vector per movie. For IMC, we use the feature vectors directly. We trained a model of rank 10, and chose optimal parameters by cross validation. Table 1 shows the RMSE obtained for the methods considered. Figure 2 shows that the ADMM method, while obtaining a reasonable RMSE does not scale well, since one has to compute an SVD at each iteration. Scalability of GRALS: We now demonstrate that the proposed GRALS method is more efficient than other state-of-the-art methods for solving the graph-regularized matrix factorization problem (5). We compare GRALS to the SGD method in [27], and GD: ALS with simple gradient descent. We consider three large-scale real-world collaborate filtering datasets with graph information: see Table 2 for details.7 We randomly select 90% of ratings as the training set and use the remaining 10% as the test set. All the experiments are performed on an Intel machine with Xeon CPU E52680 v2 Ivy Bridge and enough RAM. Figure 3 shows orders of magnitude improvement in time compared to SGD. More experimental results are provided in the supplementary material.
+
+(a) Flixster
+
+(b) Douban
+
+(c) YahooMusic
+
+Figure 3: Comparison of GRALS, GD, and SGD. The x-axis is the computation time in log-scale.
+
+7 Discussion
+In this paper, we have considered the problem of collaborative filtering with graph information for users and/or items, and showed that it can be cast as a generalized weighted nuclear norm problem. We derived statistical consistency guarantees for our method, and developed a highly scalable alternating minimization method. Experiments on large real world datasets show that our method achieves  2 orders of magnitude speedups over competing approaches.
+Acknowledgments
+This research was supported by NSF grant CCF-1320746. H.-F. Yu acknowledges support from an Intel PhD fellowship. NR was supported by an ICES fellowship.
+
+7See more details in Appendix D.
+
+8
+
+References
+[1] Jacob Abernethy, Francis Bach, Theodoros Evgeniou, and Jean-Philippe Vert. Low-rank matrix factorization with attributes. arXiv preprint cs/0611124, 2006.
+[2] Francis Bach, Julien Mairal, and Jean Ponce. Convex sparse matrix factorizations. CoRR, abs/0812.1869, 2008.
+[3] Mikhail Belkin and Partha Niyogi. Laplacian eigenmaps and spectral techniques for embedding and clustering. In NIPS, volume 14, pages 585-591, 2001.
+[4] Mikhail Belkin and Partha Niyogi. Laplacian eigenmaps for dimensionality reduction and data representation. Neural computation, 15(6):1373-1396, 2003.
+[5] Deng Cai, Xiaofei He, Jiawei Han, and Thomas S Huang. Graph regularized nonnegative matrix factorization for data representation. Pattern Analysis and Machine Intelligence, IEEE Transactions on, 33(8): 1548-1560, 2011.
+[6] Jian-Feng Cai, Emmanuel J Candes, and Zuowei Shen. A singular value thresholding algorithm for matrix completion. SIAM Journal on Optimization, 20(4):1956-1982, 2010.
+[7] Venkat Chandrasekaran, Benjamin Recht, Pablo A Parrilo, and Alan S Willsky. The convex geometry of linear inverse problems. Foundations of Computational Mathematics, 12(6):805-849, 2012.
+[8] Gideon Dror, Noam Koenigstein, Yehuda Koren, and Markus Weimer. The yahoo! music dataset and kdd-cup'11. In KDD Cup, pages 8-18, 2012.
+[9] Benjamin Haeffele, Eric Young, and Rene Vidal. Structured low-rank matrix factorization: Optimality, algorithm, and applications to image processing. In Proceedings of the 31st International Conference on Machine Learning (ICML-14), pages 2007-2015, 2014.
+[10] Prateek Jain and Inderjit S Dhillon. Provable inductive matrix completion. arXiv preprint arXiv:1306.0626, 2013.
+[11] Mohsen Jamali and Martin Ester. A matrix factorization technique with trust propagation for recommendation in social networks. In Proceedings of the Fourth ACM Conference on Recommender Systems, RecSys '10, pages 135-142, 2010.
+[12] Vassilis Kalofolias, Xavier Bresson, Michael Bronstein, and Pierre Vandergheynst. Matrix completion on graphs. (EPFL-CONF-203064), 2014.
+[13] Wu-Jun Li and Dit-Yan Yeung. Relation regularized matrix factorization. In 21st International Joint Conference on Artificial Intelligence, 2009.
+[14] Hao Ma, Dengyong Zhou, Chao Liu, Michael R. Lyu, and Irwin King. Recommender systems with social regularization. In Proceedings of the fourth ACM international conference on Web search and data mining, WSDM '11, pages 287-296, Hong Kong, China, 2011.
+[15] Paolo Massa and Paolo Avesani. Trust-aware bootstrapping of recommender systems. ECAI Workshop on Recommender Systems, pages 29-33, 2006.
+[16] Sahand Negahban and Martin J Wainwright. Restricted strong convexity and weighted matrix completion: Optimal bounds with noise. The Journal of Machine Learning Research, 13(1):1665-1697, 2012.
+[17] Sahand N Negahban, Pradeep Ravikumar, Martin J Wainwright, and Bin Yu. A unified framework for high-dimensional analysis of m-estimators with decomposable regularizers. Statistical Science, 27(4): 538-557, 2012.
+[18] Nikhil Rao, Parikshit Shah, and Stephen Wright. Conditional gradient with enhancement and truncation for atomic-norm regularization. NIPS workshop on Greedy Algorithms, 2013.
+[19] Benjamin Recht. A simpler approach to matrix completion. The Journal of Machine Learning Research, 12:3413-3430, 2011.
+[20] Alexander J Smola and Risi Kondor. Kernels and regularization on graphs. In Learning theory and kernel machines, pages 144-158. Springer, 2003.
+[21] Nathan Srebro and Ruslan R Salakhutdinov. Collaborative filtering in a non-uniform world: Learning with the weighted trace norm. In Advances in Neural Information Processing Systems, pages 2056-2064, 2010.
+[22] Ambuj Tewari, Pradeep K Ravikumar, and Inderjit S Dhillon. Greedy algorithms for structurally constrained high dimensional problems. In Advances in Neural Information Processing Systems, pages 882- 890, 2011.
+[23] Roman Vershynin. A note on sums of independent random matrices after ahlswede-winter. Lecture notes, 2009.
+[24] Miao Xu, Rong Jin, and Zhi-Hua Zhou. Speedup matrix completion with side information: Application to multi-label learning. In Advances in Neural Information Processing Systems, pages 2301-2309, 2013.
+[25] Yangyang. Xu and Wotao Yin. A block coordinate descent method for regularized multiconvex optimization with applications to nonnegative tensor factorization and completion. SIAM Journal on Imaging Sciences, 6(3):1758-1789, 2013.
+[26] Zhou Zhao, Lijun Zhang, Xiaofei He, and Wilfred Ng. Expert finding for question answering via graph regularized matrix completion. Knowledge and Data Engineering, IEEE Transactions on, PP(99), 2014.
+[27] Tinghui Zhou, Hanhuai Shan, Arindam Banerjee, and Guillermo Sapiro. Kernelized probabilistic matrix factorization: Exploiting graphs and side information. In SDM, volume 12, pages 403-414. SIAM, 2012.
+9
+

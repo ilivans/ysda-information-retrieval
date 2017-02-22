@@ -1,0 +1,418 @@
+Rate-Agnostic (Causal) Structure Learning
+
+Sergey Plis The Mind Research Network,
+Albuquerque, NM s.m.plis@gmail.com
+Cynthia Freeman The Mind Research Network, CS Dept., University of New Mexico
+Albuquerque, NM cynthiaw2004@gmail.com
+
+David Danks Carnegie-Mellon University
+Pittsburgh, PA ddanks@cmu.edu
+Vince Calhoun The Mind Research Network ECE Dept., University of New Mexico
+Albuquerque, NM vcalhoun@mrn.org
+
+Abstract
+Causal structure learning from time series data is a major scientific challenge. Extant algorithms assume that measurements occur sufficiently quickly; more precisely, they assume approximately equal system and measurement timescales. In many domains, however, measurements occur at a significantly slower rate than the underlying system changes, but the size of the timescale mismatch is often unknown. This paper develops three causal structure learning algorithms, each of which discovers all dynamic causal graphs that explain the observed measurement data, perhaps given undersampling. That is, these algorithms all learn causal structure in a "rate-agnostic" manner: they do not assume any particular relation between the measurement and system timescales. We apply these algorithms to data from simulations to gain insight into the challenge of undersampling.
+1 Introduction
+Dynamic causal systems are a major focus of scientific investigation in diverse domains, including neuroscience, economics, meteorology, and education. One significant limitation in all of these sciences is the difficulty of measuring the relevant variables at an appropriate timescale for the particular scientific domain. This challenge is particularly salient in neuroimaging: standard fMRI experiments sample the brain's bloodflow approximately every one or two seconds, though the underlying neural activity (i.e., the major driver of bloodflow) occurs much more rapidly. Moreover, the precise timescale of the underlying causal system is unknown; it is almost certainly faster than the fMRI measurements, but it is unknown how much faster.
+In this paper, we aim to learn the causal structure of a system that evolves at timescale S, given measurements at timescale M . We focus on the case in which S is faster than M to an unknown degree. We assume that the underlying causal structure can be modeled as a directed graphical model G without simultaneous influence. There has been substantial work on modeling the statistics of time series, but relatively less on learning causal structure, and almost all of that assumes that the measurement and causal timescales match [1-5]. The problem of causal learning from "undersampled" time series data was explicitly addressed by [6, 7], but they assumed that the degree of undersampling--i.e., the ratio of S to M --was both known and small. In contrast, we focus on the significantly harder challenge of causal learning when that ratio is unknown.
+We provide a formal specification of the problem and representational framework in Section 2. We then present three different Rate-Agnostic Structure Learning (RASL) algorithms in Section 3. We finish in Section 4 by exploring their performance on synthetic data.
+1
+
+2 Representation and Formalism
+A dynamic causal graphical model consists of a graph G over random variables V at the current time t, as well as nodes for V at all previous (relative) timesteps that contain a direct cause of a variable at the current timestep.1 The Markov order of the system is the largest k such that Vit-k  Vjt, where superscripts denote timestep. We assume throughout that the "true" underlying causal system is Markov order 1, and that all causally relevant variables are measured.2 Finally, we assume that there are no isochronal causal edges Vit  Vjt; causal influences inevitably take time to propagate, and so any apparent isochronal edge will disappear when measured sufficiently finely. Since we do not assume that the causal timescale S is known, this is a relatively innocuous assumption.
+G is thus over 2V nodes, where the only edges are Vit-1  Vjt, where possibly i = j. There is additionally a conditional probability distribution or density, P (Vt|Vt-1), which we assume to be time-independent. We do not, however, assume stationarity of P (Vt). Finally, we assume appropriate versions of the Markov ("Variable V is independent of non-descendants given parents") and Faithfulness/Stability ("The only independencies are those implied by Markov") assumptions, such that the graph and probability distribution/density mutually constrain each other.
+Let {t0, t1, . . . , tk, . . .} be the measurement timesteps. We undersample at rate u when we measure only timesteps {t0, tu, . . . , tuk, . . .}; the causal timescale is thus "undersampled at rate 1." We denote the causal graph resulting from undersampling at rate u by Gu. To obtain Gu, we "unroll" G1 by introducing nodes for Vt-2 that bear the same graphical and parametric relations to Vt-1 as those variables bear to Vt, and iterate until we have included Vt-u. We then marginalize out all variables except those in Vt and Vt-u.
+Marginalization yields an Acyclic Directed Mixed Graph (ADMG) Gu containing both directed and bidirected edges [8]. Vit-u  Vjt in Gu iff there is a directed path from Vit-u to Vjt in the unrolled graph. Define a trek to be a pair of directed paths (1, 2) such that both have the same start variable. Vit  Vjt in Gu iff there is a trek between Vit and Vjt with length(1) = length(2) = k < u. Clearly, if a bidirected edge occurs in Gm, then it occurs in Gu for all u  m.
+Unrolling-and-marginalizing can be computationally complex due to duplication of nodes, and so we instead use compressed graphs that encode temporal relations in edges. For an arbitrary dynamic causal graph H, H is its compressed graph representation: (i) H is over non-time-indexed nodes for V; (ii) Vi  Vj in H iff Vit-1  Vjt in H; and (iii) Vi  Vj in H iff Vit  Vjt in H. Compressed graphs can be cyclic (Vi Vj for Vit-1  Vjt and Vjt-1  Vit), including self-cycles. There is clearly a 1-1 mapping between dynamic ADMGs and compressed graphs.
+Computationally, the effects of undersampling at rate u can be computed in a compressed graph simply by finding directed paths of length u in G1. More precisely, Vit-u  Vjt in Gu iff there is a directed path of length u in G1. Similarly, Vit  Vjt in Gu iff there is a trek with length(1) = length(2) = k < u in G1. We thus use compressed graphs going forward.
+3 Algorithms
+The core question of this paper is: given H = Gu for unknown u, what can be inferred about G1? Let H = {G1 : u Gu = H} be the equivalence class of G1 that could, for some undersample rate, yield H. We are thus trying to learn H from H. An obvious brute-force algorithm is: for each possible G1, compute the corresponding graphs for all u, and then output all Gu = H. Equally obviously, this algorithm will be computationally intractable for any reasonable n, as there are 2n2 possible G1 and u can (in theory) be arbitrarily large. Instead, we pursue three different constructive strategies that more efficiently "build" the members of H (Sections 3.2, 3.3, and 3.4). Because these algorithms make no assumptions about u, we refer to them each as RASL--Rate Agnostic Structure Learner--and use subscripts to distinguish between different types. First, though, we provide some key theoretical results about forward inference that will be used by all three algorithms.
+1We use difference equations in our analyses. The results and algorithms will be applicable to systems of differential equations to the extent that they can be approximated by a system of difference equations.
+2More precisely, we assume a dynamic variant of the Causal Sufficiency assumption, though it is more complicated than just "no unmeasured common causes."
+2
+
+3.1 Nonparametric Forward Inference
+
+For given G1 and u, there is an efficient algorithm [9] for calculating Gu, but it is only useful in learning if we have stopping rules that constrain which G1 and u should ever be considered. These rules will depend on how G1 changes as u  . A key notion is a strongly connected component (SCC) in G1: a maximal set of variables S  V such that, for every X, Y  S (possibly X = Y ), there is a directed path from X to Y . Non-singleton SCCs are clearly cyclic and can provably be decomposed into a set of (possibly overlapping) simple loops (i.e., those in which no node is repeated): 1, . . . , s [10]. Let LS be the set of those simple loop lengths.
+One stopping rule must specify, for given G1, which u to consider. For a single SCC, the greatest common divisor of simple loop lengths (where gcd(LS) = 1 for singleton S) is key: gcd(LS) = 1 iff f s.t. u > f [Gu = Gf ]; that is, gcd() determines whether an SCC "converges" to a fixedpoint graph as u  . We can constrain u if there is such a fixed-point graph, and Theorem 3.1 generalizes [9, Theorem 5] to provide an upper bound on (interesting) u. (All proofs found in supplement.)
+Theorem 3.1. If gcd(LS) = 1, then stabilization occurs at f  nF +  + d + 1.
+where nF is the Frobenius number,3 d is the graph diameter, and  is the transit number (see supplement). This is a theoretically useful bound, but is not practically helpful since neither  nor nF have a known analytic expression. Moreover, gcd(LS) = 1 is a weak restriction, but a restriction nonetheless. We instead use a functional stopping rule for u (Theorem 3.2) that holds for all G:
+Theorem 3.2. If Gu = Gv for u > v, then w > ukw < u[Gw = Gkw ].
+That is, as u increases, if we find a graph that we previously encountered, then there cannot be any new graphs as u  . For a given G1, we can thus determine all possible corresponding undersampled graphs by computing G2, G3, . . . until we encounter a previously-observed graph. This stopping rule enables us to (correctly) constrain the u that are considered for each G1.
+We also require a stopping rule for G1, as we cannot evaluate all 2n2 possible graphs for any reasonable n. The key theoretical result is:
+Theorem 3.3. If G1  J 1, then u[Gu  J u].
+Let GE1 be the graph resulting from adding the edges in E to G1. Since this is simply another graph, it can be undersampled at rate u; denote the result (GE1 )u. Since GE1 can always serve as J 1 in Theorem 3.3, we immediately have the following two corollaries:
+Corollary 3.4. If Gu H, then E[(GE1 )u H] Corollary 3.5. If u[Gu H], then E, u[(GE1 )u H]
+We thus have a stopping rule for some candidate G1: if Gu is not an edge-subset of H for all u, then do not consider any edge-superset of G1. This stopping rule fits very cleanly with "constructive" algorithms that iteratively add edge(s) to candidate G1. We now develop three such algorithms.
+
+3.2 A recursive edgewise inverse algorithm
+
+The two stopping rules naturally suggest a recursive structure learning algorithm with H as input and H as output. Start with an empty graph. For each edge e (of n2 possible edges), construct G1 containing only e. If Gu H for all u, then reject; else if Gu = H for some u,4 then add G1 to H ; else, recurse into non-conflicting graphs in order. Effectively, this is a depth first search (DFS) algorithm on the solution tree; denote it as RASLre for "recursive edgewise." Figure 1a provides pseudo-code, and Figure 1b shows how one DFS path in the search tree unfolds. We can prove:
+Theorem 3.6. The RASLre algorithm is correct and complete.
+
+One significant drawback of RASLre is that the same graph can be constructed in many different ways, corresponding to different orders of edge addition; the search tree is actually a search lat-
+
+3For set B of positive integers with gcd(B) = 1, nF is the max integer with nF =
+
+b i=1
+
+iBi
+
+for
+
+i
+
+
+
+0.
+
+4This check requires at most min(eu, eH) + 1 (fast) operations, where eu, eH are the number of edges in
+
+Gu, H, respectively. This equality check occurs relatively rarely, since Gu and H must be non-conflicting.
+
+3
+
+Algorithm RecursiveEqClass Input: H Output: H
+1 initialize empty graph G and set S
+2 begin EdgeAdder G, H, L 3 if L has elements then 4 forall the edges in L do 5 if edge creates a conflict then 6 remove it from L
+7 if L has elements then 8 forall the edges in L do 9 add the edge to G 10 if G  {(G)u} s.t. G = H then 11 add G to S 12 EdgeAdder G, H, L \ the edge 13 remove the edge from G
+14 put all n2 edges into list L 15 EdgeAdder(G, H, L) 16 return S
+
+123311232
+123123123 1
+32 123311232
+123123123 1
+
+candidate edges
+constructed graph pruned conflict-inducing candidate edges next edge to add
+
+32 311232
+
+123123 1
+32 11232
+
+no graph constructed along this branch generates H
+
+23123 1
+
+3 32
+
+2
+
+23 1
+
+11
+
+32
+ground truth
+
+32
+H
+
+32
+no more non-conflicting candidates: backtrack
+
+a: RASLre algorithm
+
+b: Branch of the search tree
+
+Figure 1: RASLre algorithm 1a specification, and 1b search tree example
+
+tice. The algorithm is thus unnecessarily inefficient, even when we use dynamic programming via memoization of input graphs.
+3.3 An iterative edgecentric inverse algorithm
+To minimize multiple constructions of the same graph, we can use RASLie ("iterative edgewise") which generates, at stage i, all not-yet-eliminated G1 with exactly i edges. More precisely, at stage 0, RASLie starts with the empty graph; if H is also empty, then it adds the empty graph to H . Otherwise, it moves to stage 1. In general, at stage i + 1, RASLie (a) considers each graph G1 resulting from a single edge addition to an acceptable graph at stage i; (b) rejects G1 if it conflicts (for all u) with H; (c) otherwise keeps G1 as acceptable at i + 1; and (d) if u[Gu = H], then adds G1 to H . RASLie continues until there are no more edges to add (or it reaches stage n2 + 1). Figure 2 provides the main loop (Figure 2a) and core function of RASLie (Figure 2c), as well as an example of the number of graphs potentially considered at each stage (Figure 2b). RASLie provides significant speed-up and memory gains over RASLre (see Figure 3).
+We optimize RASLie by tracking the single edges that could possibly still be added; for example, if a single-edge graph is rejected in stage 1, then do not consider adding that edge at other stages. Additional conflicts can be derived analytically, further reducing the graphs to consider. In general, absence of an edge in H implies, for the corresponding (unknown) u, absence of length u paths in all G1  H . Since we do not know u, we cannot directly apply this constraint. However, lemmas 3.7 and 3.8 provide useful, special case constraints for u > 1 (implied by a single bidirected edge). Lemma 3.7. If u > 1, then V  W  H, G1 cannot contain any of the following paths:
+1. V  W ; 2. V  X  W ; 3. V  X  W ; 4. V  X  W ; 5. V  W . Lemma 3.8. If u > 1, then V  W  H T [V  T  W ]  G1
+3.4 An iterative loopcentric inverse algorithm
+RASLie yields results in reasonable time for H with up to 8 nodes, though it is computationally demanding. We can gain further computational advantages if we assume that H is an SCC. This assumption is relatively innocuous, as it requires only that our time series be generated by a system with (appropriate) feedback loops. As noted earlier, any SCC is composed of a set of simple loops, and so we modify RASLie to iteratively add loops instead of edges; call the resulting algorithm
+4
+
+Algorithm IterativeEqClass Input: H
+Output: H
+
+1 initialize empty sets S 2 init d as an empty graph and n2 edges
+
+3 while d do
+
+4 d, Si
+
+=
+
+N extIterationGraphs(d, H)
+
+5 S = S  Si
+
+6 return S
+
+a: RASLie main algorithm
+
+RASL input:
+
+1
+
+1
+
+1
+
+3
+run 1
+11
+72 12 3 24
+iteration index
+
+2 32
+run 2 11 72 17 3 15 4 45
+number of non-conflicting graphs at the iteration
+
+run 3 11
+
+3
+
+2
+
+92
+
+34 3
+
+68 74
+
+4 5
+
+non-conflicting graphs
+
+46 6 histogram
+
+15 7
+
+28
+
+Procedure NextIterationGraphs Input: d graph:edges structure, and H Output: dr and set S  H
+1 initialize empty structure dr and sets S, Si
+2 forall the graphs G in d do 3 forall the edges e in d(G) do 4 if e  G then 5 if e conflicts with G then 6 continue 7 add e to G 8 if G  Si then 9 add G to Si 10 if G conflicts with H
+then 11 continue 12 if G  {Gu} s.t. G = H
+then 13 add G to S
+14 remove e from G
+15 add non-conflicting graphs w/ edges to dr
+16 return dr, S
+
+b: Three runs of the algorithm
+
+c: Core function of RASLie
+
+Figure 2: RASLie algorithm (a) main loop; (b) example of graphs considered; and (c) core function.
+
+RASLil for "iterative loopwise." More precisely, RASLil uses the same algorithm as in Figure 2, but successively attempts to add non-conflicting simple loops, rather than non-conflicting edges.
+RASLil also incorporates the additional constraints due to lemmas 3.7 and 3.8.
+
+nRAnoSdLeisl ,isthseurreparirseinglniy=m0 unich(ifa-st1e)r!
+
+than RASLie simple loops
+
+even though, (compared to
+
+for n2
+
+edges). The key is that introducing a single simple loop induces
+
+multiple constraints simultaneously, and so conflicting graphs are
+
+discovered at a much earlier stage. As a result, RASLil checks many fewer graphs in practice. For example, consider the G1
+
+in Figure 1, with corresponding H for u = 3. RASLre constructs (not counting pruned single edges) 28,661 graphs; RASLie constructs only 249 graphs; and RASLil considers only 47. For u = 2, these numbers are 413, 44, and 7 respectively. Unsurpris-
+
+ingly, these differences in numbers of examined graphs translate
+
+directly into wall clock time differences (Figure 3).
+
+Figure 3: Run-time comparison.
+
+4 Results
+
+All three RASL algorithms take a measurement timescale graph H as input. They are therefore com-
+
+patible with any structure learning algorithm that outputs a measurement timescale graph, whether
+
+Structural Vector Autoregression (SVAR) [11], direct Dynamic Bayes Net search [12], or modifica-
+
+tions of standard causal structure learning algorithms such as PC [1, 13] and GES [14]. The problem
+
+of learning a measurement timescale graph is a very hard one, but is also not our primary focus here.
+
+Instead, we focus on the performance of the novel RASL algorithms.
+
+First, we abstract away from learning measurement timescale structure and assume that the correct H
+is provided as input. For these simulated graphs, we focus on SCCs, which are the most scientifically
+interesting cases. For simplicity (and because within-SCC structure can be learned in parallel for a complex H [9]), we employ single-SCC graphs. To generate random SCCs, we (i) build a single simple loop over n nodes, and (ii) uniformly sample from the other n(n - 1) possible edges until
+
+5
+
+we reach the specified density (i.e., proportion of the n2 total possible edges). We employ density in order to measure graph complexity in an (approximately) n-independent way.
+
+We can improve the runtime speed of RASLre using memoization, though it is then memory-constrained for n  6.
+Figure 3 provides the wall-clock running times for all
+three RASL algorithms applied to 100 random 5-node
+graphs at each of three densities. This graph substanti-
+ates our earlier claims that RASLil is faster than RASLie, which is faster than RASLre. In fact, each is at least an order of magnitude faster than the previous one.
+
+RASLre would take over a year on the most difficult problems, so we focus exclusively on RASLil. Unsurprisingly, run-time complexity of all RASL algorithms depends on the density of H. For each of three density values (20%, 25%, 30%), we generated 100 random 6-node SCCs, which were then undersampled at rates 2, 3, and 4 before being provided as input to RASLil. Figure 4 summarizes wall clock computation time as a function of H's density, with different plots based on density of G1 and undersampling rate. We also show three examples of H with a range of computation runtime. Unsurprisingly, the most difficult H is quite dense; H with densities below 50% typically require less than one minute.
+4.1 Equivalence classes
+
+Figure 4: Run-time behavior.
+
+We first use RASLil to determine H size and composition for varying H; that is, we explore the degree of underdetermination produced by undersampling. The worst-case underdetermination occurs if H is a super-clique with every possible edge: X, Y [X  Y & X  Y ]. Any SCC with gcd(LS) = 1 becomes a super-clique as u   [9], so H contains all such graphs for super-clique H. We thus note when H is a super-clique, rather than computing the size of H .
+
+5-node graphs
+
+6-node graphs
+
+u=4 u=3 u=2
+
+25% 12 4
+
+30% >1000
+
+35%
+
+40%
+
+superclique
+
+45%
+
+50%
+
+density
+
+20%
+
+25% density
+
+30%
+
+Figure 5: Size of equivalence classes for 100 random SCCs at each density and u  {2, 3, 4}.
+
+6
+
+Figure 6: Size of equivalence classes for larger graphs n  7, 8, 10 for u  2, 3
+
+Figures 5 and 6 plot equivalence class size as a function of both G1 density and the true undersampling rate. For each n and density, we (i) generated 100 random G1; (ii) undersampled each at indicated u; (iii) passed Gu = H to RASLil; and (iv) computed the size of H . Interestingly, H
+is typically quite small, sometimes even a singleton. For example, 5-node graphs at u = 2 typically have singleton H up to 40% G1 density. Even 10-node graphs often have a singleton H (though with relatively sparse G1). Increased undersampling and density both clearly worsen underdetermi-
+nation, but often not intractably so, particularly since even nonsingleton H can be valuable if they
+permit post hoc inspection or analysis.
+
+equivalence class size
+
+... S.C. 5-node 25% edge density graphs
+
+2 3 4 5 6 7 8 9 10 11 undersampling rate
+Figure 7: Effect of the undersampling rate on equivalence class size.
+
+To focus on the impact of undersampling, we generated 100 random 5-node SCCs with 25% density,
+
+each of which was undersampled for u  {2, . . . , 11}. Figure 7 plots the size of H as a function
+
+of u for these graphs. For u  4, singleton H still dominate. Interestingly, even u = 11 still yields
+
+some non-superclique H.
+
+5-node graphs
+
+6-node graphs
+
+u=2 rate
+
+u=3
+
+u=4 ...
+
+25%
+
+30%
+
+35%
+
+40%
+
+45%
+
+50%
+
+20%
+
+25%
+
+30%
+
+Figure 8: Distribution of u for Gu = H for G1  H for 5- and 6-node graphs
+
+Finally, G1  H iff u[Gu = H], but the appropriate u need not be the same for all members of H . Figure 8 plots the percentages of u-values appropriate for each G1  H , for the H from Figure 5. If actually utrue = 2, then almost all G1  H are because of G2; there are rarely G1  H due to u > 2. If actually utrue > 2, though, then many G1  H are due to Gu where u = utrue. As density and utrue increase, there is increased underdetermination in both G1 and u.
+4.2 Synthetic data
+
+7
+
+In practice, we typically must learn H structure from finite sample data. As noted earlier, there are many algorithms for learning H, as it is a measurement timescale structure (though small modifications are required to learn bidirected edges). In pilot testing, we found that structural vector autoregressive (SVAR) model [11] optimization provided the most accurate and stable solutions for H for our simulation regime. We thus employ the SVAR procedure here, though we note that other measurement timescale learning algorithms might work better in different domains.
+
+Figure 9: The estimation and search errors on synthetic data: 6-node graphs, u = 2, 20 per density.
+
+To test the two-step procedure--SVAR learning passed to RASLil--we generated 20 random 6-node SCCs for each density in {25%, 30%, 35%}. For each random graph, we generated a random transition matrix A by sampling weights for the
+non-zero elements of the adjacency matrix, and controlling system stability (by keeping the maximal
+eigenvalue at or below 1). We then generated time series data using a vector auto-regressive (VAR) model [11] with A and random noise ( = 1). To simulate undersampling, datapoints were removed to yield u = 2. SVAR optimization on the resulting time series yielded a candidate H that was passed to RASLil to obtain H .
+
+The space of possible optimization can return
+
+H an
+
+is H
+
+a factor of such that H
+
+n
+2
+=
+
+larger than the space of possible G1, . If RASLil returns , then we rerun it
+
+and so SVAR on all H that
+
+result from a single edge addition or deletion on H. If RASLil returns  for all of those graphs, then
+
+we consider the H that result from two changes to H, then three changes. This search through the
+
+3-step Hamming neighborhood of H essentially always finds an H with H = .
+
+Figure 9 shows the results of the two-step process, where algorithm output is evaluated by two
+error-types: omission error: the number of omitted edges normalized to the total number of edges
+in the ground truth; comission error: number of edges not present in the ground truth normalized
+to the total possible edges minus the number of those present in the ground truth. We also plot
+the estimation errors of SVAR (on the undersampled data) to capture the dependence of RASLil estimation errors on estimation errors for H. Interestingly, RASLil does not significantly increase the error rates over those produced by the SVAR estimation. In fact, we find the contrary (similarly to [6]): the requirement to use an H that could be generated by some undersampled G1 functions as
+a regularization constraint that corrects for some SVAR estimation errors.
+
+5 Conclusion
+
+Time series data are widespread in many scientific domains, but if the measurement and system timescales differ, then we can make significant causal inference errors [9, 15]. Despite this potential for numerous errors, there have been only limited attempts to address this problem [6, 7], and even those methods required strong assumptions about the undersample rate.
+We here provided the first causal inference algorithms that can reliably learn causal structure from time series data when the system and measurement timescales diverge to an unknown degree. The RASL algorithms are complex, but not restricted to toy problems. We also showed that underdetermination of G1 is sometimes minimal, given the right methods. H was often small; substantial system timescale causal structure could be learned from undersampled measurement timescale data. Significant open problems remain, such as more efficient methods when H has H = . This paper has, however, expanded our causal inference "toolbox" to include cases of unknown undersampling.
+
+Acknowledgments
+
+SP & DD contributed equally. This work was supported by awards NIH R01EB005846 (SP); NSF IIS-1318759 (SP); NSF IIS-1318815 (DD); & NIH U54HG008540 (DD) (from the National Human Genome Research Institute through funds provided by the trans-NIH Big Data to Knowledge (BD2K) initiative). The content is solely the responsibility of the authors and does not necessarily represent the official views of the National Institutes of Health.
+
+8
+
+References
+[1] A. Moneta, N. Chla, D. Entner, and P. Hoyer. Causal search in structural vector autoregressive models. In Journal of Machine Learning Research: Workshop and Conference Proceedings, Causality in Time Series (Proc. NIPS2009 Mini-Symposium on Causality in Time Series), volume 12, pages 95-114, 2011.
+[2] C.W.J. Granger. Investigating causal relations by econometric models and cross-spectral methods. Econometrica: Journal of the Econometric Society, pages 424-438, 1969.
+[3] B. Thiesson, D. Chickering, D. Heckerman, and C. Meek. Arma time-series modeling with graphical models. In Proceedings of the Twentieth Conference Annual Conference on Uncertainty in Artificial Intelligence (UAI-04), pages 552-560, Arlington, Virginia, 2004. AUAI Press.
+[4] Mark Voortman, Denver Dash, and Marek Druzdzel. Learning why things change: The difference-based causality learner. In Proceedings of the Twenty-Sixth Annual Conference on Uncertainty in Artificial Intelligence (UAI), pages 641-650, Corvallis, Oregon, 2010. AUAI Press.
+[5] Nir Friedman, Kevin Murphy, and Stuart Russell. Learning the structure of dynamic probabilistic networks. In 15th Annual Conference on Uncertainty in Artificial Intelligence, pages 139-147, San Francisco, 1999. Morgan Kaufmann.
+[6] Sergey Plis, David Danks, and Jianyu Yang. Mesochronal structure learning. In Proceedings of the Thirty-First Conference Annual Conference on Uncertainty in Artificial Intelligence (UAI-15), Corvallis, Oregon, 2015. AUAI Press.
+[7] Mingming Gong, Kun Zhang, Bernhard Schoelkopf, Dacheng Tao, and Philipp Geiger. Discovering temporal causal relations from subsampled data. In Proc. ICML, pages 1898-1906, 2015.
+[8] T. Richardson and P. Spirtes. Ancestral graph markov models. The Annals of Statistics, 30(4):962-1030, 2002.
+[9] David Danks and Sergey Plis. Learning causal structure from undersampled time series. In JMLR: Workshop and Conference Proceedings, volume 1, pages 1-10, 2013.
+[10] Donald B Johnson. Finding all the elementary circuits of a directed graph. SIAM Journal on Computing, 4(1):77-84, 1975.
+[11] Helmut Lutkepohl. New introduction to multiple time series analysis. Springer Science & Business Media, 2007.
+[12] K. Murphy. Dynamic Bayesian Networks: Representation, Inference and Learning. PhD thesis, UC Berkeley, 2002.
+[13] Clark Glymour, Peter Spirtes, and Richard Scheines. Causal inference. In Erkenntnis Orientated: A Centennial Volume for Rudolf Carnap and Hans Reichenbach, pages 151-189. Springer, 1991.
+[14] David Maxwell Chickering. Optimal structure identification with greedy search. The Journal of Machine Learning Research, 3:507-554, 2003.
+[15] Anil K Seth, Paul Chorley, and Lionel C Barnett. Granger causality analysis of fmri bold signals is invariant to hemodynamic convolution but not downsampling. Neuroimage, 65:540-555, 2013.
+9
+

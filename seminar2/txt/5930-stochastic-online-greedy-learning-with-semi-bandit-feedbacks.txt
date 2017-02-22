@@ -1,0 +1,943 @@
+Stochastic Online Greedy Learning with Semi-bandit Feedbacks
+
+Tian Lin Tsinghua University
+Beijing, China lintian06@gmail.com
+
+Jian Li Tsinghua University
+Beijing, China lapordge@gmail.com
+
+Wei Chen Microsoft Research
+Beijing, China weic@microsoft.com
+
+Abstract
+The greedy algorithm is extensively studied in the field of combinatorial optimization for decades. In this paper, we address the online learning problem when the input to the greedy algorithm is stochastic with unknown parameters that have to be learned over time. We first propose the greedy regret and -quasi greedy regret as learning metrics comparing with the performance of offline greedy algorithm. We then propose two online greedy learning algorithms with semi-bandit feedbacks, which use multi-armed bandit and pure exploration bandit policies at each level of greedy learning, one for each of the regret metrics respectively. Both algorithms achieve O(log T ) problem-dependent regret bound (T being the time horizon) for a general class of combinatorial structures and reward functions that allow greedy solutions. We further show that the bound is tight in T and other problem instance parameters.
+1 Introduction
+The greedy algorithm is simple and easy-to-implement, and can be applied to solve a wide range of complex optimization problems, either with exact solutions (e.g. minimum spanning tree [19, 25]) or approximate solutions (e.g. maximum coverage [11] or influence maximization [17]). Moreover, for many practical problems, the greedy algorithm often serves as the first heuristic of choice and performs well in practice even when it does not provide a theoretical guarantee.
+The classical greedy algorithm assumes that a certain reward function is given, and it constructs the solution iteratively. In each phase, it searches for a local optimal element to maximize the marginal gain of reward, and add it to the solution. We refer to this case as the offline greedy algorithm with a given reward function, and the corresponding problem the offline problems. The phase-by-phase process of the greedy algorithm naturally forms a decision sequence to illustrate the decision flow in finding the solution, which is named as the greedy sequence. We characterize the decision class as an accessible set system, a general combinatorial structure encompassing many interesting problems.
+In many real applications, however, the reward function is stochastic and is not known in advance, and the reward is only instantiated based on the unknown distribution after the greedy sequence is selected. For example, in the influence maximization problem [17], social influence are propagated in a social network from the selected seed nodes following a stochastic model with unknown parameters, and one wants to find the optimal seed set of size k that generates the largest influence spread, which is the expected number of nodes influenced in a cascade. In this case, the reward of seed selection is only instantiated after the seed selection, and is only one of the random outcomes. Therefore, when the stochastic reward function is unknown, we aim at maximizing the expected reward overtime while gradually learning the key parameters of the expected reward functions. This falls in the domain of online learning, and we refer the online algorithm as the strategy of the player, who makes sequential decisions, interacts with the environment, obtains feedbacks, and accumulates
+1
+
+her reward. For online greedy algorithms in particular, at each time step the player selects and plays a candidate decision sequence while the environment instantiates the reward function, and then the player collects the values of instantiated function at every phase of the decision sequence as the feedbacks (thus the name of semi-bandit feedbacks [2]), and takes the value of the final phase as the reward cumulated in this step.
+The typical objective for an online algorithm is to make sequential decisions against the optimal solution in the offline problem where the reward function is known a priori. For online greedy algorithms, instead, we compare it with the solution of the offline greedy algorithm, and minimize their gap of the cumulative reward over time, termed as the greedy regret. Furthermore, in some problems such as influence maximization, the reward function is estimated with error even for the offline problem [17] and thus the greedily selected element at each phase may contain some error. We call such greedy sequence as -quasi greedy sequence. To accommodate these cases, we also define the metric of -quasi greedy regret, which compares the online solution against the minimum offline solution from all -quasi greedy sequences.
+In this paper, we propose two online greedy algorithms targeted at two regret metrics respectively. The first algorithm OG-UCB uses the stochastic multi-armed bandit (MAB) [22, 8], in particular the well-known UCB policy [3] as the building block to minimize the greedy regret. We apply the UCB policy to every phase by associating the confidence bound to each arm, and then choose the arm having the highest upper confidence bound greedily in the process of decision. For the second scenario where we allow tolerating -error for each phase, we propose a first-explore-then-exploit algorithm OG-LUCB to minimize the -quasi greedy regret. For every phase in the greedy process, OG-LUCB applies the LUCB policy [16, 9] which depends on the upper and lower confidence bound to eliminate arms. It first explores each arm until the lower bound of one arm is higher than the upper bound of any other arm within an -error, then the stage of current phase is switched to exploit that best arm, and continues to the next phase. Both OG-UCB and OG-LUCB achieve the problemdependent O(log T ) bound in terms of the respective regret metrics, where the coefficients in front of T depends on direct elements along the greedy sequence (a.k.a., its decision frontier) corresponding to the instance of learning problem. The two algorithms have complementary advantages: when we really target at greedy regret (setting to 0 for OG-LUCB), OG-UCB has a slightly better regret guarantee and does not need an artificial switch between exploration and exploitation; when we are satisfied with -quasi greedy regret, OG-LUCB works but OG-UCB cannot be adapted for this case and may suffer a larger regret. We also show a problem instance in this paper, where the upper bound is tight to the lower bound in T and other problem parameters.
+We further show our algorithms can be easily extended to the knapsack problem, and applied to the stochastic online maximization for consistent functions and submodular functions, etc., in the supplementary material.
+To summarize, our contributions include the following: (a) To the best of our knowledge, we are the first to propose the framework using the greedy regret and -quasi greedy regret to characterize the online performance of the stochastic greedy algorithm for different scenarios, and it works for a wide class of accessible set systems and general reward functions; (b) We propose Algorithms OGUCB and OG-LUCB that achieve the problem-dependent O(log T ) regret bound; and (c) We also show that the upper bound matches with the lower bound (up to a constant factor).
+Due to the space constraint, the analysis of algorithms, applications and empirical evaluation of the lower bound are moved to the supplementary material.
+Related Work. The multi-armed bandit (MAB) problem for both stochastic and adversarial settings [22, 4, 6] has been widely studied for decades. Most work focus on minimizing the cumulative regret over time [3, 14], or identifying the optimal solution in terms of pure exploration bandits [1, 16, 7]. Among those work, there is one line of research that generalizes MAB to combinatorial learning problems [8, 13, 2, 10, 21, 23, 9]. Our paper belongs to this line considering stochastic learning with semi-bandit feedbacks, while we focus on the greedy algorithm, the structure and its performance measure, which have not been addressed.
+The classical greedy algorithms in the offline setting are studied in many applications [19, 25, 11, 5], and there is a line of work [15, 18] focusing on characterizing the greedy structure for solutions. We adopt their characterizations of accessible set systems to the online setting of the greedy learning. There is also a branch of work using the greedy algorithm to solve online learning problem, while
+2
+
+they require the knowledge of the exact form of reward function, restricting to special functions such as linear [2, 20] and submodular rewards [26, 12]. Our work does not assume the exact form, and it covers a much larger class of combinatorial structures and reward functions.
+2 Preliminaries
+Online combinatorial learning problem can be formulated as a repeated game between the environment and the player under stochastic multi-armed bandit framework.
+Let E = {e1, e2, . . . , en} be a finite ground set of size n, and F be a collection of subsets of E. We consider the accessible set system (E, F) satisfying the following two axioms: (1)   F; (2) If S  F and S = , then there exists some e in E, s.t., S \ {e}  F. We define any set S  E as a feasible set if S  F. For any S  F, its accessible set is defined as N (S) := {e  E \ S : S  {e}  F}. We say feasible set S is maximal if N (S) = . Define the largest length of any feasible set as m := maxSF |S| (m  n), and the largest width of any feasible set as W := maxSF |N (S)| (W  n). We say that such an accessible set system (E, F) is the decision class of the player. In the class of combinatorial learning problems, the size of F is usually very large (e.g., exponential in m, W and n).
+Beginning with an empty set, the accessible set system (E, F) ensures that any feasible set S can be acquired by adding elements one by one in some order (cf. Lemma A.1 in the supplementary material for more details), which naturally forms the decision process of the player. For convenience, we say the player can choose a decision sequence, defined as an ordered feasible sets  := S0, S1, . . . , Sk  F k+1 satisfying that  = S0  S1  * * *  Sk and for any i = 1, 2, . . . , k, Si = Si-1  {si} where si  N (Si-1). Besides, define decision sequence  as maximal if and only if Sk is maximal.
+Let  be an arbitrary set. The environment draws i.i.d. samples from  as 1, 2, . . . , at each time t = 1, 2, . . . , by following a predetermined but unknown distribution. Consider reward function f : F x   R that is bounded, and it is non-decreasing1 in the first parameter, while the exact form of function is agnostic to the player. We use a shorthand ft(S) := f (S, t) to denote the reward for any given S at time t, and denote the expected reward as f (S) := E1 [f1(S)], where the expectation Et is taken from the randomness of the environment at time t. For ease of presentation, we assume that the reward function for any time t is normalized with arbitrary alignment as follows: (1) ft() = L (for any constant L  0); (2) for any S  F , e  N (S), ft(S  {e}) - ft(S)  [0, 1]. Therefore, reward function f (*, *) is implicitly bounded within [L, L + m].
+We extend the concept of arms in MAB, and introduce notation a := e|S to define an arm, representing the selected element e based on the prefix S, where S is a feasible set and e  N (S); and define A := {e|S : S  F, e  N (S)} as the arm space. Then, we can define the marginal reward for function ft as ft(e|S) := ft(S  {e}) - ft(S), and the expected marginal reward for f as f (e|S) := f (S  {e}) - f (S). Notice that the use of arms characterizes the marginal reward, and also indicates that it is related to the player's previous decision.
+2.1 The Offline Problem and The Offline Greedy Algorithm
+In the offline problem, we assume that f is provided as a value oracle. Therefore, the objective is to find the optimal solution S = arg maxSF f (S), which only depends on the player's decision. When the optimal solution is computationally hard to obtain, usually we are interested in finding a feasible set S+  F such that f (S+)  f (S) where   (0, 1], then S+ is called an approximation solution. That is a typical case where the greedy algorithm comes into play.
+The offline greedy algorithm is a local search algorithm that refines the solution phase by phase. It goes as follows: (a) Let G0 = ; (b) For each phase k = 0, 1, . . . , find gk+1 = arg maxeN (Gk) f (e|Gk), and let Gk+1 = Gk  {gk+1}; (c) The above process ends when N (Gk+1) =  (Gk+1 is maximal). We define the maximal decision sequence G := G0, G1, . . . , GmG (mG is its length) found by the offline greedy as the greedy sequence. For simplicity, we assume that it is unique.
+1Therefore, the optimal solution is a maximal decision sequence.
+3
+
+One important feature is that the greedy algorithm uses a polynomial number of calls (poly(m, W, n)) to the offline oracle, even though the size of F or A may be exponentially large.
+In some cases such as the offline influence maximization problem [17], the value of f (*) can only be accessed with some error or estimated approximately. Sometimes, even though f (*) can be computed exactly, we may only need an approximate maximizer in each greedy phase in favor of computational efficiency (e.g., efficient submodular maximization [24]). To capture such scenarios, we say a maximal decision sequence  = S0, S1, . . . , Sm is an -quasi greedy sequence (  0), if the greedy decision can tolerate error every phase, i.e., for each k = 0, 1, . . . , m -1 and Sk+1 = Sk {sk+1}, f (sk+1|Sk)  maxsN (Sk) f (s|Sk) - . Notice that there could be many -quasi greedy sequences, and we denote Q := Q0, Q1, . . . , QmQ (mQ is its length) as the one with the minimum reward, that is f (QmQ ) is minimized over all -quasi greedy sequences.
+
+2.2 The Online Problem
+
+In the online case, in constrast f is not provided. The player can only access one of functions f1, f2, . . . , generated by the environment, for each time step during a repeated game.
+
+For each time t, the game proceeds in the following three steps: (1) The environment draws i.i.d. sample t   from its predetermined distribution without revealing it; (2) the player may, based on her previous knowledge, select a decision sequence t = S0, S1, . . . , Smt , which reflects the process of her decision phase by phase; (3) then, the player plays t and gains reward
+ft(Smt ), while observes intermediate feedbacks ft(S0), ft(S1), . . . , ft(Smt ) to update her knowledge. We refer such feedbacks as semi-bandit feedbacks in the decision order.
+
+For any time t = 1, 2, . . . , denote t = S0t, S1t, . . . , Smt t and St := Smt t . The player is to make sequential decisions, and the classical objective is to minimize the cumulative gap of rewards against
+
+the optimal solution [3] or the approximation solution [10]. For example, when the optimal solu-
+
+tion S = arg maxSF E [f1(S)] can be solved in the offline problem, we minimize the expected
+
+cumulative regret R(T ) := T * E [f1(S)] -
+
+T t=1
+
+E
+
+[ft(St)]
+
+over
+
+the
+
+time
+
+horizon
+
+T
+
+,
+
+where
+
+the
+
+expectation is taken from the randomness of the environment and the possible random algorithm of
+
+the player. In this paper, we are interested in online algorithms that are comparable to the solution
+
+of the offline greedy algorithm, namely the greedy sequence G = G0, G1, . . . , GmG . Thus, the objective is to minimize the greedy regret defined as
+
+Given
+
+T
+RG(T ) := T * E [f1(GmG )] - E ft(St) .
+t=1
+ 0, we define the -quasi greedy regret as
+
+(1)
+
+T
+RQ(T ) := T * E[f1(QmQ )] - E ft(St) ,
+t=1
+
+(2)
+
+where Q = Q0, Q1, . . . , QmQ is the minimum -quasi greedy sequence.
+
+We remark that if the offline greedy algorithm provides an -approximation solution (with 0 <   1), then the greedy regret (or -quasi greedy regret) also provides -approximation regret, which is the regret comparing to the  fraction of the optimal solution, as defined in [10].
+
+In the rest of the paper, our goal is to design the player's policy that is comparable to the offline
+
+greedy,
+
+in
+
+other
+
+words,
+
+RG(T )/T
+
+=
+
+f (GmG ) -
+
+1 T
+
+T t=1
+
+E
+
+[ft(St)]
+
+=
+
+o(1).
+
+Thus,
+
+to
+
+achieve
+
+sub-
+
+linear greedy regret RG(T ) = o(T ) is our main focus.
+
+3 The Online Greedy and Algorithm OG-UCB
+In this section, we propose our Online Greedy (OG) algorithm with the UCB policy to minimize the greedy regret (defined in (1)). For any arm a = e|S  A, playing a at each time t yields the marginal reward as a random variable Xt(a) = ft(a), in which the random event t   is i.i.d., and we denote (a) as its true mean (i.e.,
+
+4
+
+Algorithm 1 OG
+
+Require: MaxOracle 1: for t = 1, 2, . . . do 2: S0  ; k  0; h0  true 3: repeat 4: A  {e|Sk : e  N (Sk)}; t  aA N (a) + 1
+5: (sk+1|Sk, hk)  MaxOracle A, X (*), N (*), t
+
+online greedy procedure find the current maximal
+
+6: Sk+1  Sk  {sk+1}; k  k + 1
+
+7: until N (Sk) = 
+
+until a maximal sequence is found
+
+8: Play sequence t  S0, . . . , Sk , observe {ft(S0), . . . , ft(Sk)}, and gain ft(Sk).
+
+9: for all i = 1, 2, . . . , k do
+
+update according to signals from MaxOracle
+
+10: if h0, h1, * * * , hi-1 are all true then
+
+11: Update X (si|Si-1) and N (si|Si-1) according to (3).
+
+Subroutine 2 UCB(A, X (*), N (*), t) to implement MaxOracle
+
+Setup: confidence radius radt(a) :=
+
+3 ln t 2N (a)
+
+,
+
+for
+
+each
+
+a
+
+
+
+A
+
+1: if a  A, X (a) is not initialized then
+
+2: return (a, true)
+
+3: else
+
+4: It+  arg maxaA X (a) + radt(a) , and return (It+, true)
+
+break ties arbitrarily to initialize arms apply UCB's rule
+
+(a) := E [X1(a)]). Let X (a) be the empirical mean for the marginal reward of a, and N (a) be the counter of the plays. More specifically, denote Xt(a) and Nt(a) for particular X (a) and N (a) at
+the beginning of the time step t, and they are evaluated as follows:
+
+Xt(a) =
+
+t-1 i=1
+
+fi(a)Ii(a)
+
+t-1 i=1
+
+Ii
+
+(a)
+
+,
+
+t-1
+Nt(a) = Ii(a),
+i=1
+
+(3)
+
+where Ii(a)  {0, 1} indicates whether a is updated at time i. In particular, assume that our algorithm is lazy-initialized so that each X (a) and N (a) is 0 by default, until a is played.
+
+The Online Greedy algorithm (OG) proposed in Algorithm 1 serves as a meta-algorithm allowing different implementations of Subroutine MaxOracle. For every time t, OG calls MaxOracle (Line 5, to be specified later) to find the local maximal phase by phase, until the decision sequence t is made. Then, it plays sequence t, observes feedbacks and gains the reward (Line 8). Meanwhile, OG collects the Boolean signals (hk) from MaxOracle during the greedy process (Line 5), and update estimators X (*) and N (*) according to those signals (Line 10). On the other hand, MaxOracle takes accessible arms A, estimators X (*), N (*), and counted time t , and returns an arm from A and signal hk  {true, false} to instruct OG whether to update estimators for the following phase.
+The classical UCB [3] can be used to implement MaxOracle, which is described in Subroutine 2. We term our algorithm OG, in which MaxOracle is implemented by Subroutine 2 UCB, as Algorithm OG-UCB. A few remarks are in order: First, Algorithm OG-UCB chooses an arm with the highest upper confidence bound for each phase. Second, the signal hk is always true, meaning that OG-UCB always update empirical means of arms along the decision sequence. Third, because we use lazy-initialized X (*) and N (*), the memory is allocated only when it is needed.
+
+3.1 Regret Bound of OG-UCB
+For any feasible set S, define the greedy element for S as gS := arg maxeN (S) f (e|S), and we use N-(S) := N (S) \ {gS } for convenience. Denote F  := {S  F : S is maximal} as the collection of all maximal feasible sets in F. We use the following gaps to measure the performance of the algorithm.
+
+5
+
+Definition 3.1 (Gaps). The gap between the maximal greedy feasible set GmG and any S  F is
+defined as (S) := f (GmG ) - f (S) if it is positive, and 0 otherwise. We define the maximum gap
+as max = f (GmG ) - minSF f (S), which is the worst penalty for any maximal feasible set. For any arms a = e|S  A, we define the unit gap of a (i.e., the gap for one phase) as
+
+(a) = (e|S) :=
+
+f (gS |S) - f (e|S), f (gS |S) - maxe N-(S) f (e |S),
+
+e e
+
+= =
+
+gS gS
+
+.
+
+(4)
+
+For any arms a = e|S  A, we define the sunk-cost gap (irreversible once selected) as
+
+(a) = (e|S) := max
+
+f (GmG )
+
+-
+
+V
+
+:V
+
+min
+F ,S{e}V
+
+f (V
+
+), 0
+
+,
+
+(5)
+
+where for two feasible sets A and B, A  B means that A is a prefix of B in some decision
+sequence, that is, there exists a decision sequence  = S0 = , S1, . . . , Sk such that Sk = B and for some j < k, Sj = A. Thus, (e|S) means the largest gap we may have after we have fixed our prefix selection to be S  {e}, and is upper bounded by max.
+
+Definition 3.2 (Decision frontier). For any decision sequence  = S0, S1, . . . , Sk , define decision
+
+frontier () :=
+
+k i=1
+
+{e|Si-1
+
+:
+
+e
+
+
+
+N
+
+(Si-1)}
+
+
+
+A
+
+as
+
+the
+
+arms
+
+need
+
+to
+
+be
+
+explored
+
+in
+
+the
+
+decision
+
+sequence , and -() :=
+
+k i=1
+
+{e|Si-1
+
+:
+
+e
+
+
+
+N-(Si-1)}
+
+similarly.
+
+Theorem 3.1 (Greedy regret bound). For any time T , Algorithm OG-UCB (Algorithm 1 with Subroutine 2) can achieve the greedy regret
+
+RG(T ) 
+
+6(a) * ln T (a)2 +
+
+2 +1
+
+(a)
+
+,
+
+3
+
+a- ( G )
+
+(6)
+
+where G is the greedy decision sequence.
+
+When m = 1, the above theorem immediately recovers the regret bound of the classical UCB
+
+[3] (with (a) = (a)). The greedy regret is bounded by O
+
+mW max log T 2
+
+where  is the
+
+minimum unit gap ( = minaA (a)), and the memory cost is at most proportional to the regret.
+
+For a special class of linear bandits, a simple extension where we treat arms e|S and e|S as the
+
+same
+
+can
+
+make
+
+OG-UCB
+
+essentially
+
+the
+
+same
+
+as
+
+OMM
+
+in
+
+[20],
+
+while
+
+the
+
+regret
+
+is
+
+O(
+
+n 
+
+log
+
+T
+
+)
+
+and
+
+the memory cost is O(n) (cf. Appendix F.1 of the supplementary material).
+
+4 Relaxing the Greedy Sequence with -Error Tolerance
+
+In this section, we propose an online algorithm called OG-LUCB, which learns an -quasi greedy sequence, with the goal of minimizing the -quasi greedy regret (in (2)). We learn -quasi-greedy sequences by a first-explore-then-exploit policy, which utilizes results from PAC learning with a fixed confidence setting. In Section 4.1, we implement MaxOracle via the LUCB policy, and derive its exploration time; we then assume the knowledge of time horizon T in Section 4.2, and analyze the -quasi greedy regret; and in Section 4.3, we show that the assumption of knowing T can be further removed.
+
+4.1 OG with a first-explore-then-exploit policy
+
+Given  0 and failure probability   (0, 1), we use Subroutine 3 LUCB , to implement the subroutine MaxOracle in Algorithm OG. We call the resulting algorithm OG-LUCB ,. Specifically,
+
+Subroutine 3 is adapted from CLUCB-PAC in [9], and specialized to explore the top-one element in
+
+the
+
+support
+
+of
+
+[0, 1]
+
+(i.e.,
+
+set
+
+R
+
+=
+
+1 2
+
+,
+
+width(M)
+
+=
+
+2
+
+and
+
+Oracle
+
+=
+
+arg max
+
+in
+
+[9]).
+
+Assume
+
+that
+
+Iexploit(*) is lazy-initialized. For each greedy phase, the algorithm first explores each arm in A in the
+
+exploration stage, during which the return flag (the second return field) is always false; when the
+
+optimal one is found (initialize Iexploit(A) with It), it sticks to Iexploit(A) in the exploitation stage for the subsequent time steps, and return flag for this phase becomes true. The main algorithm OG
+
+then uses these flags in such a way that it updates arm estimates for phase i if any only if all phases
+
+6
+
+Subroutine 3 LUCB ,(A, X (*), N (*), t) to implement MaxOracle
+
+Setup: radt(a) :=
+
+ln(4W t3/) 2N (a)
+
+,
+
+for
+
+each
+
+a
+
+
+
+A;
+
+I exploit (*)
+
+to
+
+cache
+
+arms
+
+for
+
+exploitation;
+
+1: if Iexploit(A) is initialized then return (Iexploit(A), true)
+
+in the exploitation stage
+
+2: if a  A, X (a) is not initialized then
+
+break ties arbitrarily
+
+3: return (a, false)
+
+to initialize arms
+
+4: else
+
+5: It  arg maxaA X (a)
+
+6:
+
+a  A, X (a) 
+
+X (a) + radt(a), X (a) - radt(a),
+
+a = It a = It
+
+perturb arms
+
+7: It  arg maxaA X (a) 8: if X (It) - X (It) > then 9: It  arg maxi{It,It} radt(i), and return (It , false)
+10: else
+11: Iexploit(A)  It 12: return (Iexploit(A), true)
+
+not separated in the exploration stage
+separated initialize Iexploit(A) with It
+in the exploitation stage
+
+for j < i are already in the exploitation stage. This avoids maintaining useless arm estimates and is a major memory saving comparing to OG-UCB.
+
+In Algorithm OG-LUCB ,, we define the total exploration time T E = T E(), such that for any
+time t  T E, OG-LUCB , is in the exploitation stage for all greedy phases encountered in the
+algorithm. This also means that after time T E, in every step we play the same maximal decision sequence  = S0, S1, * * * , Sk  F k+1, which we call a stable sequence. Following a common practice, we define the hardness coefficient with prefix S  F as
+
+HS :=
+
+1 max {(e|S)2,
+
+2} ,
+
+where (e|S) is defined in (4).
+
+eN (S)
+
+(7)
+
+Rewrite definitions with respect to the -quasi regret. Recall that Q = Q0, Q1, . . . , QmQ is
+the minimum -quasi greedy sequence. In this section, we rewrite the gap (S) := max{f (QmQ ) - f (S), 0} for any S  F , the maximum gap max := f (QmQ ) - minSF f (S), and (a) = (e|S) := max f (QmQ ) - minV :V F,S{e}V f (V ), 0 , for any arm a = e|S  A.
+
+The following theorem shows that, with high probability, we can find a stable -quasi greedy sequence, and the total exploration time is bounded.
+
+Theorem 4.1 (High probability exploration time). Given any  0 and   (0, 1), suppose after
+
+the total exploration time T E = T E(), Algorithm OG-LUCB , (Algorithm 1 with Subroutine 3)
+
+sticks to a stable sequence  = S0, S1, * * * , Sm where m is its length. With probability at least
+
+1 - m, the following claims hold: (1)  is an -quasi greedy sequence; (2) The total exploration
+
+time satisfies that T E  127
+
+m -1 k=0
+
+HS
+
+ln
+
+(1996W
+
+HS
+
+/)
+
+,
+
+4.2 Time Horizon T is Known
+
+Knowing
+
+time
+
+horizon
+
+T,
+
+we
+
+may
+
+let
+
+
+
+=
+
+1 T
+
+in OG-LUCB , to derive the
+
+-quasi regret as follows.
+
+Theorem 4.2. Given any  0. When total time T is known, let Algorithm OG-LUCB , run
+
+with 
+
+=
+
+1 T
+
+.
+
+Suppose
+
+
+
+=
+
+S0, S1, * * * , Sm
+
+is the sequence selected at time T . Define func-
+
+tion RQ,(T ) :=
+
+e|S() (e|S) min
+
+127 (e|S)2
+
+,
+
+113
+2
+
+ln (1996W HST ) + maxm, where m is
+
+the largest length of a feasible set and HS is defined in (7). Then, the -quasi regret satisfies that
+
+RQ(T
+
+)
+
+
+
+RQ, (T
+
+)
+
+=
+
+O(
+
+W mmax max{2, 2}
+
+log
+
+T
+
+),
+
+where
+
+
+
+is
+
+the
+
+minimum
+
+unit
+
+gap.
+
+In general, the two bounds (Theorem 3.1 and Theorem 4.2) are for different regret metrics, thus can not be directly compared. When = 0, OG-UCB is slightly better only in the constant before log T . On other hand, when we are satisfied with -quasi greedy regret, OG-LUCB , may work better for
+
+7
+
+Algorithm 4 OG-LUCB-R (i.e., OG-LUCB with Restart)
+
+Require:
+
+1: for epoch = 1, 2, * * * do
+
+2:
+
+Clean X (*) and N (*) for all arms, and restart OG-LUCB , with  =
+
+1 
+
+(defined in (8)).
+
+3: Run OG-LUCB , for  time steps. (exit halfway, if the time is over.)
+
+some large , for the bound takes the maximum (in the denominator) of the problem-dependent term (e|S) and the fixed constant term, and the memory cost is only O(mW ).
+
+4.3 Time Horizon T is not Known
+When time horizon T is not known, we can apply the "squaring trick", and restart the algorithm for each epoch as follows. Define the duration of epoch as  , and its accumulated time as  , where
+
+ := e2 ;  := 0, s=1 s,
+
+=0 .
+1
+
+(8)
+
+For any time horizon T , define the final epoch K = K(T ) as the epoch where T lies in, that is K-1 < T  K . Then, our algorithm OG-LUCB-R is proposed in Algorithm 4. The following theorem shows that the O(log T ) -quasi regret still holds, with a slight blowup of the constant hidden in the big O notation (For completeness, the explicit constant before log T can be found in
+Theorem D.7 of the supplementary material).
+
+Theorem 4.3. Given any  0. Use  and  defined in (8), and function RQ,(T ) defined in
+
+Theorem 4.2. In Algorithm OG-LUCB-R, suppose ( ) = S0( ), S1( ), * * * , Sm( )( ) is the sequence selected by the end of -th epoch of OG-LUCB ,, where m( ) is its length. For any time T , denote
+
+final epoch as K = K(T ) such that K-1 < T  K , and the -quasi regret satisfies that RQ(T ) 
+
+K =1
+
+RQ,(
+
+) (
+
+)
+
+=
+
+O
+
+W mmax max{2, 2}
+
+log
+
+T
+
+, where  is the minimum unit gap.
+
+5 Lower Bound on the Greedy Regret
+
+Consider a problem of selecting one element each from m bandit instances, and the player sequen-
+
+tially collects prize at every phase. For simplicity, we call it the prize-collecting problem, which is
+
+defined as of size W .
+
+follows: For each bandit instance i = 1, 2, The accessible set system is defined as (E,
+
+.. F
+
+., ),
+
+m, denote set where E =
+
+mEi
+i=1
+
+= {ei,1, ei,2, . . . , ei,W } Ei, F = mi=1Fi  {},
+
+and Fi = {S  E : |S| = i, k : 1  k  i, |SEk| = 1}. The reward function f : F x  [0, m]
+
+is non-decreasing in the first parameter, and the form of f is unknown to the player. Let minimum
+
+unit gap  := min f (gS |S) - f (e|S) : S  F , e  N-(S) > 0, where its value is also unknown to the player. The objective of the player is to minimize the greedy regret.
+
+Denote the greedy sequence as G = G0, G1, * * * , Gm , and the greedy arms as AG = {gG i-1 |Gi-1 : i = 1, 2, * * * , W }. We say an algorithm is consistent, if the sum of playing all arms a  A \ AG is in o(T ), for any  > 0, i.e., E[ aA\AG NT (a)] = o(T ).
+
+Theorem 5.1. For any consistent algorithm, there exists a problem instance of the prize-collecting
+
+problem,
+
+as
+
+time
+
+T
+
+tends
+
+to
+
+,
+
+for
+
+any
+
+minimum
+
+unit
+
+gap
+
+
+
+
+
+(0,
+
+1 4
+
+),
+
+such
+
+that
+
+2
+
+
+
+2 3W m-1
+
+for
+
+some constant   (0, 1), the greedy regret satisfies that RG(T ) = 
+
+mW ln T 2
+
+.
+
+We remark that the detailed problem instance and the greedy regret can be found in Theorem E.2 of
+
+the supplementary material. Furthermore, we may also restrict the maximum gap max to (1), and
+
+the
+
+lower
+
+bound
+
+RG(T
+
+)
+
+=
+
+(
+
+mW
+
+max 2
+
+ln
+
+T
+
+),
+
+for
+
+any
+
+sufficiently
+
+large
+
+T
+
+.
+
+For
+
+the
+
+upper
+
+bound,
+
+OG-
+
+UCB
+
+(Theorem
+
+3.1)
+
+gives
+
+that
+
+RG(T )
+
+=
+
+O(
+
+mW max 2
+
+log
+
+T ),
+
+Thus,
+
+our
+
+upper
+
+bound
+
+of
+
+OG-UCB
+
+matches the lower bound within a constant factor.
+
+Acknowledgments Jian Li was supported in part by the National Basic Research Program of China grants 2015CB358700, 2011CBA00300, 2011CBA00301, and the National NSFC grants 61202009, 61033001, 61361136003.
+
+8
+
+References
+[1] J.-Y. Audibert and S. Bubeck. Best arm identification in multi-armed bandits. In COLT, 2010. [2] J.-Y. Audibert, S. Bubeck, and G. Lugosi. Minimax policies for combinatorial prediction games. arXiv
+preprint arXiv:1105.4871, 2011. [3] P. Auer, N. Cesa-Bianchi, and P. Fischer. Finite-time analysis of the multiarmed bandit problem. Machine
+learning, 47(2-3):235-256, 2002. [4] P. Auer, N. Cesa-Bianchi, Y. Freund, and R. E. Schapire. The nonstochastic multiarmed bandit problem.
+SIAM Journal on Computing, 32(1):48-77, 2002. [5] A. Bjorner and G. M. Ziegler. Introduction to greedoids. Matroid applications, 40:284-357, 1992. [6] S. Bubeck and N. Cesa-Bianchi. Regret analysis of stochastic and nonstochastic multi-armed bandit
+problems. arXiv preprint arXiv:1204.5721, 2012. [7] S. Bubeck, R. Munos, and G. Stoltz. Pure exploration in finitely-armed and continuous-armed bandits.
+Theoretical Computer Science, 412(19):1832-1852, 2011. [8] N. Cesa-Bianchi and G. Lugosi. Combinatorial bandits. Journal of Computer and System Sciences, 78
+(5):1404-1422, 2012. [9] S. Chen, T. Lin, I. King, M. R. Lyu, and W. Chen. Combinatorial pure exploration of multi-armed bandits.
+In NIPS, 2014. [10] W. Chen, Y. Wang, and Y. Yuan. Combinatorial multi-armed bandit: General framework and applications.
+In ICML, 2013. [11] V. Chvatal. A greedy heuristic for the set-covering problem. Mathematics of operations research, 4(3):
+233-235, 1979. [12] V. Gabillon, B. Kveton, Z. Wen, B. Eriksson, and S. Muthukrishnan. Adaptive submodular maximization
+in bandit setting. In NIPS. 2013. [13] Y. Gai, B. Krishnamachari, and R. Jain. Learning multiuser channel allocations in cognitive radio net-
+works: A combinatorial multi-armed bandit formulation. In DySPAN. IEEE, 2010. [14] A. Garivier and O. Cappe. The kl-ucb algorithm for bounded stochastic bandits and beyond. arXiv
+preprint arXiv:1102.2490, 2011. [15] P. Helman, B. M. Moret, and H. D. Shapiro. An exact characterization of greedy structures. SIAM Journal
+on Discrete Mathematics, 6(2):274-283, 1993. [16] S. Kalyanakrishnan, A. Tewari, P. Auer, and P. Stone. Pac subset selection in stochastic multi-armed
+bandits. In ICML, 2012. [17] D. Kempe, J. Kleinberg, and E . Tardos. Maximizing the spread of influence through a social network. In
+SIGKDD, 2003. [18] B. Korte and L. Lovasz. Greedoids and linear objective functions. SIAM Journal on Algebraic Discrete
+Methods, 5(2):229-238, 1984. [19] J. B. Kruskal. On the shortest spanning subtree of a graph and the traveling salesman problem. Proceed-
+ings of the American Mathematical society, 7(1):48-50, 1956. [20] B. Kveton, Z. Wen, A. Ashkan, H. Eydgahi, and B. Eriksson. Matroid bandits: Fast combinatorial opti-
+mization with learning. arXiv preprint arXiv:1403.5045, 2014. [21] B. Kveton, Z. Wen, A. Ashkan, and C. Szepesvari. Tight regret bounds for stochastic combinatorial
+semi-bandits. arXiv preprint arXiv:1410.0949, 2014. [22] T. L. Lai and H. Robbins. Asymptotically efficient adaptive allocation rules. Advances in applied mathe-
+matics, 6(1):4-22, 1985. [23] T. Lin, B. Abrahao, R. Kleinberg, J. Lui, and W. Chen. Combinatorial partial monitoring game with linear
+feedback and its applications. In ICML, 2014. [24] B. Mirzasoleiman, A. Badanidiyuru, A. Karbasi, J. Vondrak, and A. Krause. Lazier than lazy greedy. In
+Proc. Conference on Artificial Intelligence (AAAI), 2015. [25] R. C. Prim. Shortest connection networks and some generalizations. Bell system technical journal, 36(6):
+1389-1401, 1957. [26] M. Streeter and D. Golovin. An online algorithm for maximizing submodular functions. In NIPS, 2009.
+9
+

@@ -1,0 +1,684 @@
+Kullback-Leibler Proximal Variational Inference
+
+Mohammad Emtiyaz Khan Ecole Polytechnique Federale de Lausanne
+Lausanne, Switzerland emtiyaz@gmail.com
+
+Pierre Baque Ecole Polytechnique Federale de Lausanne
+Lausanne, Switzerland pierre.baque@epfl.ch
+
+Francois Fleuret Idiap Research Institute Martigny, Switzerland francois.fleuret@idiap.ch
+
+Pascal Fua Ecole Polytechnique Federale de Lausanne
+Lausanne, Switzerland pascal.fua@epfl.ch
+
+Abstract
+We propose a new variational inference method based on a proximal framework that uses the Kullback-Leibler (KL) divergence as the proximal term. We make two contributions towards exploiting the geometry and structure of the variational bound. Firstly, we propose a KL proximal-point algorithm and show its equivalence to variational inference with natural gradients (e.g. stochastic variational inference). Secondly, we use the proximal framework to derive efficient variational algorithms for non-conjugate models. We propose a splitting procedure to separate non-conjugate terms from conjugate ones. We linearize the non-conjugate terms to obtain subproblems that admit a closed-form solution. Overall, our approach converts inference in a non-conjugate model to subproblems that involve inference in well-known conjugate models. We show that our method is applicable to a wide variety of models and can result in computationally efficient algorithms. Applications to real-world datasets show comparable performance to existing methods.
+1 Introduction
+Variational methods are a popular alternative to Markov Chain Monte Carlo (MCMC) for Bayesian inference. They have been used extensively due to their speed and ease of use. In particular, methods based on the Evidence Lower Bound Optimization (ELBO) are quite popular since they convert a difficult integration problem to an optimization problem. This reformulation allows the application of optimization techniques for large-scale Bayesian inference.
+Recently, an approach called Stochastic Variational Inference (SVI) has gained popularity for inference in conditionally-conjugate exponential family models [1]. SVI exploits the geometry of the posterior by using natural gradients, and uses a stochastic method to improve scalability. Resulting updates are simple and easy to implement.
+Several generalizations of SVI have been proposed for general latent variable models where the lower bound might be intractable [2, 3, 4]. These generalizations, although important, do not take the geometry of the posterior into account.
+In addition, none of these approaches exploit the structure of the lower bound. In practice, not all factors of the joint distribution introduce difficulty in the optimization. It is therefore desirable to treat "difficult" terms differently from "easy" terms while optimizing.
+A note on contributions: P. Baque proposed the use of the KL proximal term and showed that the resulting proximal steps have closed-form solutions. The rest of the work was carried out by M. E. Khan.
+1
+
+In this context, we propose a splitting method for variational inference that exploits both the structure and the geometry of the lower bound. Our approach is based on the proximal-gradient framework. We make two important contributions. First, we propose a proximal-point algorithm that uses the Kullback-Leibler (KL) divergence as the proximal term. We show that addition of this term incorporates the geometry of the posterior. We establish equivalence of our approach to variational methods that use natural gradients (e.g. [1, 5, 6]).
+Second, following the proximal-gradient framework, we propose a splitting approach for variational inference. In this approach, we linearize difficult terms such that the resulting optimization problem is easy to solve. We apply this approach to variational inference on non-conjugate models. We show that linearizing non-conjugate terms leads to subproblems that have closed-form solutions. Our approach therefore converts inference in a non-conjugate model to subproblems that involve inference in well-known conjugate models, and for which efficient implementation exists.
+
+2 Latent Variable Models and Evidence Lower Bound Optimization
+
+Consider a general latent variable model with data vector y of length N and the latent vector z of length D, following a joint distribution p(y, z) (we drop the parameters of the distribution from the notation). ELBO approximates the posterior p(z|y) by a distribution q(z|) that maximizes a lower bound to the marginal likelihood. Here,  is the vector of parameters of the distribution q. As shown in (1), the lower bound is obtained by first multiplying and dividing by q(z|), and then applying Jensen's inequality using concavity of log. The approximate posterior q(z|) is obtained by maximizing the lower bound w.r.t. .
+
+log p(y) = log
+
+q(z|)
+
+p(y, z) q(z|)
+
+dz
+
+
+
+max
+
+
+Eq(z|)
+
+p(y, z) log q(z|)
+
+:= L().
+
+(1)
+
+It is desirable to choose q(z|) such that the lower bound is easy to optimize, however in general this is not the case. This might happen for several reasons, e.g. some terms in the lower bound might be intractable or may admit a form that is not easy to optimize. In addition, the optimization can be slow when N and D are large.
+
+3 The KL Proximal-Point Algorithm for Conjugate Models
+
+In this section, we introduce a proximal-point method based on Kullback-Leibler (KL) proximal function and establish its relation to existing approaches that are based on natural gradients [1, 5, 6]. In particular, for conditionally-conjugate exponential-family models, we show that each iteration of our proximal-point approach is equivalent to a step along the natural gradient.
+
+The Kullback-Leibler (KL) divergence between two distributions q(z|) and q(z| ) is defined as follows: DKL[q(z|) q(z| )] := Eq(z|)[log q(z|) - log q(z| )]. Using the KL divergence as the proximal term, we introduce a proximal-point algorithm which generates a sequence of k by solving the following subproblems:
+
+1
+
+KL Proximal-Point :
+
+k+1
+
+= arg max
+
+
+L() -
+
+k DKL[q(z|)
+
+q(z|k)],
+
+(2)
+
+given an initial value 0 and a bounded sequence of step-size k > 0,
+
+A benefit of using the KL term is that it takes the geometry of the posterior into account. This fact has lead to their extensive use in both optimization and statistics literature, e.g. to speed up expectationmaximization algorithm [7, 8], for convex optimization [9], for message-passing in graphical models [10], and for approximate Bayesian inference [11, 12, 13].
+
+Relationship to the methods that use natural gradients: An alternative approach to incorporate
+
+the geometry of the posterior is to use natural gradients [6, 5, 1]. We now establish the relationship of
+
+our approach to this approach. The natural gradient can be interpreted as finding a descent direction
+
+that ensures a fixed amount of change in the distribution. For variational inference, this is equivalent
+
+to the following [1, 14]:
+
+arg max L(k + ),
+
+
+s.t.
+
+sym
+DKL
+
+[q(z|k
+
++
+
+)
+
+q(z|k)] 
+
+,
+
+(3)
+
+2
+
+where
+
+sym
+DKL
+
+is
+
+the
+
+symmetric
+
+KL
+
+divergence.
+
+It appears that the proximal-point subproblem (2)
+
+might be related to a Lagrangian of the above optimization. In fact, as we show below, the two
+
+problems are equivalent for conditionally conjugate exponential family models.
+
+We consider the set-up described in [15] which is a bit more general than that of [1]. Consider a Bayesian network with nodes zi and a joint-distribution i p(zi|pai) where pai are parents of zi. We assume that each factor is an exponential family distribution defined as follows:
+
+p(zi|pai) := hi(zi) exp
+
+
+
+T i
+
+(pai)Ti
+
+(zi
+
+)
+
+-
+
+Ai
+
+(i
+
+)
+
+,
+
+(4)
+
+where i is the natural parameter, Ti(zi) is the sufficient statistics, Ai(i) is the partition function and hi(zi) is the base measure. We seek a factorized approximation shown in (5) where each zi
+belongs to the same exponential family as the joint. The parameters of this distribution are denoted
+by i to differentiate them from the joint-distribution parameters i. Also note that the subscript refers to the factor i not to the iteration.
+
+q(z|) = qi(zi|i), where qi(zi) := hi(z) exp Ti Ti(zi) - Ai(i) .
+i
+
+(5)
+
+For this model, we show the following equivalence between a gradient-descent method based on natural gradients and our proximal-point approach. The proof is given in the supplementary material.
+
+Theorem 1. For the model shown in (4) and the posterior approximation shown in (5), the sequence
+k generated by the proximal-point algorithm of (2) is equal to the one obtained using gradientdescent along the natural gradient with step lengths k/(1 + k).
+
+Proof of convergence : Convergence of the proximal-point algorithm shown in (2) is proved in
+[8]. We give a summary of the results here. We assume k = 1, however the proof holds for any bounded sequence of k. Let the space of all  be denoted by S. Define the set S0 := {  S : L()  L(0)}. Then, k+1 - k  0 under the following conditions:
+
+(A) Maximum of L exist and the gradient of L is continuous and defined in S0. (B) The KL divergence and its gradient are continuous and defined in S0 x S0. (C) DKL[q(z|) q(z| )] = 0 only when  = .
+
+In our case, conditions (A) and (B) are either assumed or satisfied, while condition (C) can be ensured by choosing an appropriate parameterization of q.
+
+4 The KL Proximal-Gradient Algorithm for Non-Conjugate Models
+
+The proximal-point algorithm of (2) might be difficult to optimize for non-conjugate models, e.g., due to the non-conjugate factors. In this section, we present an algorithm based on the proximalgradient framework where we first split the objective function into "difficult" and "easy" terms, and then linearize the difficult term to simplify the optimization. See [16] for a good review of proximal methods for machine learning.
+
+We split the ratio p(y, z)/q(z|)  c pd(z|)pe(z|), where pd contains all factors that make the optimization difficult while pe contains the rest (c is a constant). This result in the following split for the lower bound:
+
+p(y, z|) L() = Eq(z|) log q(z|) := Eq(z|)[log pd(z|)] + Eq(z|)[log pe(z|)] + log c,
+
+(6)
+
+f ()
+
+h()
+
+Note that pd and pe can be un-normalized factors in the distribution. In the worst case, we may set pe(z|)  1 and take the rest as pd(z|). We give an example of the split in the next section.
+
+The main idea is to linearize the difficult term f such that the resulting problem admits a simple
+form. Specifically, we use a proximal-gradient algorithm that solves the following sequence of subproblems to maximize L as shown below. Here, f (k) is the gradient of f at k.
+
+KL Proximal-Gradient: k+1 = arg max T
+
+
+f (k)
+
++
+
+h()
+
++
+
+1 k
+
+DKL[q(z|)
+
+q(z|k)].
+
+(7)
+
+3
+
+Note that our linear approximation is equivalent to the one used in gradient descent. Also, the approximation is tight at k. Therefore, it does not introduce any error in the optimization, rather only acts as a surrogate to take the next step. Existing variational methods have used approximations such as ours, e.g. see [17, 18, 19]. Most of these methods first approximate the log pd(z|) term using a linear or quadratic approximation and then compute the expectation. As a result the approximation
+is not tight and may result in a bad performance [20]. In contrast, our approximation is applied directly to f and therefore is tight at k.
+
+Convergence of our approach is covered under the results shown in [21] which proves convergence
+
+of a more general algorithm than ours. We summarize the results here. As before, we assume that
+
+the maximum exists and L is continuous. We make three additional assumptions. First, the gradient
+
+of f is L-Lipschitz continuous in S, i.e., || f () - f ( )||  L|| -  ||, ,   S. Second,
+
+the function h is concave. Third, there exist an  > 0 such that,
+
+(k+1 - k)T 1 DKL[q(z|k+1) q(z|k)]   k+1 - k 2,
+
+(8)
+
+where 1 denotes the gradient w.r.t. the first argument. Under these conditions, k+1 - k  0 when 0 < k < /L. The choice of constant  is also discussed in [21].
+
+Note that even though h is required to be concave, f could be nonconvex. The lower bound usually
+contains concave terms, e.g., in the entropy term. In the worst case when there are no concave terms, we can simply choose h  0.
+
+5 Examples of KL Proximal-Gradient Variational Inference
+
+In this section, we show a few examples where the subproblem (7) has a closed form solution.
+
+Generalized linear model : We consider the generalized linear model shown in (9). Here, y is the
+
+output vector (of length N ) with its n'th entry equal to yn, while X is an N x D feature matrix that contains feature vectors xTn as rows. The weight vector z is a Gaussian with mean  and covariance . The linear predictor xTn z is passed through p(yn|*) to obtain the probability of yn.
+
+N
+
+p(y, z) := p(yn|xTn z)N (z|, ).
+
+(9)
+
+n=1
+
+We restrict the posterior to be a Gaussian q(z|) = N (z|m, V) with mean m and covariance V, therefore  := {m, V}. For this posterior family, the non-Gaussian terms p(yn|xTn z) are difficult to handle, while the Gaussian term N (z|, ) is easy since it is conjugate to q. Therefore, we set
+
+pe(z|)  N (z|, )/N (z|m, V) and let the rest of the terms go in pd. The constant c is set to 1.
+
+Substituting in (6) and using the definition of the KL divergence, we get the lower bound shown
+
+below in (10). The first term is the function f that will be linearized, and the second term is the
+
+function h.
+
+L(m, V) :=
+
+N
+
+Eq(z|)[log p(yn|xTn z)] + Eq(z|)
+
+N (z|, ) log N (z|m, V)
+
+.
+
+n=1
+
+(10)
+
+f (m,V )
+
+h(m,V )
+
+For linearization, we compute the gradient of f using the chain rule. Denote fn(mn, vn) := Eq(z|)[log p(yn|xTn z)] where mn := xTn m and vn := xTn Vxn. Gradients of f w.r.t. m and V can then be expressed in terms of gradients of fn w.r.t. mn and vn:
+
+NN
+
+mf (m, V) = xn mn fn(mn, vn), Vf (m, V) = xnxTn vn fn(mn, vn), (11)
+
+n=1
+
+n=1
+
+For notational simplicity, we denote the gradient of fn at mnk := xTn mk and vnk := xTn Vkxn by,
+
+nk := - mn fn(mnk, vnk), nk := -2 vn fn(mnk, vnk).
+
+(12)
+
+Using (11) and (12), we get the following linear approximation of f :
+
+f (m, V)  mT [ mf (mk, Vk)] + Tr [V { Vf (mk, Vk)}]
+
+(13)
+
+N
+
+=-
+
+nk
+
+(xTn m)
+
++
+
+1 2
+
+nk
+
+(xTn Vxn)
+
+.
+
+n=1
+
+(14)
+
+4
+
+Substituting the above in (7), we get the following subproblem in the k'th iteration:
+
+N
+
+(mk+1, Vk+1) = arg max -
+m,V 0
+
+nk
+
+(xTn m)
+
++
+
+1 2
+
+nk
+
+(xTn Vxn)
+
++ Eq(z|)
+
+n=1
+
+1 - k DKL [N (z|m, V)||N (z|mk, Vk)] ,
+
+N (z|, ) N (z|m, V)
+(15)
+
+Taking the gradient w.r.t. m and V and setting it to zero, we get the following closed-form solutions (details are given in the supplementary material):
+
+V-k+11 = rkV-k 1 + (1 - rk) -1 + XT diag(k)X , mk+1 = (1 - rk)-1 + rkV-k 1 -1 (1 - rk)(-1 - XT k) + rkV-k 1mk ,
+
+(16) (17)
+
+where rk := 1/(1 + k) and k and k are vectors of nk and nk respectively, for all k.
+Computationally efficient updates : Even though the updates are available in closed-form, they are not efficient when dimensionality D is large. In such a case, an explicit computation of V is costly since the resulting D x D matrix is extremely large. We now derive a reformulation that avoids an explicit computation of V.
+
+Our reformulation involves two key steps. The first step is to show that Vk+1 can be parameterized by k. Specifically, if we initialize V0 = , then we can show that:
+
+Vk+1 =
+
+-1 + XT diag(k+1)X
+
+-1
+,
+
+where k+1
+
+= rkk + (1 - rk)k.
+
+(18)
+
+with 0 = 0. A detailed derivation is given in the supplementary material.
+
+The second key step is to express the updates in terms of mn and vn. For this purpose, we define some new quantities. Define m to be a vector with mn as its n'th entry. Similarly, let v be the vector of vn for all n. Denote the corresponding vectors in the k'th iteration by mk and vk, respectively. Finally, define  = X and  = XXT .
+
+Now, using the fact that m = Xm and v = diag(XVXT ) and by applying Woodbury matrix identity, we can express the updates in terms of m and v, as shown below (a detailed derivation is given in the supplementary material):
+
+mk+1 = mk + (1 - rk)(I - B-k 1)( - mk - k), where Bk :=  + [diag(rkk)]-1,
+
+vk+1 = diag() - diag(A-k 1), where Ak :=  + [diag(k)]-1.
+
+(19)
+
+Note that these updates depend on , , k, and k, whose size only depends on N and is independent of D. Most importantly, these updates avoid an explicit computation of V and only requires
+storing mk and vk both of which scale linearly with N .
+
+Also note that the matrix Ak and Bk differ only slightly and we can reduce computation by using Ak in place of Bk. In our experiments, this does not give any convergence issues.
+
+To assess convergence, we can use the optimality condition. By taking the norm of derivative of
+
+L at mk+1 and Vk+1 and simplifying, we get the following criteria:
+
+ - mk+1 - k+1
+
+2 2
+
++
+
+Tr[ diag(k - k+1 - 1) ]  , for some > 0. (derivation in the supplementary material).
+
+Linear Basis Function Model and Gaussian Process : The algorithm presented above can be extended to linear basis function models using the weight-space view presented in [22]. Consider a non-linear basis function (x) that maps a D-dimensional feature vector into an N -dimensional feature space. The generalized linear model of (9) is extended to a linear basis function model by replacing xTn z with the latent function g(x) := (x)T z. The Gaussian prior on z then translates to a kernel function (x, x ) := (x)T (x) and a mean function (x) := (x)T  in the latent
+function space. Given input vectors xn, we define the kernel matrix  whose (i, j)'th entry is equal to (xi, xj) and the mean vector  whose i'th entry is (xi).
+
+Assuming a Gaussian posterior over the latent function g(x), we can compute its mean m(x) and variance v(x) using the proximal-gradient algorithm. We define m to be the vector of m(xn) for
+
+5
+
+Algorithm 1 Proximal-gradient algorithm for linear basis function models and Gaussian process
+
+Given: Training data (y, X), test data x, kernel mean , covariance , step-size sequence rk,
+
+and threshold .
+
+Initialize: m0  , v0  diag() and 0  11. repeat
+
+For all n in parallel: nk  mn fn(mnk, vnk) and nk  Update mk and vk using (19). k+1  rkk + (1 - rk)k.
+
+vn fn(mnk, vnk).
+
+until  - mk - k + Tr[ diag(k - k+1 - 1)] > . Predict test inputs x using (20).
+
+all n and similarly v to be the vector of all v(xn). Following the same derivation as the previous section, we can show that the updates of (19) give us the posterior mean m and variance v. These
+updates are the kernalized version of (16) and (17).
+
+For prediction, we only need the converged value of k and k, denoted by  and , respectively. Given a new input x, define  := (x, x) and  to be a vector with n'th entry equal to
+(xn, x). The predictive mean and variance can be computed as shown below:
+
+v(x) =  - T [ + (diag())-1]-1 , m(x) =  - T 
+
+(20)
+
+The final algorithm is shown in Algorithm 1. Here, we initialize  to a small constant 1, since otherwise solving the first equation may not be well-conditioned.
+
+It is straightforward to see that these updates also work for Gaussian process (GP) with a generic kernel k(x, x ) and mean function (x) and many other latent Gaussian models.
+
+6 Experiments and Results
+We now present some results on the real data. Our goal is to show that our approach gives comparable results to existing methods, while being easy to implement. We also show that, in some cases, our method is significantly faster than the alternatives due to the kernel trick.
+We show results on three models: Bayesian logistic regression, GP classification with logistic likelihood, and GP regression with Laplace likelihood. For these likelihoods, expectations can be computed (almost) exactly. Specifically, we used the methods described in [23, 24]. We use a fixed step-size of k = 0.25 and 1 for logistic and Laplace likelihoods respectively.
+We consider three datasets for each model. A summary is given in Table 1. These datasets can be found at data repository1 of LIBSVM and UCI.
+Bayesian Logistic Regression: Results for Bayesian logistic regression are shown in Table 2. We consider three datasets of various sizes. For `a1a', N > D, for `Colon', N < D and for `gisette' N  D. We compare our `proximal' method to 3 other existing methods: `MAP' method which finds the mode of the penalized log-likelihood, `Mean-Field' method where the posterior is factorized across dimensions, and `Cholesky' method of [25]. We implemented these methods using `minFunc' software by Mark Schmidt2. We used L-BFGS for optimization. All algorithms are stopped when optimality condition is below 10-4. We set the Gaussian prior to  = I and  = 0. To set the hyperparameter , we use cross-validation for MAP, and maximum marginal-likelihood estimate for the rest of the methods. Since we compare running time as well, we use a common set of hyperparameter values for a fair comparison. The values are shown in Table 1.
+For Bayesian methods, we report the negative of the marginal likelihood approximation (`Neg-LogLik'). This is (the negative of) the value of the lower bound at the maximum. We also report the log-loss computed as follows:- n log pn/N where pn are the predictive probabilities of the test data and N is the total number of test-pairs. A lower value is better and a value of 1 is equivalent to random coin-flipping. In addition, we report the total time taken for hyperparameter selection.
+1https://archive.ics.uci.edu/ml/datasets.html and http://www.csie.ntu.edu.tw/ cjlin/libsvmtools/datasets/ 2Available at https://www.cs.ubc.ca/ schmidtm/Software/minFunc.html
+
+6
+
+Model LogReg GP class GP reg
+
+Dataset a1a Colon Gisette
+Ionosphere Sonar USPS-3vs5
+Housing Triazines Space ga
+
+N 32,561 62 7,000
+351 208 1,540
+506 186 3,106
+
+D 123 2000 5,000
+34 60 256
+13 60 6
+
+%Train 5% 50% 50%
+50% 50% 50%
+50% 50% 50%
+
+#Splits 1 10 1
+10 10 5
+10 10 1
+
+Hyperparameter range  = logspace(-3,1,30)  = logspace(0,6,30)  = logspace(0,6,30)
+for all datasets log(l) = linspace(-1,6,15) log() = linspace(-1,6,15)
+log(l) = linspace(-1,6,15) log() = linspace(-1,6,15) log(b) = linspace(-5,1,2)
+
+Table 1: A list of models and datasets. %Train is the % of training data. The last column shows the hyperparameters values (`linspace' and `logspace' refer to Matlab commands).
+
+Dataset a1a
+Colon Gisette
+
+Methods MAP Mean-Field Cholesky Proximal
+MAP Mean-Field Proximal
+MAP Mean-Field Proximal
+
+Neg-Log-Lik -- 792.8 590.1 590.1
+-- 18.35 (0.11) 15.82 (0.13)
+-- 1275.7 608.5
+
+Log Loss 0.499 0.505 0.488 0.488
+0.78 (0.01) 0.78 (0.01) 0.70 (0.01)
+0.112 0.258 0.140
+
+Time 27s 21s 12m 7m
+7s (0.00) 15m (0.04) 18m (0.14)
+5s 22m 13h
+
+Table 2: A summary of the results obtained on Bayesian logistic regression. In all columns, a lower values implies better performance.
+
+For MAP, this is the total cross-validation time, while for Bayesian methods it is the time taken to compute `Neg-Log-Lik' for all hyperparameters values.
+We summarize these results in Table 2. For all columns, a lower value is better. We see that for `a1a', fully Bayesian methods perform slightly better than MAP. More importantly, Proximal method is faster than Cholesky method while obtaining the same error and marginal likelihood estimate. For Proximal method, we use updates of (17) and (16) since D N , but even in this scenario, Cholesky method is slow due to expensive line-search for large number of parameters (of the order O(D2)).
+For `Colon' and 'gisette' datasets, we use the update (19) for Proximal method. Since Cholesky method is too slow for these large datasets, we do not compare to it. In Table 2, we see that for `Colon' dataset our implementation is as fast as Mean-Field while performing significantly better. For `gisette' dataset, however, our method is slow since both N and D are big.
+Overall, we see that with the proximal approach we achieve same results as Cholesky method, while taking much less time. In some cases, we can match the running time of Mean-Field method. Note that Mean-Field does not give bad predictions overall, and the minimum value of log-loss are comparable to our approach. However, since Neg-Log-Lik values for Mean-Field are inaccurate, it ends up choosing a bad hyperparameter value. This is expected since Mean-Field makes an extreme approximation. Therefore, cross-validation is more appropriate for Mean-Field.
+Gaussian process classification and regression: We compare Proximal method to expectation propagation (EP) and Laplace approximation. We use the GPML toolbox for this comparison. We used a Squared-Exponential Kernel for Gaussian process with two scale parameters  and l (as defined in GPML toolbox). We do a grid search over these hyperparameters. The grid values are given in Table 1. We report the log-loss and running time for each method.
+The left plot in Figure 1 shows the log-loss for GP classification on USPS 3vs5 dataset, where Proximal method shows very similar behaviour to EP. Results are summarized in Table 3. We see that our method performs similar to EP, sometimes a bit better. The running times of EP and Proximal are
+7
+
+log(sigma)
+
+Laplace-usps
+
+EP-usps
+
+66
+
+Prox-usps 6
+
+0.1 0.07
+
+0.1 0.07
+
+0.6 0.4
+0.2 0.1 0.1
+
+0.007.01.2 00..64 0.01.2 00..64
+
+444
+
+222
+
+0.4 0.2 0.6
+
+0.4 0.2 0.6
+
+0.4 0.2 0.6
+
+000
+
+024 log(s)
+
+6
+
+024 log(s)
+
+6
+
+024 log(s)
+
+6
+
+Laplace-usps
+
+EP-usps
+
+66
+
+30
+
+30
+
+4 0.5
+
+4 30
+
+Prox-usps 6
+40
+30 20 4
+10
+
+15
+
+2030
+
+222
+
+31001250 4050
+
+15 10 10
+
+5 5
+20 15 10
+
+0
+024 log(s)
+
+0
+6 024 log(s)
+
+0
+6 024 log(s)
+
+6
+
+Predictive Prob
+
+1 0.9 0.8 0.7 0.6 0.5 0.4 0.3 0.2 0.1
+0 0
+
+EP vs Proximal
+
+EP Proximal
+
+50 100 150 200 250 300
+Test Examples
+
+log(sigma)
+0.5 1 0.5
+
+Figure 1: In the left figure, the top row shows the log-loss and the bottom row shows the running time in seconds for `USPS 3vs5' dataset. In each plot, the minimum value of the log-loss is shown with a black circle. The right figure shows the predictive probabilities obtained with EP and Proximal method (a higher value implies better performance).
+
+Data Ionosphere Sonar USPS-3vs5
+Housing Triazines Space ga
+
+Laplace .285 (.002) .410 (.002) .101 (.002)
+1.03 (.004) 1.35 (.006) 1.01 (--)
+
+Log Loss EP .234 (.002) .341 (.003) .065 (.002)
+.300 (.006) 1.36 (.006) .767 (--)
+
+Proximal .230 (.002) .317 (.004) .055 (.003)
+.310 (.009) 1.35 (.006) .742 (--)
+
+Time (s is sec, m is min, h is hr)
+
+Laplace EP
+
+Proximal
+
+10s (.3) 3.8m (.10) 3.6m (.10)
+
+4s (.01) 45s (.01) 63s (.13)
+
+1m (.06) 1h (.06) 1h (.02)
+
+.36m (.00) 25m (.65) 61m (1.8) 10s (.10) 8m (.04) 14m (.30) 2m (--) 5h (--) 11h (--)
+
+Table 3: Results for GP classification using logistic likelihood and GP regression using Laplace likelihood. For all rows, a lower value is better.
+
+also comparable. The advantage of our approach is that it is easier to implement compared to EP and is numerically robust. The predictive probabilities obtained with EP and Proximal for 'USPS 3vs5' dataset are shown in the right plot of Figure 1. We see that Proximal method gives better estimates than EP in this case (higher is better). The improvement in the performance is due to the numerical error in the likelihood implementation. For Proximal method, we use the method of [23] which is quite accurate. Designing such accurate likelihood approximations for EP is challenging.
+7 Discussion and Future Work
+In this paper, we proposed a proximal framework that uses the KL proximal term to take the geometry of the posterior into account. We established equivalence between our proximal-point algorithm and natural-gradient methods. We proposed a proximal-gradient algorithm that exploits the structure of the bound to simplify the optimization.
+An important future direction is to apply stochastic approximations to approximate gradients. This extension is discussed in [21]. It is also important to design a line-search method to set the step sizes. In addition, our proximal framework can also be used for distributed optimization in variational inference, e.g. using Alternating Direction Method of Multiplier (ADMM) [26, 11].
+Acknowledgments
+Emtiyaz Khan would like to thank Masashi Sugiyama and Akiko Takeda from University of Tokyo, Matthias Grossglauser and Vincent Etter from EPFL, and Hannes Nickisch from Philips Research (Hamburg) for useful discussions and feedback. Pierre Baque was supported in part by the Swiss National Science Foundation, under the grant CRSII2-147693 "Tracking in the Wild".
+
+8
+
+References
+[1] Matthew D Hoffman, David M Blei, Chong Wang, and John Paisley. Stochastic variational inference. The Journal of Machine Learning Research, 14(1):1303-1347, 2013.
+[2] Tim Salimans, David A Knowles, et al. Fixed-form variational posterior approximation through stochastic linear regression. Bayesian Analysis, 8(4):837-882, 2013.
+[3] Rajesh Ranganath, Sean Gerrish, and David M Blei. Black box variational inference. arXiv preprint arXiv:1401.0118, 2013.
+[4] Michalis Titsias and Miguel Lazaro-Gredilla. Doubly Stochastic Variational Bayes for Non-Conjugate Inference. In International Conference on Machine Learning, 2014.
+[5] Masa-Aki Sato. Online model selection based on the variational Bayes. Neural Computation, 13(7):1649- 1681, 2001.
+[6] A. Honkela, T. Raiko, M. Kuusela, M. Tornio, and J. Karhunen. Approximate Riemannian conjugate gradient learning for fixed-form variational Bayes. The Journal of Machine Learning Research, 11:3235- 3268, 2011.
+[7] Stephane Chretien and Alfred OIII Hero. Kullback proximal algorithms for maximum-likelihood estimation. Information Theory, IEEE Transactions on, 46(5):1800-1810, 2000.
+[8] Paul Tseng. An analysis of the EM algorithm and entropy-like proximal point methods. Mathematics of Operations Research, 29(1):27-44, 2004.
+[9] M. Teboulle. Convergence of proximal-like algorithms. SIAM Jon Optimization, 7(4):1069-1083, 1997.
+[10] Pradeep Ravikumar, Alekh Agarwal, and Martin J Wainwright. Message-passing for graph-structured linear programs: Proximal projections, convergence and rounding schemes. In International Conference on Machine Learning, 2008.
+[11] Behnam Babagholami-Mohamadabadi, Sejong Yoon, and Vladimir Pavlovic. D-MFVI: Distributed mean field variational inference using Bregman ADMM. arXiv preprint arXiv:1507.00824, 2015.
+[12] Bo Dai, Niao He, Hanjun Dai, and Le Song. Scalable Bayesian inference via particle mirror descent. Computing Research Repository, abs/1506.03101, 2015.
+[13] Lucas Theis and Matthew D Hoffman. A trust-region method for stochastic variational inference with applications to streaming data. International Conference on Machine Learning, 2015.
+[14] Razvan Pascanu and Yoshua Bengio. Revisiting natural gradient for deep networks. arXiv preprint arXiv:1301.3584, 2013.
+[15] Ulrich Paquet. On the convergence of stochastic variational inference in bayesian networks. NIPS Workshop on variational inference, 2014.
+[16] Nicholas G Polson, James G Scott, and Brandon T Willard. Proximal algorithms in statistics and machine learning. arXiv preprint arXiv:1502.03175, 2015.
+[17] Harri Lappalainen and Antti Honkela. Bayesian non-linear independent component analysis by multilayer perceptrons. In Advances in independent component analysis, pages 93-121. Springer, 2000.
+[18] Chong Wang and David M. Blei. Variational inference in nonconjugate models. J. Mach. Learn. Res., 14(1):1005-1031, April 2013.
+[19] M. Seeger and H. Nickisch. Large scale Bayesian inference and experimental design for sparse linear models. SIAM Journal of Imaging Sciences, 4(1):166-199, 2011.
+[20] Antti Honkela and Harri Valpola. Unsupervised variational Bayesian learning of nonlinear models. In Advances in neural information processing systems, pages 593-600, 2004.
+[21] Mohammad Emtiyaz Khan, Reza Babanezhad, Wu Lin, Mark Schmidt, and Masashi Sugiyama. Convergence of Proximal-Gradient Stochastic Variational Inference under Non-Decreasing Step-Size Sequence. arXiv preprint, 2015.
+[22] Carl Edward Rasmussen and Christopher K. I. Williams. Gaussian Processes for Machine Learning. MIT Press, 2006.
+[23] B. Marlin, M. Khan, and K. Murphy. Piecewise bounds for estimating Bernoulli-logistic latent Gaussian models. In International Conference on Machine Learning, 2011.
+[24] Mohammad Emtiyaz Khan. Decoupled Variational Inference. In Advances in Neural Information Processing Systems, 2014.
+[25] E. Challis and D. Barber. Concave Gaussian variational approximations for inference in large-scale Bayesian linear models. In International conference on Artificial Intelligence and Statistics, 2011.
+[26] Huahua Wang and Arindam Banerjee. Bregman alternating direction method of multipliers. In Advances in Neural Information Processing Systems, 2014.
+9
+

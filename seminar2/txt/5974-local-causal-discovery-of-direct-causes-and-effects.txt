@@ -1,0 +1,299 @@
+Local Causal Discovery of Direct Causes and Effects
+
+Tian Gao
+
+Qiang Ji
+
+Department of ECSE
+
+Rensselaer Polytechnic Institute, Troy, NY 12180
+
+{gaot, jiq}@rpi.edu
+
+Abstract
+We focus on the discovery and identification of direct causes and effects of a target variable in a causal network. State-of-the-art causal learning algorithms generally need to find the global causal structures in the form of complete partial directed acyclic graphs (CPDAG) in order to identify direct causes and effects of a target variable. While these algorithms are effective, it is often unnecessary and wasteful to find the global structures when we are only interested in the local structure of one target variable (such as class labels). We propose a new local causal discovery algorithm, called Causal Markov Blanket (CMB), to identify the direct causes and effects of a target variable based on Markov Blanket Discovery. CMB is designed to conduct causal discovery among multiple variables, but focuses only on finding causal relationships between a specific target variable and other variables. Under standard assumptions, we show both theoretically and experimentally that the proposed local causal discovery algorithm can obtain the comparable identification accuracy as global methods but significantly improve their efficiency, often by more than one order of magnitude.
+1 Introduction
+Causal discovery is the process to identify the causal relationships among a set of random variables. It not only can aid predictions and classifications like feature selection [4], but can also help predict consequences of some given actions, facilitate counter-factual inference, and help explain the underlying mechanisms of the data [13]. A lot of research efforts have been focused on predicting causality from observational data [13, 18]. They can be roughly divided into two sub-areas: causal discovery between a pair of variables and among multiple variables. We focus on multivariate causal discovery, which searches for correlations and dependencies among variables in causal networks [13]. Causal networks can be used for local or global causal prediction, and thus they can be learned locally and globally. Many causal discovery algorithms for causal networks have been proposed, and the majority of them belong to global learning algorithms as they seek to learn global causal structures. The Spirtes-Glymour-Scheines (SGS) [18] and Peter-Clark (P-C) algorithm [19] test for the existence of edges between every pair of nodes in order to first find the skeleton, or undirected edges, of causal networks and then discover all the V-structures, resulting in a partially directed acyclic graph (PDAG). The last step of these algorithms is then to orient the rest of edges as much as possible using Meek rules [10] while maintaining consistency with the existing edges. Given a causal network, causal relationships among variables can be directly read off the structure.
+Due to the complexity of the P-C algorithm and unreliable high order conditional independence tests [9], several works [23, 15] have incorporated the Markov Blanket (MB) discovery into the causal discovery with a local-to-global approach. Growth and Shrink (GS) [9] algorithm uses the MBs of each node to build the skeleton of a causal network, discover all the V-structures, and then use the Meek rules to complete the global causal structure. The max-min hill climbing (MMHC) [23] algorithm also finds MBs of each variable first, but then uses the MBs as constraints to reduce the search space for the score-based standard hill climbing structure learning methods. In [15], authors
+1
+
+use Markov Blanket with Collider Sets (CS) to improve the efficiency of the GS algorithm by combining the spouse and V-structure discovery. All these local-to-global methods rely on the global structure to find the causal relationships and require finding the MBs for all nodes in a graph, even if the interest is the causal relationships between one target variable and other variables. Different MB discovery algorithms can be used and they can be divided into two different approaches: non-topology-based and topology-based. Non-topology-based methods [5, 9], used by CS and GS algorithms, greedily test the independence between each variable and the target by directly using the definition of Markov Blanket. In contrast, more recent topology-based methods [22, 1, 11] aim to improve the data efficiency while maintaining a reasonable time complexity by finding the parents and children (PC) set first and then the spouses to complete the MB.
+Local learning of causal networks generally aims to identify a subset of causal edges in a causal network. Local Causal Discovery (LCD) algorithm and its variants [3, 17, 7] aim to find causal edges by testing the dependence/independence relationships among every four-variable set in a causal network. Bayesian Local Causal Discovery (BLCD) [8] explores the Y-structures among MB nodes to infer causal edges [6]. While LCD/BLCD algorithms aim to identify a subset of causal edges via special structures among all variables, we focus on finding all the causal edges adjacent to one target variable. In other words, we want to find the causal identities of each node, in terms of direct causes and effects, with respect to one target node. We first use Markov Blankets to find the direct causes and effects, and then propose a new Causal Markov Blanket (CMB) discovery algorithm, which determines the exact causal identities of MB nodes of a target node by tracking their conditional independence changes, without finding the global causal structure of a causal network. The proposed CMB algorithm is a complete local discovery algorithm and can identify the same direct causes and effects for a target variable as global methods under standard assumptions. CMB is more scalable than global methods, more efficient than local-to-global methods, and is complete in identifying direct causes and effects of one target while other local methods are not.
+2 Backgrounds
+We use V to represent the variable space, capital letters (such as X, Y ) to represent variables, bold letters (such as Z, MB) to represent variable sets, and use |Z| to represent the size of set Z. X  Y and X \ Y represent independence and dependence between X and Y , respectively. We assume readers are familar with related concepts in causal network learning, and only review a few major ones here. In a causal network or causal Bayesian Network [13], nodes correspond to the random variables in a variable set V. Two nodes are adjacent if they are connected by an edge. A directed edge from node X to node Y , (X, Y )  V, indicates X is a parent or direct cause of Y and Y is a child or direct effect of X [12]. Moreover, If there is a directed path from X to Y , then X is an ancestor of Y and Y is a descendant of X. If nonadjacent X and Y have a common child, X and Y are spouses. Three nodes X, Y , and Z form a V-structure [12] if Y has two incoming edges from X and Z, forming X  Y  Z, and X is not adjacent to Z. Y is a collider in a path if Y has two incoming edges in this path. Y with nonadjacent parents X and Z is an unshielded collider. A path J from node X and Y is blocked [12] by a set of nodes Z, if any of following holds true: 1) there is a non-collider node in J belonging to Z. 2) there is a collider node C on J such that neither C nor any of its descendants belong to Z. Otherwise, J is unblocked or active.
+A PDAG is a graph which may have both undirected and directed edges and has at most one edge between any pair of nodes [10]. CPDAGs [2] represent Markov equivalence classes of DAGs, capturing the same conditional independence relationships with the same skeleton but potentially different edge orientations. CPDAGs contain directed edges that has the same orientation for every DAG in the equivalent class and undirected edges that have reversible orientations in the equivalent class. Let G be the causal DAG of a causal network with variable set V and P be the joint probability distribution over variables in V. G and P satisfy Causal Markov condition [13] if and only if, X  V, X is independent of non-effects of X given its direct causes. The causal faithfulness condition [13] states that G and P are faithful to each other, if all and every independence and conditional independence entailed by P is present in G. It enables the recovery of G from sampled data of P . Another widely-used assumption by existing causal discovery algorithms is causal sufficiency [12]. A set of variables X  V is causally sufficient, if no set of two or more variables in X shares a common cause variable outside V. Without causal sufficiency assumption, latent confounders between adjacent nodes would be modeled by bi-directed edges [24]. We also assume no selection bias [20] and
+2
+
+we can capture the same independence relationships among variables from the sampled data as the ones from the entire population.
+Many concepts and properties of a DAG hold in causal networks, such as d-separation and MB. A Markov Blanket [12] of a target variable T , MBT , in a causal network is the minimal set of nodes conditioned on which all other nodes are independent of T , denoted as X  T |MBT , X  {V \ T } \ MBT . Given an unknown distribution P that satisfied the Markov condition with respect to an unknown DAG G0, Markov Blanket Discovery is the process used to estimate the MB of a target node in G0, from independently and identically distributed (i.i.d) data D of P . Under the causal faithfulness assumption between G0 and P , the MB of a target node T is unique and is the set of parents, children, and spouses of T (i.e., other parents of children of T ) [12]. In addition, the parents and children set of T , PCT , is also unique. Intuitively, the MB can directly facilitate causal discovery. If conditioning on the MB of a target variable T renders a variable X independent of T , then X cannot be a direct cause or effect of T . From the local causal discovery point of view, although MB may contain nodes with different causal relationships with the target, it is reasonable to believe that we can identify their relationships exactly, up to the Markov equivalence, with further tests.
+Lastly, exiting causal network learning algorithms all use three Meek rules [10], which we assume the readers are familiar with, to orient as many edges as possible given all V-structures in PDAGs to obtain CPDAG. The basic idea is to orient the edges so that 1) the edge directions do not introduce new V-structures, 2) preserve the no-cycle property of a DAG, and 3) enforce 3-fork V-structures.
+3 Local Causal Discovery of Direct Causes and Effects
+Existing MB discovery algorithms do not directly offer the exact causal identities of the learned MB nodes of a target. Although the topology-based methods can find the PC set of the target within the MB set, they can only provide the causal identities of some children and spouses that form vstructures. Nevertheless, following existing works [4, 15], under standard assumptions, every PC variable of a target can only be its direct cause or effect: Theorem 1. Causality within a MB. Under the causal faithfulness, sufficiency, correct independence tests, and no selection bias assumptions, the parent and child nodes within a target's MB set in a causal network contains all and only the direct causes and effects of the target variable.
+The proof can be directly derived from the PC set definition of a causal network. Therefore, using the topology-based MB discovery methods, if we can discover the exact causal identities of the PC nodes within the MB, causal discovery of direct causes and effects of the target can therefore be successfully accomplished.
+Building on MB discovery, we propose a new local causal discovery algorithm, Causal Markov Blanket (CMB) discovery as shown in Algorithm 1. It identifies the direct causes and effects of a target variable without the need of finding the global structure or the MBs of all other variables in a causal network. CMB has three major steps: 1) to find the MB set of the target and to identify some direct causes and effects by tracking the independence relationship changes among a target's PC nodes before and after conditioning on the target node, 2) to repeat Step 1 but conditioned on one PC node's MB set, and 3) to repeat Step 1 and 2 with unidentified neighboring nodes as new targets to identify more direct causes and effects of the original target.
+Step 1: Initial identification. CMB first finds the MB nodes of a target T , MBT , using a topologybased MB discovery algorithm that also finds PCT . CMB then uses the CausalSearch subroutine, shown in Algorithm 2, to get an initial causal identities of variables in PCT by checking every variable pair in PCT according to Lemma 1. Lemma 1. Let (X, Y )  PCT , the PC set of the target T  V in a causal DAG. The independence relationships between X and Y can be divided into the following four conditions:
+C1 X  Y and X  Y |T ; this condition can not happen.
+C2 X  Y and X \ Y |T  X and Y are both the parents of T .
+C3 X \ Y and X  Y |T  at least one of X and Y is a child of T .
+C4 X \ Y and X \ Y |T  their identities are inconclusive and need further tests.
+3
+
+Algorithm 1 Causal Markov Blanket Discovery Algorithm
+
+1: Input: D: Data; T : target variable
+
+13: if Z s.t. (X, Z) and (Y, Z) are idT = 4 pairs
+
+2: Output: IDT : the causal identities of all
+
+then
+
+nodes with respect to T
+
+14: IDT (Z) = 1;
+
+{Step 1: Establish initial ID }
+
+15: IDT (X)  3, X that IDT (X) = 4;
+
+3: 4: 5: 6:
+7: 8: 9: 10:
+
+IDT = zeros(|V|, 1); (MBT , PCT )  F indM B(T, D); Z  ;
+
+16: 17:
+
+IDT  CausalSearch(D, T, PCT , Z, IDT ) {Step 2: Further test variables with idT = 4}
+for one X in each pair (X, Y ) with idT = 4 do MBX  F indM B(X, D); Z  {MBX \ T } \ Y ;
+
+18: 19: 20: 21:
+
+IDT  CausalSearch(D, T, PCT , Z, IDT );22:
+
+{Step 3: Resolve variable set with idT = 3} for each X with idT = 3 do
+Recursively find IDX , without going back to the already queried variables; update IDT according to IDX ; if IDX (T ) = 2 then
+IDT (X) = 1; for every Y in idT = 3 variable pairs (X, Y ) do
+IDT (Y ) = 2;
+
+11: if no element of IDT is equal to 4, break; 12: for every pair of parents (X, Y ) of T do
+
+23: if no element of IDT is equal to 3, break; 24: Return: IDT
+
+Algorithm 2 CausalSearch Subroutine
+1: Input: D: Data; T : target variable; PCT : the PC set of T ; Z: the conditioned variable
+set; ID: current ID
+2: Output: IDT : the new causal identities of all nodes with respect to T {Step 1: Single PC }
+3: if |PCT | = 1 then 4: IDT (PCT )  3;
+{Step 2: Check C2 & C3} 5: for every X, Y  PCT do 6: if X  Y |Z and X \ Y |T  Z then 7: IDT (X)  1; IDT (Y )  1; 8: else if X \ Y |Z and X  Y |T Z then
+9: if IDT (X) = 1 then 10: IDT (Y )  2 11: else if IDT (Y ) = 2 then 12: IDT (Y )  3
+
+13: if IDT (Y ) = 1 then 14: IDT (X)  2 15: else if IDT (X) = 2 then 16: IDT (X)  3 17: add (X, Y ) to pairs with idT = 3 18: else
+19: if IDT (X) & IDT (Y ) = 0 or 4 then 20: IDT (X)  4; IDT (Y )  4 21: add (X, Y ) to pairs with idT = 4
+{Step 3: identify idT = 3 pairs with known parents}
+22: for every X such that IDT (X) = 1 do 23: for every Y in idT = 3 variable pairs
+(X, Y ) do
+24: IDT (Y )  2; 25: Return: IDT
+
+C1 does not happen because the path X - T - Y is unblocked either not given T or given T , and the unblocked path makes X and Y dependent on each other. C2 implies that X and Y form a V-structure with T as the corresponding collider, such as node C in Figure 1a which has two parents A and B. C3 indicates that the paths between X and Y are blocked conditioned on T , which means that either one of (X, Y ) is a child of T and the other is a parent, or both of (X, Y ) are children of T . For example, node D and F in Figure 1a satisfy this condition with respect to E. C4 shows that there may be another unblocked path from X and Y besides X - T - Y . For example, in Figure 1b, node D and C have multiple paths between them besides D - T - C. Further tests are needed to resolve this case.
+Notation-wise, we use IDT to represent the causal identities for all the nodes with respect to T , IDT (X) as variable X's causal identity to T , and the small case idT as the individual ID of a node to T . We also use IDX to represent the causal identities of nodes with respect to node X. To avoid changing the already identified PCs, CMB establishes a priority system1. We use the idT = 1 to represent nodes as the parents of T , idT = 2 children of T , idT = 3 to represent a pair of nodes that cannot be both parents (and/or ambiguous pairs from Markov equivalent structures, to be discussed at Step 2), and idT = 4 to represent the inconclusiveness. A lower number id cannot be changed
+1Note that the identification number is slightly different from the condition number in Lemma 1.
+4
+
+AB C D
+
+DE ATB
+
+GF E
+
+C
+
+() ()
+Figure 1: a) A Sample Causal Network. b) A Sample Network with C4 nodes. The only active path between D and C conditioned on MBC \ {T, D} is D - T - C.
+
+into a higher number (shown by Line 1115 of Algorithm 2). If a variable pair satisfies C2, they will both be labeled as parents (Line 7 of Algorithm 2). If a variable pair satisfies C3, one of them is labeled as idT = 2 only if the other variable within the pair is already identified as a parent; otherwise, they are both labeled as idT = 3 (Line 912 and 1517 of Algorithm 2). If a PC node remains inconclusive with idT = 0, it is labeled as idT = 4 in Line 20 of Algorithm 2. Note that if T has only one PC node, it is labeled as idT = 3 (Line 4 of Algorithm 2). Non-PC nodes always have idT = 0.
+Step 2: Resolve idT = 4. Lemma 1 alone cannot identify the variable pairs in PCT with idT = 4 due to other possible unblocked paths, and we have to seek other information. Fortunately, by definition, the MB set of one of the target's PC node can block all paths to that PC node.
+Lemma 2. Let (X, Y )  PCT , the PC set of the target T  V in a causal DAG. The independence relationships between X and Y , conditioned on the MB of X minus {Y, T }, MBX \ {Y, T }, can be divided into the following four conditions:
+C1 X  Y |MBX \ {Y, T } and X  Y |T  MBX \ Y ; this condition can not happen.
+C2 X  Y |MBX \ {Y, T } and X \ Y |T  MBX \ Y  X and Y are both the parents of T .
+C3 X \ Y |MBX \ {Y, T } and X  Y |T  MBX \ Y  at least one of X and Y is a child of T .
+C4 X \ Y |MBX \ {Y, T } and X \ Y |T  MBX \ Y  then X and Y is directly connected.
+C13 are very similar to those in Lemma 1. C4 is true because, conditioned on T and the MB of X minus Y , the only potentially unblocked paths between X and Y are X - T - Y and/or X - Y . If C4 happens, then the path X -T -Y has no impact on the relationship between X and Y , and hence X - Y must be directly connected. If X and Y are not directly connected and the only potentially unblocked path between X and Y is X - T - Y , and X and Y will be identified by Line 10 of Algorithm 1 with idT  {1, 2, 3}. For example in Figure 1b, conditioned on MBC \ {T, D}, i.e., {A, B}, the only path between C and D is through T. However, if X and Y are directly connected, they will remain with idT = 4 (such as node D and E from Figure 1b). In this case, X, Y , and T form a fully connected clique, and edges among the variables that form a fully connected clique can have many different orientation combinations without affecting the conditional independence relationships. Therefore, this case needs further tests to ensure Meek rules are satisfied. The third Meek rule (enforcing 3-fork V-structures) is first enforced by Line 14 of Algorithm 1. Then the rest of idT = 4 nodes are changed to have idT = 3 by Line 15 of Algorithm 1 and to be further processed (even though they could be both parents at the same time) with neighbor nodes' causal identities. Therefore, Step 2 of Algorithm 1 makes all variable pairs with idT = 4 to become identified either as parents, children, or with idT = 3 after taking some neighbors' MBs into consideration. Note that Step 2 of CMB only needs to find the MB's for a small subset of the PC variables (in fact only one MB for each variable pair with idT = 4).
+Step 3: Resolve idT = 3. After Step 2, some PC variables may still have idT = 3. This could happen because of the existence of Markov equivalence structures. Below we show the condition under which the CMB can resolve the causal identities of all PC nodes.
+5
+
+Lemma 3. The Identifiability Condition. For Algorithm 1 to fully identify all the causal relationships within the PC set of a target T , 1) T must have at least two nonadjacent parents, 2) one of T 's single ancestors must contain at least two nonadjacent parents, or 3) T has 3 parents that form a 3-fork pattern as defined in Meeks rules.
+We use single ancestors to represent ancestor nodes that do not have a spouse with a mutual child that is also an ancestor of T . If the target does not meet any of the conditions in Lemma 2, C2 will never be satisfied and all PC variables within a MB will have idT = 3. Without a single parent identified, it is impossible to infer the identities of children nodes using C3. Therefore, all the identities of the PC nodes are uncertain, even though the resulting structure could be a CPDAG.
+Step 3 of CMB searches for a non-single ancestor of T to infer the causal directions. For each node X with idT = 3, CMB tries to identify its local causal structure recursively. If X's PC nodes are all identified, it would return to the target with the resolved identities; otherwise, it will continue to search for a non-single ancestor of X. Note that CMB will not go back to already-searched variables with unresolved PC nodes without providing new information. Step 3 of CMB checks the identifiability condition for all the ancestors of the target. If a graph structure does not meet the conditions of Lemma 3, the final IDT will contain some idT = 3, which indicates reversible edges in CPDAGs. The found causal graph using CMB will be a PDAG after Step 2 of Algorithm 1, and it will be a CPDAG after Step 3 of Algorithm 1.
+Case Study. The procedure using CMB to identify the direct causes and effects of E in Figure 1a has the following 3 steps. Step 1: CMB finds the MB and PC set of E. The PC set contains node D and F . Then, IDE(D) = 3 and IDE(F ) = 3. Step 2: to resolve the variable pair D and F with idE = 3, 1) CMB finds the PC set of D, containing C, E, and G. Their idD are all 3's, since D contains only one parent. 2) To resolve IDD, CMB checks causal identities of node C and G (without going back to E). The PC set of C contains A, B, and D. CMB identifies IDC(A) = 1, IDC(B) = 1, and IDC(D) = 2. Since C resolves all its PC nodes, CMB returns to node D with IDD(C) = 1. 3) With the new parent C, IDD(G) = 2, IDD(E) = 2, and CMB returns to node E with IDE(D) = 1. Step 3: the IDE(D) = 1, and after resolving the pair with idE = 3, IDE(F ) = 2.
+Theorem 2. The Soundness and Completeness of CMB Algorithm. If the identifiability condition is satisfied, using a sound and complete MB discovery algorithm, CMB will identify the direct causes and effects of the target under the causal faithfulness, sufficiency, correct independence tests, and no selection bias assumptions.
+Proof. A sound and complete MB discovery algorithm find all and only the MB nodes of a target. Using it and under the causal sufficiency assumption, the learned PC set contains all and only the cause-effect variables by Theorem 1. When Lemma 3 is satisfied, all parent nodes are identifiable through V-structure independence changes, either by Lemma 1 or by Lemma 2. Also since children cannot be conditionally independent of another PC node given its MB minus the target node (C2), all parents identified by Lemma 1 and 2 will be the true positive direct causes. Therefore, all and only the true positive direct causes will be correctly identified by CMB. Since PC variables can only be direct causes or direct effects, all and only the direct effects are identified correctly by CMB.
+In the cases where CMB fails to identify all the PC nodes, global causal discovery methods cannot identify them either. Specifically, structures failing to satisfy Lemma 3 can have different orientations on some edges while preserving the skeleton and v-structures, hence leading to Markov equivalent structures. For the cases where T has all single ancestors, the edge directions among all single ancestors can always be reversed without introducing new V-structures and DAG violations, in which cases the Meek rules cannot identify the causal directions either. For the cases with fully connected cliques, these fully connected cliques do not meet the nonadjacent-parents requirement for the first Meek rule (no new V-structures), and the second Meek rule (preserving DAGs) can always be satisfied within a clique by changing the direction of one edge. Since CMB orients the 3-fork V-structure in the third Meek rule correctly by Line 1214 of Algorithm 1, CMB can identify the same structure as the global methods that use the Meek rules.
+Theorem 3. Consistency between CMB and Global Causal Discovery Methods. For the same DAG G, Algorithm 1 will correctly identify all the direct causes and effects of a target variable T
+6
+
+as the global and local-to-global causal discovery methods2 that use the Meek rules [10], up to G's CPDAG under the causal faithfulness, sufficiency, correct independence tests, and no selection bias assumptions.
+Proof. It has been shown that causal methods using Meek rules [10] can identify up to a graph's CPDAG. Since Meek rules cannot identify the structures that fail Lemma 3, the global and local-toglobal methods can only identify the same structures as CMB. Since CMB is sound and complete in identifying these structures by Theorem 2, CMB will identify all direct causes and effects up to G's CPDAG.
+
+3.1 Complexity
+
+The complexity of CMB algorithm is dominated by the step of finding the MB, which can have an
+
+exponential complexity [1, 16]. All other steps of CMB are trivial in comparison. If we assume a
+
+uniform distribution on the neighbor sizes in a network with N nodes, then the expected time com-
+
+plexity
+
+of
+
+Step
+
+1
+
+of
+
+CMB
+
+is
+
+O(
+
+1 N
+
+N i=1
+
+2i)
+
+=
+
+O(
+
+2N N
+
+),
+
+while
+
+local-to-global
+
+methods
+
+are
+
+O(2N ).
+
+In later steps, CMB also needs to find MBs for a small subset of nodes that include 1) one node
+
+between every pair of nodes that meet C4, and 2) a subset of the target's neighboring nodes that
+
+provide additional clues for the target. Let l be the total size of these nodes, then CMB reduces the
+
+cost
+
+by
+
+N l
+
+times
+
+asymptotically.
+
+4 Experiments
+
+We use benchmark causal learning datasets to evaluate the accuracy and efficiency of CMB with four other causal discovery algorithms discussed: P-C, GS, MMHC, CS, and the local causal discovery algorithm LCD2 [7]. Due to page limit, we show the results of the causal algorithms on four medium-to-large datasets: ALARM, ALARM3, CHILD3, and INSUR3. They contain 37 to 111 nodes. We use 1000 data samples for all datasets. For each global or local-to-global algorithm, we find the global structure of a dataset and then extract causal identities of all nodes to a target node. CMB finds causal identities of every variable with respect to the target directly. We repeat the discovery process for each node in the datasets, and compare the discovered causal identities of all the algorithms to all the Markov equivalent structures with the known ground truth structure. We use the edge scores [15] to measure the number of missing edges, extra edges, and reversed edges3 in each node's local causal structure and report average values along with its standard deviation, for all the nodes in a dataset. We use the existing implementation [21] of HITON-MB discovery algorithm to find the MB of a target variable for all the algorithms. We also use the existing implementations [21] for P-C, MMHC, and LCD2 algorithms. We implement GS, CS, and the proposed CMB algorithms in MATLAB on a machine with 2.66GHz CPU and 24GB memory. Following the existing protocol [15], we use the number of conditional independence tests needed (or scores computed for the score-based search method MMHC) to find the causal structures given the MBs4, and the number of times that MB discovery algorithms are invoked to measure the efficiency of various algorithms. We also use mutual-information-based conditional independence tests with a standard significance level of 0.02 for all the datasets without worrying about parameter tuning.
+As shown in Table 1, CMB consistently outperforms the global discovery algorithms on benchmark causal networks, and has comparable edge accuracy with local-to-global algorithms. Although CMB makes slightly more total edge errors in ALARM and ALARM3 datasets than CS, CMB is the best method on CHILD3 and INSUR3. Since LCD2 is an incomplete algorithm, it never finds extra or reversed edges but misses the most amount of edges. Efficiency-wise, CMB can achieve more than one order of magnitude speedup, sometimes two orders of magnitude as shown in CHILD3 and INSUR3, than the global methods. Compared to local-to-global methods, CMB also can achieve
+2We specify the global and local-to-global causal methods to be P-C [19], GS [9] and CS [15]. 3If an edge is reversible in the equivalent class of the original graph but are not in the equivalent class of the learned graph, it is considered as reversed edges as well. 4For global methods, it is the number of tests needed or scores computed given the moral graph of the global structure. For LCD2, it would be the total number of tests since it does not use moral graph or MBs.
+
+7
+
+Table 1: Performance of Various Causal Discovery Algorithms on Benchmark Networks
+
+Dataset Alarm
+Alarm3
+Child3
+Insur3
+
+Method P-C
+MMHC GS CS
+LCD2 CMB P-C MMHC GS CS LCD2 CMB P-C MMHC GS CS LCD2 CMB P-C MMHC GS CS LCD2 CMB
+
+Errors:
+Extra
+1.590.19 1.290.18 0.390.44 0.420.10 0.000.00 0.690.13
+3.710.57 2.360.11 1.240.23 1.260.16 0.000.00 1.410.13
+4.320.68 1.980.10 0.880.04 0.940.20 0.000.00 0.920.12
+4.761.33 2.390.18 1.940.06 1.920.08 0.000.00 1.720.07
+
+Edges
+Missing
+2.190.14 1.940.09 0.870.48 0.640.10 2.490.00 0.610.11
+2.210.25 2.450.08 1.410.05 1.470.08 3.850.00 1.550.27
+2.690.08 1.570.04 0.750.08 0.910.14 2.630.00 0.840.16
+2.500.11 2.530.06 1.440.05 1.560.06 5.030.00 1.390.06
+
+Reversed
+0.320.10 0.240.06 1.130.23 0.380.08 0.000.0 0.510.10
+1.370.04 0.720.08 0.990.14 0.630.14 0.000.0 0.780.25
+0.840.10 0.430.04 1.030.08 0.530.08 0.000.0 0.600.10
+1.290.11 0.760.07 1.190.10 0.890.09 0.000.0 1.190.05
+
+Total
+4.100.19 3.460.23 2.390.44 1.430.10 2.490.00 1.810.11
+7.300.68 5.530.27 3.640.13 3.380.13 3.850.00 3.730.11
+7.760.98 4.000.93 2.660.33 2.370.33 2.630.00 2.360.31
+8.550.81 5.680.43 4.570.33 4.370.23 5.030.00 4.300.21
+
+Efficiency
+No. Tests
+4.0e34.0e2 1.8e31.7e3 586.572.2 331.461.9
+1.4e30 53.74.5
+1.6e44.0e2 3.7e36.1e2 2.1e31.2e2 699.160.4
+1.2e40 50.36.2
+8.3e42.9e3 6.6e38.2e2 2.1e32.5e2 1.0e34.8e2
+3.6e30 78.215.2
+2.5e51.2e4 3.1e45.2e2 4.5e42.2e3 2.6e43.9e3
+6.6e30 159.838.5
+
+No. MB
+370 370 37 0
+2.61  0.12
+111  0 111  0 1110
+2.58  0.09
+60 0 600 60 0
+2.53  0.15
+81  0 810 810
+2.46  0.11
+
+more than one order of speedup on ALARM3, CHILD3, and INSUR3. In addition, on these datasets, CMB only invokes MB discovery algorithms between 2 to 3 times, drastically reducing the MB calls of local-to-global algorithms. Since independence test comparison is unfair to LCD2 who does not use MB discovery or find moral graphs, we also compared time efficiency between LCD2 and CMB. CMB is 5 times faster on ALARM, 4 times faster on ALARM3 and CHILD3, and 8 times faster on INSUR3 than LCD2.
+In practice, the performance of CMB depends on two factors: the accuracy of independence tests and MB discovery algorithms. First, independence tests may not always be accurate and could introduce errors while checking the four conditions of Lemma 1 and 2, especially under insufficient data samples. Secondly, causal discovery performance heavily depends on the performance of the MB discovery step, as the error could propagate to later steps of CMB. Improvements on both areas could further improve CMB's accuracy. Efficiency-wise, CMB's complexity can still be exponential and is dominated by the MB discovery phrase, and thus its worst case complexity could be the same as local-to-global approaches for some special structures.
+5 Conclusion
+We propose a new local causal discovery algorithm CMB. We show that CMB can identify the same causal structure as the global and local-to-global causal discovery algorithms with the same identification condition, but uses a fraction of the cost of the global and local-to-global approaches. We further prove the soundness and completeness of CMB. Experiments on benchmark datasets show the comparable accuracy and greatly improved efficiency of CMB for local causal discovery. Possible future works could study assumption relaxations, especially without the causal sufficiency assumption, such as by using a similar procedure as FCI algorithm and the improved CS algorithm [14] to handle latent variables in CMB.
+8
+
+References
+[1] Constantin Aliferis, Ioannis Tsamardinos, Alexander Statnikov, C. F. Aliferis M. D, Ph. D, I. Tsamardinos Ph. D, and Er Statnikov M. S. Hiton, a novel markov blanket algorithm for optimal variable selection, 2003.
+[2] David Maxwell Chickering. Optimal structure identification with greedy search. Journal of Machine Learning Research, 2002.
+[3] Gregory F Cooper. A simple constraint-based algorithm for efficiently mining observational databases for causal relationships. Data Mining and Knowledge Discovery, 1(2):203-224, 1997.
+[4] Isabelle Guyon, Andre Elisseeff, and Constantin Aliferis. Causal feature selection. 2007.
+[5] Daphne Koller and Mehran Sahami. Toward optimal feature selection. In ICML 1996, pages 284-292. Morgan Kaufmann, 1996.
+[6] Subramani Mani, Constantin F Aliferis, Alexander R Statnikov, and MED NYU. Bayesian algorithms for causal data mining. In NIPS Causality: Objectives and Assessment, pages 121-136, 2010.
+[7] Subramani Mani and Gregory F Cooper. A study in causal discovery from population-based infant birth and death records. In Proceedings of the AMIA Symposium, page 315. American Medical Informatics Association, 1999.
+[8] Subramani Mani and Gregory F Cooper. Causal discovery using a bayesian local causal discovery algorithm. Medinfo, 11(Pt 1):731-735, 2004.
+[9] Dimitris Margaritis and Sebastian Thrun. Bayesian network induction via local neighborhoods. In Advances in Neural Information Processing Systems 12, pages 505-511. MIT Press, 1999.
+[10] Christopher Meek. Causal inference and causal explanation with background knowledge. In Proceedings of the Eleventh conference on Uncertainty in artificial intelligence, pages 403-410. Morgan Kaufmann Publishers Inc., 1995.
+[11] Teppo Niinimaki and Pekka Parviainen. Local structure disocvery in bayesian network. In Proceedings of Uncertainy in Artifical Intelligence, Workshop on Causal Structure Learning, pages 634-643, 2012.
+[12] Judea Pearl. Probabilistic reasoning in intelligent systems: networks of plausible inference. Morgan Kaufmann Publishers, Inc., 2 edition, 1988.
+[13] Judea Pearl. Causality: models, reasoning and inference, volume 29. Cambridge Univ Press, 2000.
+[14] Jean-Philippe Pellet and Andre Elisseeff. Finding latent causes in causal networks: an efficient approach based on markov blankets. In Advances in Neural Information Processing Systems, pages 1249-1256, 2009.
+[15] Jean-Philippe Pellet and Andre Ellisseeff. Using markov blankets for causal structure learning. Journal of Machine Learning, 2008.
+[16] Jose M. Peoa, Roland Nilsson, Johan Bjorkegren, and Jesper Tegner. Towards scalable and data efficient learning of markov boundaries. Int. J. Approx. Reasoning, 45(2):211-232, July 2007.
+[17] Craig Silverstein, Sergey Brin, Rajeev Motwani, and Jeff Ullman. Scalable techniques for mining causal structures. Data Mining and Knowledge Discovery, 4(2-3):163-192, 2000.
+[18] P. Spirtes, C. Glymour, and R. Scheines. Causation, Prediction, and Search. The MIT Press, 2nd edition, 2000.
+[19] Peter Spirtes, Clark Glymour, Richard Scheines, Stuart Kauffman, Valerio Aimale, and Frank Wimberly. Constructing bayesian network models of gene expression networks from microarray data, 2000.
+[20] Peter Spirtes, Christopher Meek, and Thomas Richardson. Causal inference in the presence of latent variables and selection bias. In Proceedings of the Eleventh conference on Uncertainty in artificial intelligence, pages 499-506. Morgan Kaufmann Publishers Inc., 1995.
+[21] Alexander Statnikov, Ioannis Tsamardinos, Laura E. Brown, and Constatin F. Aliferis. Causal explorer: A matlab library for algorithms for causal discovery and variable selection for classification. In Causation and Prediction Challenge at WCCI, 2008.
+[22] Ioannis Tsamardinos, Constantin F. Aliferis, and Alexander Statnikov. Time and sample efficient discovery of markov blankets and direct causal relations. In Proceedings of the ninth ACM SIGKDD international conference on Knowledge discovery and data mining, KDD '03, pages 673-678, New York, NY, USA, 2003. ACM.
+[23] Ioannis Tsamardinos, LauraE. Brown, and ConstantinF. Aliferis. The max-min hill-climbing bayesian network structure learning algorithm. Machine Learning, 65(1):31-78, 2006.
+[24] Jiji Zhang. On the completeness of orientation rules for causal discovery in the presence of latent confounders and selection bias. Artificial Intelligence, 172(16):1873-1896, 2008.
+9
+

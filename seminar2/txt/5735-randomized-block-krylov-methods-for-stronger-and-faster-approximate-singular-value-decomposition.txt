@@ -1,0 +1,733 @@
+Randomized Block Krylov Methods for Stronger and Faster Approximate Singular Value Decomposition
+
+Cameron Musco Massachusetts Institute of Technology, EECS
+Cambridge, MA 02139, USA cnmusco@mit.edu
+
+Christopher Musco Massachusetts Institute of Technology, EECS
+Cambridge, MA 02139, USA cpmusco@mit.edu
+
+Abstract
+
+Since being analyzed by Rokhlin, Szlam, and Tygert [1] and popularized by
+
+Halko, Martinsson, and Tropp [2], randomized Simultaneous Power Iteration has
+
+become the method of choice for approximate singular value decomposition. It is
+
+more accurate than simpler sketching algorithms, yet still converges quickly for any matrix, independently of singular value gaps. After O(1/ ) iterations, it gives
+
+a low-rank approximation within (1 + ) of optimal for spectral norm error.
+
+We give the first provable runtime improvement on Simultaneous Iteration: a ran-
+
+domized block Krylov method, closely rithm, gives the same guarantees in just
+
+Ore(la1t/ed to)
+
+the classic Block Lanczos algoiterations and performs substan-
+
+tially better experimentally. Our analysis is the first of a Krylov subspace method
+
+that does not depend on singular value gaps, which are unreliable in practice.
+
+Furthermore, while it is a simple accuracy benchmark, even (1 + ) error for
+
+spectral norm low-rank approximation does not imply that an algorithm returns
+
+high quality principal components, a major issue for data applications. We address
+
+this problem for the first time by showing that both Block Krylov Iteration and
+
+Simultaneous Iteration give nearly optimal PCA for any matrix. This result further
+
+justifies their strength over non-iterative sketching methods.
+
+1 Introduction
+
+Any matrix A  Rnxd with rank r can be written using a singular value decomposition (SVD) as A = UVT . U  Rnxr and V  Rdxr have orthonormal columns (A's left and right singular vectors) and   Rrxr is a positive diagonal matrix containing A's singular values: 1  . . .  r. A rank k partial SVD algorithm returns just the top k left or right singular vectors of A. These are
+the first k columns of U or V, denoted Uk and Vk respectively.
+
+Among countless applications, the SVD is used for optimal low-rank approximation and principal component analysis (PCA). Specifically, for k < r, a partial SVD can be used to construct a rank k approximation Ak such that both A - Ak F and A - Ak 2 are as small as possible. We simply set Ak = UkUTk A. That is, Ak is A projected onto the space spanned by its top k singular vectors.
+For principal component analysis, A's top singular vector u1 provides a top principal component, which describes the direction of greatest variance within A. The ith singular vector ui provides the ith principal component, which is the direction of greatest variance orthogonal to all higher principal components. Formally, denoting A's ith singular value as i,
+
+uTi AAT ui
+
+=
+
+i2
+
+=
+
+x:
+
+x
+
+max
+
+xT AAT x.
+
+2=1, xuj j<i
+
+Traditional SVD algorithms are expensive, typically running in O(nd2) time, so there has been substantial research on randomized techniques that seek nearly optimal low-rank approximation and
+
+1
+
+PCA [3, 4, 1, 2, 5]. These methods are quickly becoming standard tools in practice and implementations are widely available [6, 7, 8, 9], including in popular learning libraries [10].
+Recent work focuses on algorithms whose runtimes do not depend on properties of A. In contrast, classical literature typically gives runtime bounds that depend on the gaps between A's singular values and become useless when these gaps are small (which is often the case in practice - see Section 6). This limitation is due to a focus on how quickly approximate singular vectors converge to the actual singular vectors of A. When two singular vectors have nearly identical values they are difficult to distinguish, so convergence inherently depends on singular value gaps.
+Only recently has a shift in approximation goal, along with an improved understanding of randomization, allowed for algorithms that avoid gap dependence and thus run provably fast for any matrix. For low-rank approximation and PCA, we only need to find a subspace that captures nearly as much variance as A's top singular vectors - distinguishing between two close singular values is overkill.
+
+1.1 Prior Work
+
+The fastest randomized SVD algorithms [3, 5] run in O(nnz(A)) time1, are based on non-iterative sketching methods, and return a rank k matrix Z with orthonormal columns z1, . . . , zk satisfying
+
+Frobenius Norm Error:
+
+A - ZZT A F  (1 + ) A - Ak F .
+
+(1)
+
+Unfortunately, as emphasized in prior work [1, 2, 11, 12], Frobenius norm error is often hopelessly
+
+insufficient, especially for data analysis and learning applications. When A has a "heavy-tail" of
+
+singular values, which is common for noisy data,
+
+A - Ak
+
+2 F
+
+=
+
+i>k i2 can be huge, potentially
+
+much larger than A's top singular value. This renders (1) meaningless since Z does not need to
+
+align with any large singular vectors to obtain good multiplicative error.
+
+To address this shortcoming, a number of papers target spectral norm low-rank approximation error,
+
+Spectral Norm Error:
+
+A - ZZT A 2  (1 + ) A - Ak 2,
+
+(2)
+
+which is intuitively stronger. When looking for a rank k approximation, A's top k singular vectors
+are often considered data and the remaining tail is considered noise. A spectral norm guarantee roughly ensures that ZZT A recovers A up to this noise threshold.
+
+A series of work [1, 2, 13, 14, 15] shows that the decades old Simultaneous Power Iteration (also
+called subspace iteration or orthogonal iteration) implemented with random start vectors, achieves (2) after O(1/ ) iterations. Hence, this method, which was popularized by Halko, Martinsson, and
+Tropp in [2], has become the randomized SVD algorithm of choice for practitioners [10, 16].
+
+2 Our Results
+
+Algorithm 1 SIMULTANEOUS ITERATION
+
+Algorithm 2 BLOCK KRYLOV ITERATION
+
+input: A  Rnxd, error  (0, 1), rank k  n, d input: A  Rnxd, error  (0, 1), rank k  n, d
+
+output: Z  Rnxk
+
+output: Z  Rnxk
+
+1: q := ( log d ),   N (0, 1)dxk 2: K := AAT q A
+3: Orthonormalize the columns of K to obtain Q  Rnxk.
+4: Compute M := QT AAT Q  Rkxk. 5: Set U k to the top k singular vectors of M. 6: return Z = QU k.
+
+1: q := ( log d ),   N (0, 1)dxk
+2: K := A, (AAT )A, ..., (AAT )qA 3: Orthonormalize the columns of K to obtain
+Q  Rnxqk. 4: Compute M := QT AAT Q  Rqkxqk. 5: Set U k to the top k singular vectors of M. 6: return Z = QU k.
+
+2.1 Faster Algorithm
+
+We show that Algorithm 2, a randomized relative of the Block Lanczos algorithm [17, 18], which
+
+winejucsatllOB(l1o/ck K)riytleorvatiIotenrsa.tiTonh,isgnivoetsotnhley
+
+same gives
+
+guarantees the fastest
+
+as Simultaneous Iteration (Algorithm 1) known theoretical runtime for achieving
+
+(2), but also yields substantially better performance in practice (see Section 6).
+
+1Here nnz(A) is the number of non-zero entries in A and this runtime hides lower order terms.
+
+2
+
+Even though the algorithm has been discussed and tested for potential improvement over Simultaneous Iteration [1, 19, 20], theoretical bounds for Krylov subspace and Lanczos methods are much more limited. As highlighted in [11],
+
+"Despite decades of research on Lanczos methods, the theory for [randomized power iteration] is more complete and provides strong guarantees of excellent accuracy, whether or not there exist any gaps between the singular values."
+
+Our work addresses this issue, giving the first gap independent bound for a Krylov subspace method.
+
+2.2 Stronger Guarantees
+
+In addition to runtime improvements, we target a much stronger notion of approximate SVD that is needed for many applications, but for which no gap-independent analysis was known.
+
+Specifically, as noted in [21], while intuitively stronger than Frobenius norm error, (1 + ) spec-
+
+tral norm low-rank approximation error does not guarantee any accuracy in Z for many matrices2.
+
+Consider A with its top k + 1 squared singular values all equal to 10 followed by a tail of smaller
+
+singular values (e.g. 1000k at 1).
+
+A - Ak
+
+2 2
+
+=
+
+10
+
+but
+
+in
+
+fact
+
+A - ZZT A
+
+2 2
+
+= 10 for any rank
+
+k Z, leaving the spectral norm bound useless. At the same time,
+
+A - Ak
+
+2 F
+
+is large, so Frobenius
+
+error is meaningless as well. For example, any Z obtains
+
+A - ZZT A
+
+2 F
+
+ (1.01)
+
+A - Ak
+
+2 F
+
+.
+
+With this scenario in mind, it is unsurprising that low-rank approximation guarantees fail as an accuracy measure in practice. We ran a standard sketch-and-solve approximate SVD algorithm (see Section 3) on SNAP/AMAZON0302, an Amazon product co-purchasing dataset [22, 23], and achieved very good low-rank approximation error in both norms for k = 30:
+A - ZZT A F < 1.001 A - Ak F and A - ZZT A 2 < 1.038 A - Ak 2.
+However, the approximate principal components given by Z are of significantly lower quality than A's true singular vectors (see Figure 1). We saw similar results for a number of other datasets.
+
+Singular Value
+
+450 400
+
+ 2 = uT(AAT)u
+
+ii
+
+i
+
+350 ziT(AAT)zi
+
+300
+
+250
+
+200
+
+150
+
+100
+
+50
+
+5 10 15 20 25 30
+Index i
+Figure 1: Poor per vector error (3) for SNAP/AMAZON0302 returned by a sketch-and-solve approximate SVD that gives very good low-rank approximation in both spectral and Frobenius norm.
+
+We address this issue by introducing a per vector guarantee that requires each approximate singular
+
+vector z1, . . . , zk to capture nearly as much variance as the corresponding true singular vector:
+
+Per Vector Error:
+
+i, uTi AAT ui - zTi AAT zi  k2+1.
+
+(3)
+
+The error bound (3) is very strong in that it depends on k2+1, which is better then relative error for A's large singular values. While it is reminiscent of the bounds sought in classical numerical
+
+analysis [24], we stress that (3) does not require each zi to converge to ui in the presence of small
+
+singular value gaps. In fact, we show that both randomized Block Krylov Iteration and our slightly
+
+modified Simultaneous Iteration algorithm achieve (3) in gap-independent runtimes.
+
+2.3 Main Result
+Our contributions are summarized in Theorem 1. Its detailed proof is relegated to the full version of this paper [25]. The runtimes are given in Theorems 6 and 7, and the three error bounds shown in Theorems 10, 11, and 12. In Section 4 we provide a sketch of the main ideas behind the result.
+2In fact, it does not even imply (1 + ) Frobenius norm error.
+
+3
+
+Theorem 1 (Main Theorem). With high probability, Algorithms 1 and 2 find approximate singular vectors Z = [z1, . . . , zk] satisfying guarantees (1) and (2) for low-rank approximation and (3) for PCA. Forerror , Algorithm 1 requires q = O(log d/ ) iterations while Algorithm 2 requires q = O(log d/ ) iterations. Excluding lower order terms, both algorithms run in time O(nnz(A)kq).
+In the full version of this paper we also use our results to give an alternative analysis that does depend on singular value gaps and can offer significantly faster convergence when A has decaying singular values. It is possible to take further advantage of this result by running Algorithms 1 and 2 with a  that has > k columns, a simple modification for accelerating either method.
+In Section 6 we test both algorithms on a number of large datasets. We justify the importance of gap independent bounds for predicting algorithm convergence and we show that Block Krylov Iteration in fact significantly outperforms the more popular Simultaneous Iteration.
+2.4 Comparison to Classical Bounds
+Decades of work has produced a variety of gap dependent bounds for Krylov methods [26]. Most relevant to our work are bounds for block Krylov methods with block size equal to k [27]. Roughly speaking, with randomized initialization, these results offer guarantees equivalent to our strong equation (3) for the top k singular directions after O(log(d/ )/ k/k+1 - 1) iterations.
+This bound is recovered in Section 7 of this paper's full version [25]. When the target accuracy is smaller than the relative singular value gap (k/k+1 - 1), it is tighter than our gap independent results. However, as discussed in Section 6, for high dimensional data problems where is set far above machine precision, gap independent bounds more accurately predict required iteration count.
+Prior work also attempts to analyze algorithms with block size smaller than k [24]. While "small block" algorithms offer runtime advantages, it is well understood that with b duplicate singular values, it is impossible to recover the top k singular directions with a block of size < b [28]. More generally, large singular value clusters slow convergence, so any small block algorithm must have runtime dependence on the gaps between each adjacent pair of top singular values [29].
+
+3 Analyzing Simultaneous Iteration
+
+Before discussing our proof of Theorem 1, we review prior work on Simultaneous Iteration to demonstrate how it can achieve the spectral norm guarantee (2).
+
+Algorithms for Frobenius norm error (1) typically work by sketching A into very few dimensions using a Johnson-Lindenstrauss random projection matrix  with poly(k/ ) columns.
+Anxd x dxpoly(k/ ) = (A)nxpoly(k/ )
+ is usually a random Gaussian or (possibly sparse) random sign matrix and Z is computed using the SVD of A or of A projected onto A [3, 5, 30]. This "sketch-and-solve" approach is very efficient - the computation of A is easily parallelized and, regardless, pass-efficient in a single processor setting. Furthermore, once a small compression of A is obtained, it can be manipulated in fast memory for the final computation of Z.
+
+However, Frobenius norm error seems an inherent limitation of sketch-and-solve methods. The
+
+noise from A's lower r - k singular values corrupts A, making it impossible to extract a good
+
+partial SVD if the sum of these singular values (equal to
+
+A - Ak
+
+2 F
+
+)
+
+is
+
+too
+
+large.
+
+In order to achieve spectral norm error (2), Simultaneous Iteration must reduce this noise down to the scale of k+1 = A - Ak 2. It does this by working with the powered matrix Aq [31].3 By the spectral theorem, Aq has exactly the same singular vectors as A, but its singular values are equal to those of A raised to the qth power. Powering spreads the values apart and accordingly, Aq's lower
+singular values are relatively much smaller than its top singular values (see example in Figure 2a).
+
+Specifically, q = O( log d ) is sufficient to increase any singular value  (1 + )k+1 to be significantly (i.e. poly(d) times) larger than any value  k+1. This effectively denoises our problem - if we use a sketching method to find a good Z for approximating Aq up to Frobenius norm error, Z
+will have to align very well with every singular vector with value  (1 + )k+1. It thus provides an accurate basis for approximating A up to small spectral norm error.
+
+3For nonsymmetric matrices we work with (AAT )qA, but present the symmetric case here for simplicity.
+
+4
+
+Singular Value
+
+
+i
+
+15
+Spectrum of A Spectrum of Aq
+10
+5
+0 0 5 10 15 20
+Index i
+(a) A's singular values compared to those of Aq, rescaled to match on 1. Notice the significantly reduced tail after 8.
+
+45
+40 xO(1/) 35 TO(1/)(x)
+30
+25
+20
+15
+10
+5
+0
+-5
+0 0.2 0.4 0.6 0.8 1
+x
+ (b) An O(1/ )-degree Chebyshev polynomial, TO(1/ )(x), pushes low values nearly as close to zero as xO(1/ ).
+
+Figure 2: Replacing A with a matrix polynomial facilitates higher accuracy approximation.
+
+Computing Aq directly is costly, so Aq is computed iteratively - start with a random  and repeatedly multiply by A on the left. Since even a rough Frobenius norm approximation for Aq
+suffices,  can be chosen to have just k columns. Each iteration thus takes O(nnz(A)k) time.
+
+When analyzing Simultaneous Iteration, [15] uses the following randomized sketch-and-solve result to find a Z that gives a coarse Frobenius norm approximation to B = Aq and therefore a good spectral norm approximation to A. The lemma is numbered for consistency with our full paper.
+Lemma 4 (Frobenius Norm Low-Rank Approximation). For any B  Rnxd and   Rdxk where the entries of  are independent Gaussians drawn from N (0, 1). If we let Z be an orthonormal basis for span (B), then with probability at least 99/100, for some fixed constant c,
+
+B - ZZT B
+
+2 F
+
+ c * dk
+
+B - Bk
+
+2 F
+
+.
+
+For analyzing block methods, results like Lemma 4 can effectively serve as a replacement for earlier random initialization analysis that applies to single vector power and Krylov methods [32].
+
+k+1 (Aq )
+
+
+
+1 poly(d)
+
+m(Aq
+
+)
+
+for
+
+any
+
+m
+
+with
+
+m(A)
+
+
+
+(1
+
++
+
+)k+1(A). Plugging into Lemma 4:
+
+r
+
+Aq - ZZT Aq
+
+2 F
+
+ cdk *
+
+i2(Aq)  cdk * d * k2+1(Aq)  m2 (Aq)/ poly(d).
+
+i=k+1
+
+Rearranging using Pythagorean theorem, we have
+
+ZZT Aq
+
+2 F
+
+
+
+Aq
+
+2 F
+
+-
+
+m2 (Aq ) poly(d)
+
+.
+
+That
+
+is,
+
+Aq 's
+
+projection onto Z captures nearly all of its Frobenius norm. This is only possible if Z aligns very
+
+well with the top singular vectors of Aq and hence gives a good spectral norm approximation for A.
+
+4 Proof Sketch for Theorem 1
+
+The intuition for beating Simultaneous Iteration with Block Krylov Iteration matches that of many accelerated iterative methods. Simply put, there are better polynomials than Aq for denoising tail
+singular values. In particular, we can use a lower degree polynomial, allowing us to compute fewer
+powers of A and thus leading to an algorithm with fewer iterations. For example, an appropriately shifted q = O(log(d)/ ) degree Chebyshev polynomial can push the tail of A nearly as close to zero as AO(log d/ ), even if the long run growth of the polynomial is much lower (see Figure 2b).
+
+Specifically, we prove the following scalar polynomial lemma in the full version of our paper [25], which can then be applied to effectively denoising A's singular value tail.
+ Lemma 5 (Chebyshev Minimizing Polynomial). For  (0, 1] and q = O(log d/ ), there exists a degree q polynomial p(x) such that p((1 + )k+1) = (1 + )k+1 and,
+
+1) p(x)  x for x  (1 + )k+1
+
+2)
+
+|p(x)|
+
+
+
+k+1 poly(d)
+
+for
+
+x
+
+
+
+k+1.
+
+Furthermore, we can choose the polynomial to only contain monomials with odd powers.
+
+5
+
+Block Krylov Iteration takes advantage of such polynomials by working with the Krylov subspace,
+K =  A A2 A3 . . . Aq ,
+from which we can construct pq(A) for any polynomial pq(*) of degree q.4 Since the polynomial from Lemma 5 must be scaled and shifted based on the value of k+1, we cannot easily compute it directly. Instead, we argue that the very best k rank approximation to A lying in the span of K at least matches the approximation achieved by projecting onto the span of pq(A). Finding this best approximation will therefore give a nearly optimal low-rank approximation to A.
+
+Unfortunately, there's a catch. Surprisingly, it is not clear how to efficiently compute the best spectral norm error low-rank approximation to A lying in a given subspace (e.g. K's span) [14, 33]. This challenge precludes an analysis of Krylov methods parallel to recent work on Simultaneous Iteration.
+
+Nevertheless, since our analysis shows that projecting to Z captures nearly all the Frobenius norm of pq(A), we can show that the best Frobenius norm low-rank approximation to A in the span of K gives good enough spectral norm approximation. By the following lemma, this optimal Frobenius norm low-rank approximation is given by ZZT A, where Z is exactly the output of Algorithm 2.
+Lemma 6 (Lemma 4.1 of [15]). Given A  Rnxd and Q  Rmxn with orthonormal columns,
+
+A - (QQT A)k F =
+
+A-Q
+
+QT A k
+
+F = min
+C|rank(C)=k
+
+A - QC F .
+
+Q QT A k can be obtained using an SVD of the m x m matrix M = QT (AAT )Q. Specifically, letting M = U  2U T be the SVD of M, and Z = QU k then Q QT A k = ZZT A.
+
+4.1 Stronger Per Vector Error Guarantees
+
+Achieving the per vector guarantee of (3) requires a more nuanced understanding of how Simultane-
+ous Iteration and Block Krylov Iteration denoise the spectrum of A. The analysis for spectral norm low-rank approximation relies on the fact that Aq (or pq(A) for Block Krylov Iteration) blows up any singular value  (1 + )k+1 to much larger than any singular value  k+1. This ensures that our output Z aligns very well with the singular vectors corresponding to these large singular values.
+
+If k  (1 + )k+1, then Z aligns well with all top k singular vectors of A and we get good Frobenius norm error and the per vector guarantee (3). Unfortunately, when there is a small gap between k and k+1, Z could miss intermediate singular vectors whose values lie between k+1 and (1 + )k+1. This is the case where gap dependent guarantees of classical analysis break down.
+However, Aq or, for Block Krylov Iteration, some q-degree polynomial in our Krylov subspace, also significantly separates singular values > k+1 from those < (1 - )k+1. Thus, each column of Z at least aligns with A nearly as well as uk+1. So, even if we miss singular values between k+1 and (1 + )k+1, they will be replaced with approximate singular values > (1 - )k+1, enough for (3).
+
+For Frobenius norm low-rank approximation (1), we prove that the degree to which Z falls outside of
+
+the span of A's top k singular vectors depends on the number of singular values between k+1 and
+
+(1- )k+1. These are the values that could be `swapped in' for the true top k singular values. Since
+
+their weight counts towards A's tail, our total loss compared to optimal is at worst
+
+A - Ak
+
+2 F
+
+.
+
+5 Implementation and Runtimes
+
+For both Algorithm 1 and 2,  can be replaced by a random sign matrix, or any matrix achieving the guarantee of Lemma 4.  may also be chosen with p > k columns. In our full paper [25], we discuss in detail how this approach can give improved accuracy.
+
+5.1 Simultaneous Iteration In our implementation we set Z = QU k, which is necessary for achieving per vector guarantees for approximate PCA. However, for near optimal low-rank approximation, we can simply set Z = Q. Projecting A to QU k is equivalent to projecting to Q as these matrices have the same column spans.
+Since powering A spreads its singular values, K = (AAT )qA could be poorly conditioned. To improve stability we orthonormalize K after every iteration (or every few iterations). This does not change K's column span, so it gives an equivalent algorithm in exact arithmetic.
+4Algorithm 2 in fact only constructs odd powered terms in K, which is sufficient for our choice of pq(x).
+
+6
+
+Theorem 7 (Simultaneous Iteration Runtime). Algorithm 1 runs in time
+O nnz(A)k log(d)/ + nk2 log(d)/ .
+Proof. Computing K requires first multiplying A by , which takes O(nnz(A)k) time. Computing AAT i A given AAT i-1 A then takes O(nnz(A)k) time to first multiply our (n x k) matrix by AT and then by A. Reorthogonalizing after each iteration takes O(nk2) time via GramSchmidt. This gives a total runtime of O(nnz(A)kq + nk2q) for computing K. Finding Q takes O(nk2) time. Computing M by multiplying from left to right requires O(nnz(A)k + nk2) time. M's SVD then requires O(k3) time using classical techniques. Finally, multiplying U k by Q takes time O(nk2). Setting q = (log d/ ) gives the claimed runtime.
+
+5.2 Block Krylov Iteration
+
+In the traditional Block Lanczos algorithm, one starts by computing an orthonormal basis for A, the first block in K. Bases for subsequent blocks are computed from previous blocks using a three term recurrence that ensures QT AAT Q is block tridiagonal, with k x k sized blocks [18]. This technique can be useful if qk is large, since it is faster to compute the top singular vectors of a block tridiagonal matrix. However, computing Q using a recurrence can introduce a number of stability issues, and additional steps may be required to ensure that the matrix remains orthogonal [28].
+
+An alternative, uesd in [1], [19], and our Algorithm 2, is to compute K explicitly and then find Q using a QR decomposition. This method does not guarantee that QT AAT Q is block tridiagonal, but avoids stability issues. Furthermore, if qk is small, taking the SVD of QT AAT Q will still be
+fast and typically dominated by the cost of computing K.
+
+As with Simultaneous Iteration, we orthonormalize each block of K after it is computed, avoiding poorly conditioned blocks and giving an equivalent algorithm in exact arithmetic.
+
+Theorem 8 (Block Krylov Iteration Runtime). Algorithm 2 runs in time
+
+O
+
+ nnz(A)k log(d)/
+
++ nk2 log2(d)/
+
++ k3 log3(d)/ 3/2
+
+.
+
+Proof. Computing K, including reorthogonalization, requires O(nnz(A)kq + nk2q) time. The re-
+
+maining steps are analogous to those in Simultaneous Iteration except somewhat more costly as we
+
+work with a k * q rather than k dimensional subspace. Finding Q takes O(n(kq)2) time. Computing
+
+M take O(nnz(A)(kq) + plying U k by Q takes time
+
+n(kq)2) time and its SVD then O(nk(kq)). Setting q = (log
+
+requires O((kq)3) time. d/ ) gives the claimed
+
+Finally, runtime.
+
+multi-
+
+6 Experiments
+We close with several experimental results. A variety of empirical papers, not to mention widespread adoption, already justify the use of randomized SVD algorithms. Prior work focuses in particular on benchmarking Simultaneous Iteration [19, 11] and, due to its improved accuracy over sketch-andsolve approaches, this algorithm is popular in practice [10, 16]. As such, we focus on demonstrating that for many data problems Block Krylov Iteration can offer significantly better convergence.
+We implement both algorithms in MATLAB using Gaussian random starting matrices with exactly k columns. We explicitly compute K for both algorithms, as described in Section 5, and use reorthonormalization at each iteration to improve stability [34]. We test the algorithms with varying iteration count q on three common datasets, SNAP/AMAZON0302 [22, 23], SNAP/EMAIL-ENRON [22, 35], and 20 NEWSGROUPS [36], computing column principal components in all cases. We plot error vs. iteration count for metrics (1), (2), and (3) in Figure 3. For per vector error (3), we plot the maximum deviation amongst all top k approximate principal components (relative to k+1).
+Unsurprisingly, both algorithms obtain very accurate Frobenius norm error, A - ZZT A F / A - Ak F , with very few iterations. This is our intuitively weakest guarantee and, in the presence of a heavy singular value tail, both iterative algorithms will outperform the worst case analysis.
+On the other hand, for spectral norm low-rank approximation and per vector error, we confirm that Block Krylov Iteration converges much more rapidly than Simultaneous Iteration, as predicted by
+
+7
+
+Error 
+
+Block Krylov - Frobenius Error 0.3 Block Krylov - Spectral Error
+Block Krylov - Per Vector Error 0.25 Simult. Iter. - Frobenius Error
+Simult. Iter. - Spectral Error 0.2 Simult. Iter. - Per Vector Error
+0.15
+
+0.1
+
+0.05
+
+0 5
+
+10 15 20
+Iterations q
+
+25
+
+(a) SNAP/AMAZON0302, k = 30
+
+Error 
+
+0.4 0.35
+0.3 0.25
+0.2 0.15
+0.1 0.05
+0 5
+
+Block Krylov - Frobenius Error Block Krylov - Spectral Error Block Krylov - Per Vector Error Simult. Iter. - Frobenius Error Simult. Iter. - Spectral Error Simult. Iter. - Per Vector Error
+
+10 15
+Iterations q
+
+20
+
+25
+
+(b) SNAP/EMAIL-ENRON, k = 10
+
+Error 
+
+0.35 0.3
+0.25 0.2
+0.15 0.1
+0.05 0 5
+
+Block Krylov - Frobenius Error Block Krylov - Spectral Error Block Krlyov - Per Vector Error Simult. Iter. - Frobenius Error Simult. Iter. - Spectral Error Simult. Iter. - Per Vector Error
+
+10 15 20
+Iterations q
+
+25
+
+Error 
+
+Block Krylov - Frobenius Error 0.35
+Block Krylov - Spectral Error 0.3 Block Krylov - Per Vector Error
+Simult. Iter. - Frobenius Error 0.25 Simult. Iter. - Spectral Error
+Simult. Iter. - Per Vector Error 0.2
+0.15
+0.1
+0.05
+0
+01234567
+Runtime (seconds)
+
+(c) 20 NEWSGROUPS, k = 20
+
+(d) 20 NEWSGROUPS, k = 20, runtime cost
+
+Figure 3: Low-rank approximation and per vector error convergence rates for Algorithms 1 and 2.
+
+our theoretical analysis. It it often possible to achieve nearly optimal error with < 8 iterations where as getting to within say 1% error with Simultaneous Iteration can take much longer.
+The final plot in Figure 3 shows error verses runtime for the 11269 x 15088 dimensional 20 NEWSGROUPS dataset. We averaged over 7 trials and ran the experiments on a commodity laptop with 16GB of memory. As predicted, because its additional memory overhead and post-processing costs are small compared to the cost of the large matrix multiplication required for each iteration, Block Krylov Iteration outperforms Simultaneous Iteration for small .
+
+More generally, these results justify the importance of convergence bounds that are independent of
+
+singular value gaps. Our analysis in Section 6 of the full paper predicts that, once is small in
+
+comparison
+
+to
+
+the
+
+gap
+
+k k+1
+
+-
+
+1,
+
+we
+
+should
+
+see
+
+much
+
+more
+
+rapid
+
+convergence
+
+since
+
+q
+
+will
+
+depend
+
+on log(1/ ) instead of 1/ . However, for Simultaneous Iteration, we do not see this behavior with
+
+SNAP/AMAZON0302 and it only just begins to emerge for 20 NEWSGROUPS.
+
+While all three datasets have rapid singular value decay, a careful look confirms that their singular value gaps are actually quite small! For example, k/k+1 - 1 is .004 for SNAP/AMAZON0302 and .011 for 20 NEWSGROUPS, in comparison to .042 for SNAP/EMAIL-ENRON. Accordingly, the frequent claim that singular value gaps can be taken as constant is insufficient, even for small .
+References
+
+[1] Vladimir Rokhlin, Arthur Szlam, and Mark Tygert. A randomized algorithm for principal component analysis. SIAM Journal on Matrix Analysis and Applications, 31(3):1100-1124, 2009.
+[2] Nathan Halko, Per-Gunnar Martinsson, and Joel Tropp. Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. SIAM Review, 53(2):217-288, 2011.
+[3] Tamas Sarlos. Improved approximation algorithms for large matrices via random projections. In Proceedings of the 47th Annual IEEE Symposium on Foundations of Computer Science (FOCS), 2006.
+[4] Per-Gunnar Martinsson, Vladimir Rokhlin, and Mark Tygert. A randomized algorithm for the approximation of matrices. Technical Report 1361, Yale University, 2006.
+[5] Kenneth Clarkson and David Woodruff. Low rank approximation and regression in input sparsity time. In Proceedings of the 45th Annual ACM Symposium on Theory of Computing (STOC), pages 81-90, 2013.
+[6] Antoine Liutkus. Randomized SVD, 2014. MATLAB Central File Exchange.
+[7] Daisuke Okanohara. redsvd: RandomizED SVD. https://code.google.com/p/redsvd/, 2010.
+
+8
+
+[8] David Hall et al. ScalaNLP: Breeze. http://www.scalanlp.org/, 2009.
+[9] IBM Reseach Division, Skylark Team. libskylark: Sketching-based Distributed Matrix Computations for Machine Learning. IBM Corporation, Armonk, NY, 2014.
+[10] F. Pedregosa et al. Scikit-learn: Machine learning in Python. JMLR, 12:2825-2830, 2011.
+[11] Arthur Szlam, Yuval Kluger, and Mark Tygert. An implementation of a randomized algorithm for principal component analysis. arXiv:1412.3510, 2014.
+[12] Zohar Karnin and Edo Liberty. Online PCA with spectral bounds. In Proceedings of the 28th Annual Conference on Computational Learning Theory (COLT), pages 505-509, 2015.
+[13] Rafi Witten and Emmanuel J. Candes. Randomized algorithms for low-rank matrix factorizations: Sharp performance bounds. Algorithmica, 31(3):1-18, 2014.
+[14] Christos Boutsidis, Petros Drineas, and Malik Magdon-Ismail. Near-optimal column-based matrix reconstruction. SIAM Journal on Computing, 43(2):687-717, 2014.
+[15] David P. Woodruff. Sketching as a tool for numerical linear algebra. Found. Trends in Theoretical Computer Science, 10(1-2):1-157, 2014.
+[16] Andrew Tulloch. Fast randomized singular value decomposition. http://research.facebook. com/blog/294071574113354/fast-randomized-svd/, 2014.
+[17] Jane Cullum and W.E. Donath. A block Lanczos algorithm for computing the q algebraically largest eigenvalues and a corresponding eigenspace of large, sparse, real symmetric matrices. In IEEE Conference on Decision and Control including the 13th Symposium on Adaptive Processes, pages 505-509, 1974.
+[18] Gene Golub and Richard Underwood. The block Lanczos method for computing eigenvalues. Mathematical Software, (3):361-377, 1977.
+[19] Nathan Halko, Per-Gunnar Martinsson, Yoel Shkolnisky, and Mark Tygert. An algorithm for the principal component analysis of large data sets. SIAM Journal on Scientific Computing, 33(5):2580-2594, 2011.
+[20] Nathan Halko. Randomized methods for computing low-rank approximations of matrices. PhD thesis, U. of Colorado, 2012.
+[21] Ming Gu. Subspace iteration randomization and singular value problems. arXiv:1408.2208, 2014.
+[22] Timothy A. Davis and Yifan Hu. The university of florida sparse matrix collection. ACM Transactions on Mathematical Software, 38(1):1:1-1:25, December 2011.
+[23] Jure Leskovec, Lada A. Adamic, and Bernardo A. Huberman. The dynamics of viral marketing. ACM Transactions on the Web, 1(1), May 2007.
+[24] Y. Saad. On the rates of convergence of the Lanczos and the Block-Lanczos methods. SIAM Journal on Numerical Analysis, 17(5):687-706, 1980.
+[25] Cameron Musco and Christopher Musco. Randomized block Krylov methods for stronger and faster approximate singular value decomposition. arXiv:1504.05477, 2015.
+[26] Yousef Saad. Numerical Methods for Large Eigenvalue Problems: Revised Edition, volume 66. 2011.
+[27] Gene Golub, Franklin Luk, and Michael Overton. A block Lanczos method for computing the singular values and corresponding singular vectors of a matrix. ACM Trans. Math. Softw., 7(2):149-169, 1981.
+[28] G.H. Golub and C.F. Van Loan. Matrix Computations. Johns Hopkins University Press, 3rd edition, 1996.
+[29] Ren-Cang Li and Lei-Hong Zhang. Convergence of the block Lanczos method for eigenvalue clusters. Numerische Mathematik, 131(1):83-113, 2015.
+[30] Michael B. Cohen, Sam Elder, Cameron Musco, Christopher Musco, and Madalina Persu. Dimensionality reduction for k-means clustering and low rank approximation. In Proceedings of the 47th Annual ACM Symposium on Theory of Computing (STOC), 2015.
+[31] Friedrich L. Bauer. Das verfahren der treppeniteration und verwandte verfahren zur losung algebraischer eigenwertprobleme. Zeitschrift fur angewandte Mathematik und Physik ZAMP, 8(3):214-235, 1957.
+[32] J. Kuczynski and H. Wozniakowski. Estimating the largest eigenvalue by the power and Lanczos algorithms with a random start. SIAM Journal on Matrix Analysis and Applications, 13(4):1094-1122, 1992.
+[33] Kin Cheong Sou and Anders Rantzer. On the minimum rank of a generalized matrix approximation problem in the maximum singular value norm. In Proceedings of the 19th International Symposium on Mathematical Theory of Networks and Systems (MTNS), 2010.
+[34] Per-Gunnar Martinsson, Arthur Szlam, and Mark Tygert. Normalized power iterations for the computation of SVD, 2010. NIPS Workshop on Low-rank Methods for Large-scale Machine Learning.
+[35] Jure Leskovec, Jon Kleinberg, and Christos Faloutsos. Graphs over time: Densification laws, shrinking diameters and possible explanations. In Proceedings of the 11th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD), pages 177-187, 2005.
+[36] Jason Rennie. 20 newsgroups. http://qwone.com/jason/20Newsgroups/, May 2015.
+9
+

@@ -1,0 +1,531 @@
+Subsampled Power Iteration: a Unified Algorithm for Block Models and Planted CSP's
+
+Vitaly Feldman IBM Research - Almaden vitaly@post.harvard.edu
+
+Will Perkins University of Birmingham w.f.perkins@bham.ac.uk
+
+Santosh Vempala Georgia Tech
+vempala@cc.gatech.edu
+
+Abstract
+We present an algorithm for recovering planted solutions in two well-known models, the stochastic block model and planted constraint satisfaction problems (CSP), via a common generalization in terms of random bipartite graphs. Our algorithm matches up to a constant factor the best-known bounds for the number of edges (or constraints) needed for perfect recovery and its running time is linear in the number of edges used. The time complexity is significantly better than both spectral and SDP-based approaches. The main contribution of the algorithm is in the case of unequal sizes in the bipartition that arises in our reduction from the planted CSP. Here our algorithm succeeds at a significantly lower density than the spectral approaches, surpassing a barrier based on the spectral norm of a random matrix. Other significant features of the algorithm and analysis include (i) the critical use of power iteration with subsampling, which might be of independent interest; its analysis requires keeping track of multiple norms of an evolving solution (ii) the algorithm can be implemented statistically, i.e., with very limited access to the input distribution (iii) the algorithm is extremely simple to implement and runs in linear time, and thus is practical even for very large instances.
+1 Introduction
+A broad class of learning problems fits into the framework of obtaining a sequence of independent random samples from a unknown distribution, and then (approximately) recovering this distribution using as few samples as possible. We consider two natural instances of this framework: the stochastic block model in which a random graph is formed by choosing edges independently at random with probabilities that depend on whether an edge crosses a planted partition, and planted k-CSP's (or planted k-SAT) in which width-k boolean constraints are chosen independently at random with probabilities that depend on their evaluation on a planted assignment to a set of boolean variables.
+We propose a natural bipartite generalization of the stochastic block model, and then show that planted k-CSP's can be reduced to this model, thus unifying graph partitioning and planted CSP's into one problem. We then give an algorithm for solving random instances of the model. Our algorithm is optimal up to a constant factor in terms of number of sampled edges and running time for the bipartite block model; for planted CSP's the algorithm matches up to log factors the best possible sample complexity in several restricted computational models and the best-known bounds for any algorithm. A key feature of the algorithm is that when one side of the bipartition is much
+1
+
+larger than the other, then our algorithm succeeds at significantly lower edge densities than using Singular Value Decomposition (SVD) on the rectangular adjacency matrix. Details are in Sec. 5.
+The bipartite block model begins with two vertex sets, V1 and V2 (of possibly unequal size), each with a balanced partition, (A1, B1) and (A2, B2) respectively. Edges are added independently at random between V1 and V2 with probabilities that depend on which parts the endpoints are in: edges between A1 and A2 or B1 and B2 are added with probability p, while the other edges are added with probability (2 - )p, where   [0, 2] and p is the overall edge density. To obtain the stochastic block model we can identify V1 and V2. To reduce planted CSP's to this model, we first reduce the problem to an instance of noisy r-XOR-SAT, where r is the complexity parameter of the planted CSP distribution defined in [19] (see Sec. 2 for details). We then identify V1 with literals, and V2 with (r - 1)-tuples of literals, and add an edge between literal l  V1 and tuple t  V2 when the r-clause consisting of their union appears in the formula. The reduction leads to a bipartition with V2 much larger than V1.
+Our algorithm is based on applying power iteration with a sequence of matrices subsampled from the original adjacency matrix. This is in contrast to previous algorithms that compute the eigenvectors (or singular vectors) of the full adjacency matrix. Our algorithm has several advantages. Such an algorithm, for the special case of square matrices, was previously proposed and analyzed in a different context by Korada et al. [25].
+* Up to a constant factor, the algorithm matches the best-known (and in some cases the bestpossible) edge or constraint density needed for complete recovery of the planted partition or assignment. The algorithm for planted CSP's finds the planted assignment using O(nr/2 * log n) clauses for a clause distribution of complexity r (see Sec. 2 for the formal definition), nearly matching computational lower bounds for SDP hierarchies [30] and the class of statistical algorithms [19].
+* The algorithm is fast, running in time linear in the number of edges or constraints used, unlike other approaches that require computing eigenvectors or solving semi-definite programs.
+* The algorithm is conceptually simple and easy to implement. In fact it can be implemented in the statistical query model, with very limited access to the input graph [19].
+* It is based on the idea of iteration with subsampling which may have further applications in the design and analysis of algorithms.
+* Most notably, the algorithm succeeds where generic spectral approaches fail. For the case of the planted CSP, when |V2| |V1|, our algorithm succeeds at a polynomial factor sparser density than the approaches of McSherry [28], Coja-Oghlan [7], and Vu [33]. The algorithm succeeds despite the fact that the `energy' of the planted vector with respect to the random adjacency matrix is far below the spectral norm of the matrix. In previous analyses, this was believed to indicate failure of the spectral approach. See Sec. 5.
+1.1 Related work
+The algorithm of Mossel, Neeman and Sly [29] for the standard stochastic block model also runs in near linear time, while other known algorithmic approaches for planted partitioning that succeed near the optimal edge density [28, 7, 27] perform eigenvector or singular vector computations and thus require superlinear time, though a careful randomized implementation of low-rank approximations can reduce the running time of McSherry's algorithm substantially [2].
+For planted satisfiability, the algorithm of Flaxman for planted 3-SAT works for a subset of planted distributions (those with distribution complexity at most 2 in our definition below) using O(n) constraints, while the algorithm of Coja-Oghlan, Cooper, and Frieze [8] works for planted 3-SAT distributions that exclude unsatisfied clauses and uses O(n3/2 ln10 n) constraints.
+The only previous algorithm that finds the planted assignment for all distributions of planted kCSP's is the SDP-based algorithm of Bogdanov and Qiao [5] with the folklore generalization to r-wise independent predicates (cf. [30]). Similar to our algorithm, it uses O(nr/2) constraints. This algorithm effectively solves the noisy r-XOR-SAT instance and therefore can be also used to solve our general version of planted satisfiability using O(nr/2) clauses (via the reduction in Sec. 4).
+2
+
+Notably for both this algorithm and ours, having a completely satisfying planted assignment plays no special role: the number of constraints required depends only on the distribution complexity.To the best of our knowledge, our algorithm is the first for the planted k-SAT problem that runs in linear time in the number of constraints used.
+It is important to note that in planted k-CSP's, the planted assignment becomes recoverable with high probability after at most O(n log n) random clauses yet the best known efficient algorithms require n(r/2) clauses. Problems exhibiting this type of behavior have attracted significant interest in learning theory [4, 12, 31, 15, 32, 3, 10, 16] and some of the recent hardness results are based on the conjectured computational hardness of the k-SAT refutation problem [10, 11].
+Our algorithm is arguably simpler than the approach in [5] and substantially improves the running time even for small k. Another advantage of our approach is that it can be implemented using restricted access to the distribution of constraints referred to as statistical queries [24, 17]. Roughly speaking, for the planted SAT problem this access allows an algorithm to evaluate multi-valued functions of a single clause on randomly drawn clauses or to estimate expectations of such functions, without direct access to the clauses themselves. Recently, in [19], lower bounds on the number of clauses necessary for a polynomial-time statistical algorithm to solve planted k-CSPs were proved. It is therefore important to understand the power of such algorithms for solving planted k-CSPs. A statistical implementation of our algorithm gives an upper bound that nearly matches the lower bound for the problem. See [19] for the formal details of the model and statistical implementation of our algorithm.
+Korada, Montanari and Oh [25] analyzed the `Gossip PCA' algorithm, which for the special case of an equal bipartition is the same as our subsampled power iteration. The assumptions, model, and motivation in the two papers are different and the results incomparable. In particular, while our focus and motivation are on general (nonsquare) matrices, their work considers extracting a planting of rank k greater than 1 in the square setting. Their results also assume an initial vector with non-trivial correlation with the planted vector. The nature of the guarantees is also different.
+
+2 Model and results
+
+Bipartite stochastic block model:
+Definition 1. For   [0, 2] \ {1}, n1, n2 even, and P1 = (A1, B1), P2 = (A2, B2) bipartitions of vertex sets V1, V2 of size n1, n2 respectively, we define the bipartite stochastic block model B(n1, n2, P1, P2, , p) to be the random graph in which edges between vertices in A1 and A2 and B1 and B2 are added independently with probability p and edges between vertices in A1 and B2 and B1 and A2 with probability (2 - )p.
+
+Here  is a fixed constant while p will tend to 0 as n1, n2  . Note that setting n1 = n2 = n, and identifying A1 and A2 and B1 and B2 gives the usual stochastic block model (with loops allowed); for edge probabilities a/n and b/n, we have  = 2a/(a + b) and p = (a + b)/2n, the overall edge
+density. For our application to k-CSP's, it will be crucial to allow vertex sets of very different sizes,
+i.e. n2 n1.
+
+The algorithmic task for the bipartite block model is to recover one or both partitions (completely
+or partially) using as few edges and as little computational time as possible. In this work we will assume that n1  n2, and we will be concerned with the algorithmic task of recovering the partition P1 completely, as this will allow us to solve the planted k-CSP problems described below. We define complete recovery of P1 as finding the exact partition with high probability over the randomness in the graph and in the algorithm.
+
+Theorem 1. Assume n1  n2. There is a constant C so that the Subsampled Power Iteration
+
+algorithm described below completely recovers the partition P1 in the bipartite stochastic block
+
+model B(n1, n2, P1, P2, , p) with probability 1 - o(1) as n1
+
+running time is O
+
+ n1n2
+
+*
+
+log n1 (-1)2
+
+.
+
+
+
+ when p
+
+
+
+(-C1)lo2gnn11n2 .
+
+Its
+
+Note that for the usual stochastic block model this gives an algorithm using O(n log n) edges and O(n log n) time, which is the best possible for complete recovery since that many edges are needed for every vertex to appear in at least edge. With edge probabilities a log n/n and b log n/n, our
+
+3
+
+results require (a - b)2  C(a + b) for some absolute constant C, matching the dependence on a
+
+and b in [6, 28] (see [1] for a discussion of the best possible threshold for complete recovery).
+
+ For any n1, n2, at least n1n2 edges are necessary for even non-trivial partial recovery, as below
+
+that threshold the graph consists only of small components (and even if a correct partition is found
+
+on each component, correlating the partitions of least ( n1n2 log n1) are needed for complete
+
+different components is impossible). Similarly at recover of P1 since below that density, there are
+
+vertices in V1 joined only to vertices of degree 1 in V2.
+
+For very lopsided graphs, with n2 n1 log2 n1, the running time is sublinear in the size of V2; this requires careful implementation and is essential to achieving the running time bounds for planted
+CSP's described below.
+
+Planted k-CSP's: We now describe a general model for planted satisfiability problems introduced in [19]. For an integer k, let Ck be the set of all ordered k-tuples of literals from x1, . . . , xn, x1, . . . , xn with no repetition of variables. For a k-tuple of literals C and an assignment , (C) denotes the vector of values that  assigns to the literals in C. A planting distribution Q : {1}k  [0, 1] is a probability distribution over {1}k.
+Definition 2. Given a planting distribution Q : {1}k  [0, 1], and an assignment   {1}n, we define the random constraint satisfaction problem FQ,(n, m) by drawing m k-clauses from Ck independently according to the distribution
+Q( (C )) Q(C) = C Ck Q((C ))
+where (C) is the vector of values that  assigns to the k-tuple of literals comprising C.
+Definition 3. The distribution complexity r(Q) of the planting distribution Q is the smallest integer r  1 so that there is some S  [k], |S| = r, so that the discrete Fourier coefficient Q(S) is non-zero.
+In other words, the distribution complexity of Q is r if Q is an (r - 1)-wise independent distribution on {1}k but not an r-wise independent distribution. The uniform distribution over all clauses, Q  2-k, has Q(S) = 0 for all |S|  1, and so we define its complexity to be . The uniform distribution does not reveal any information about , and so inference is impossible. For any Q that is not the uniform distribution over clauses, we have 1  r(Q)  k.
+Note that the uniform distribution on k-SAT clauses with at least one satisfied literal under  has distribution complexity r = 1. r = 1 means that there is a bias towards either true or false literals. In this case, a very simple algorithm is effective: for each variable, count the number of times it appears negated and not negated, and take the majority vote. For distributions with complexity r  2, the expected number of true and false literals in the random formula are equal and so this simple algorithm fails.
+Theorem 2. For any planting distribution Q, there exists an algorithm that for any assignment , given an instance of FQ,(n, m) completely recovers the planted assignment  for m = O(nr/2 log n) using O(nr/2 log n) time, where r  2 is the distribution complexity of Q. For distribution complexity r = 1, there is an algorithm that gives non-trivial partial recovery with O(n1/2) constraints and complete recovery with O(n log n) constraints.
+
+3 The algorithm
+We now present our algorithm for the bipartite stochastic block model. We define vectors u and v of dimension n1 and n2 respectively, indexed by V1 and V2, with ui = 1 for i  A1, ui = -1 for i  B1, and similarly for v. To recover the partition P1 it suffices to find either u or -u. We will find this vector by multiplying a random initial vector x0 by a sequence of centered adjacency matrices and their transposes.
+We form these matrices as follows: let Gp be the random bipartite graph drawn from the model B(n1, n2, P1, P2, , p), and T a positive integer. Then form T different bipartite graphs G1, . . . , GT on the same vertex sets V1, V2 by placing each edge from Gp uniformly and independently at random into one of the T graphs. The resulting graphs have the same marginal distribution.
+
+4
+
+Next we form the n1 x n2 adjacency matrices A1, . . . , AT for G1, . . . GT with rows indexed by V1
+
+and columns by V2 with a 1 in entry (i, j) if vertex i  V1 is joined to vertex j  V2. Finally we
+
+center
+
+the
+
+matrices
+
+by
+
+defining
+
+Mi
+
+=
+
+Ai
+
+-
+
+p T
+
+J
+
+where
+
+J
+
+is
+
+the
+
+n1
+
+x
+
+n2
+
+all
+
+ones
+
+matrix.
+
+The basic iterative steps are the multiplications y = M T x and x = M y.
+
+Algorithm: Subsampled Power Iteration.
+
+1. Form T = 10 log n1 matrices M1, . . . , MT by uniformly and independently assigning
+
+each edge of the bipartite block model to a graph G1, . . . , GT , then forming the matrices
+
+Mi
+
+=
+
+Ai
+
+-
+
+p T
+
+J,
+
+where
+
+Ai
+
+is
+
+the
+
+adjacency
+
+matrix
+
+of
+
+Gi
+
+and
+
+J
+
+is
+
+the
+
+all
+
+ones
+
+matrix.
+
+2.
+
+Sample x  {1}n1
+
+uniformly at random and let x0
+
+=
+
+x n1
+
+.
+
+3. For i = 1 to T /2 let
+
+yi =
+
+M2Ti-1xi-1 M2Ti-1xi-1
+
+;
+
+xi =
+
+M2iyi M2iyi
+
+;
+
+zi = sgn(xi).
+
+4. For each coordinate j  [n1] take the majority vote of the signs of zji for all i  {T /4, . . . , T /2} and call this vector v:
+
+
+T
+
+vj = sgn 
+
+zji  .
+
+i=T /2
+
+5. Return the partition indicated by v.
+
+The analysis of the resampled power iteration algorithm proceeds in four phases, during which we track the progress of two vectors xi and yi, as measured by their inner product with u and v respectively. We define Ui := u * xi and Vi := v * yi. Here we give an overview of each phase:
+
+* Phase 1. Within log n1 iterations, |Ui| reaches log n1. We show that conditioned on the value of Ui, there is at least a 1/2 chance that |Ui+1|  2|Ui|; that Ui never gets too small; and that in log n1 steps, a run of log log n1 doublings pushes the magnitude of Ui above log n1.
+
+*
+
+Phase 2. step whp
+
+After reaching until it reaches
+
+logn1, |Ui| ( n1), at
+
+makes steady, predictable which point we say xi has
+
+progress, doubling at each strong correlation with u.
+
+* Phase 3. Once xi is strongly correlated with u, we show that zi+1 agrees with either u or -u on a large fraction of coordinates.
+
+* Phase 4. We show that taking the majority vote of the coordinate-by-coordinate signs of zi
+
+over O(log n1) additional iterations gives complete recovery whp.
+
+Running time If n2 = (n1), then a straightforward implementation of the algorithm runs in time linear in the number of edges used: each entry of xi = M yi (resp. yi = M T xi-1) can be computed as a sum over the edges in the graph associated with M . The rounding and majority vote are both linear in n1. However, if n2 n1, then simply initializing the vector yi will take too much time. In this case, we have to implement the algorithm more carefully.
+Say we have a vector xi-1 and want to compute xi = M2iyi without storing the vector yi. Instead of computing yi = M2Ti-1xi-1, we create a set Si  V2 of all vertices with degree at least 1 in the current graph G2i-1 corresponding to the matrix M2i-1. The size of Si is bounded by the number of edges in G2i-1, and checking membership can be done in constant time with a data structure of size O(|Si|) that requires expected time O(|Si|) to create [21].
+Recall that M2i-1 = A2i-1 - qJ . Then we can write
+
+n1
+yi = (A2i-1 - qJ )T xi-1 = y - q  xij-1 1n2 = y - qL1n2 ,
+j=1
+
+5
+
+where y is 0 on coordinates j / Si, L =
+
+n1 j=1
+
+xij-1,
+
+and
+
+1n2
+
+is
+
+the
+
+all
+
+ones
+
+vector
+
+of
+
+length
+
+n2.
+
+Then to compute xi = M2iyi, we write
+
+xi = (A2i - qJ )yi = (A2i - qJ )(y - qL1n2 ) = (A2i - qJ )y - qLA2i1n2 + q2LJ 1n2 = A2iy - qJ y - qLA2i1n2 + q2Ln21n1
+
+We bound the running time of the computation as follows: we can compute y in linear time in the
+
+number of edges of G2i-1 using Si. Given y, computing A2iy is linear in the number of edges
+
+of G2i and computing qJy is linear in the number of non-zero entries of y, which is bounded by
+
+the number of edges of G2i-1. Computing L =
+
+n1 j=1
+
+xji-1
+
+is
+
+linear
+
+in
+
+n1
+
+and
+
+gives
+
+q2Ln21n1 .
+
+Computing qLA2i1n2 is linear in the number of edges of G2i. All together this gives our linear time
+
+implementation.
+
+4 Reduction of planted k-CSP's to the block model
+
+Here we describe how solving the bipartite block model suffices to solve the planted k-CSP problems. Consider a planted k-SAT problem FQ,(n, m) with distribution complexity r. Let S  [k], |S| = r, be such that Q(S) =  = 0. Such an S exists from the definition of the distribution complexity. We assume that we know both r and this set S, as trying all possibilities (smallest first) requires only a constant factor (2r) more time.
+We will restrict each k-clause in the formula to an r-clause, by taking the r literals specified by the set S. If the distribution Q is known to be symmetric with respect to the order of the k-literals in each clause, or if clauses are given as unordered sets of literals, then we can simply sample a random set of r literals (without replacement) from each clause.
+We will show that restricting to these r literals from each k-clause induces a distribution on r-clauses defined by Q : {1}r  R+ of the form Q(C) = /2r for |C| even, Q(C) = (2 - )/2r for |C| odd, for some   [0, 2] ,  = 1, where |C| is the number of TRUE literals in C under . This reduction allows us to focus on algorithms for the specific case of a parity-based distribution on r-clauses with distribution complexity r.
+Recall that for a function f : {-1, 1}k  R, its Fourier coefficients are defined for each subset S  [k] as
+f(S) = E [f (x)S(x)]
+x{-1,1}k
+where S are the Walsh basis functions of {1}k with respect to the uniform probability measure, i.e., S(x) = iS xi.
+Lemma 1. If the function Q : {1}k  R+ defines a distribution Q on k-clauses with distribution complexity r and planted assignment , then for some S  [k], |S| = r and   [0, 2]\{1}, choosing r literals with indices in S from a clause drawn randomly from Q yields a random r-clause from Q .
+
+Proof. From Definition 3 we have that there exists an S with |S| = r such that Q(S) = 0. Note that by definition,
+
+Q(S)
+
+=
+
+E [Q(x)S(x)]
+x{1}k
+
+=
+
+1 2k
+
+x{1}k
+
+Q(x)S (x)
+
+
+
+1
+
+= 2k 
+
+Q(x) -
+
+Q(x)
+
+x:{1}k:xS even
+
+x:{1}k:xS odd
+
+=
+
+1 2k
+
+(Pr[xS
+
+even]
+
+-
+
+Pr[xS
+
+odd])
+
+where xS is x restricted to the coordinates in S, and so if we take  = 1 + 2kQ(S), the distribution induced by restricting k-clauses to the r-clauses specified by S is Q. Note that by the definition
+
+6
+
+of the distribution complexity, Q(T ) = 0 for any 1  |T | < r, and so the original and induced distributions are uniform over any set of r - 1 coordinates.
+
+First consider the case r = 1. Restricting each clause to S for |S| = 1, induces a noisy 1-XORSAT distribution in which a random true literal appears with probability  and random false literal appears with probability 2 - . The simple majority vote algorithm described above suffices: set each variable to +1 if it appears more often positively than negated in the restricted clauses of the formula; to -1 if it appears more often negated; and choose randomly if it appears equally often. Using c t log(1/ ) clauses for c = O(1/|1-|2) this algorithm will give an assignment that agrees with  (or -) on n/2 + t n variables with probability at least 1 - ; using cn log n clauses it will recover  exactly with probability 1 - o(1).
+
+Now assume that r  2. We describe how the parity distribution Q on r-constraints induces a
+
+bipartite block model. Let V1 be the set of 2n literals of the given variable set, and V2 the collection
+
+of all (r - 1)-tuples of literals. We have n1 = |V1| = 2n and n2 = |V2| =
+
+2n r-1
+
+.
+
+We
+
+partition
+
+each set into two parts as follows: A1  V1 is the set of false literals under , and B1 the set of true
+
+literals. A2  V2 is the set of (r - 1)-tuples with an even number of true literals under , and B2
+
+the set of (r - 1)-tuples with an odd number of true literals.
+
+For each r-constraint (l1, l2, . . . , lr), we add an edge in the block model between the tuples l1  V1 and (l2, . . . , lr)  V2. A constraint drawn according to Q induces a random edge between A1 and A2 or B1 and B2 with probability /2 and between A1 and B2 or B1 and A2 with probability 1 - /2, exactly the distribution of a single edge in the bipartite block model. Recovering the partition P1 = A1  B1 in this bipartite block model partitions the literals into true and false sets giving  (up to sign). Now the model in Defn. 2 is that of m clauses selected independently with
+replacement according to a given distribution, while in Defn. 1, each edge is present independently
+with a given probability. Reducing from the first to the second can be done by Poissonization; details
+given in the full version [18].
+The key feature of our bipartite block model algorithm is that it uses O(n1n2) edges (i.e. p = O((n1n2)-1/2), corresponding to O(nr/2) clauses in the planted CSP.
+
+5 Comparison with spectral approach
+
+As noted above, many approaches to graph partitioning problems and planted satisfiability problems use eigenvectors or singular vectors. These algorithms are essentially based on the signs of the top eigenvector of the centered adjacency matrix being correlated with the planted vector. This is fairly straightforward to establish when the average degree of the random graph is large enough. However, in the stochastic block model, for example, when the average degree is a constant, vertices of large degree dominate the spectrum and the straightforward spectral approach fails (see [26] for a discussion and references).
+
+In the case of the usual block model, n1 = n2 = n, while our approach has a fast running time, it does not save on the number of edges required as compared to the standard spectral approach: both require (n log n) edges. However, when n2 n1, eg. n1 = (n), n2 = (nk-1) as in the case of the planted k-CSP's for odd k, this is no longer the case.
+
+Consider the general-purpose partitioning algorithm of [28]. Let G be the matrix of edge probabil-
+ities: Gij is the probability that the edge between vertices i and j is present. Let Gu, Gv denote columns of G corresponding to vertices u, v. Let 2 be an upper bound of the variance of an entry
+in the adjacency matrix, sm the size of the smallest part in the planted partition, q the number of parts,  the failure probability of the algorithm, and c a universal constant. Then the condition for
+the success of McSherry's partitioning algorithm is:
+
+min Gu - Gv 2 > cq2(n/sm + log(n/))
+u,v in different parts
+
+In our case, we have q = 4, n = n1+n2, sm = n1/2, 2 = (p), and Gu-Gv 2 = 4(-1)2p2n2.
+
+When n2 p = (log
+
+n1 log n, the n1/ n1n2). In
+
+condition requires p = (1/n1), while our algorithm succeeds our application to planted CSP's with odd k and n1 = 2n, n2 =
+
+when
+
+2n k-1
+
+,
+
+this gives a polynomial factor improvement.
+
+7
+
+In fact, previous spectral approaches to planted CSP's or random k-SAT refutation worked for even k using nk/2 constraints [23, 9, 14], while algorithms for odd k only worked for k = 3 and used considerably more complicated constructions and techniques [13, 22, 8]. In contrast to previous approaches, our algorithm unifies the algorithm for planted k-CSP's for odd and even k, works for odd k > 3, and is particularly simple and fast.
+
+We now describe why previous approaches faced a spectral barrier for odd k, and how our algorithm surmounts it. The previous spectral algorithms for even k constructed a similar graph to the one in the reduction above: vertices are k/2-tuples of literals, and with edges between two tuples if their union appears as a k-clause. The distribution induced in this case is the stochastic block model. For odd k, such a reduction is not possible, and one might try a bipartite graph, with either the reduction described above, or with k/2 -tuples and k/2 -tuples (our analysis works for this reduction as well). However, with O(k/2) clauses, the spectral approach of computing the largest or second largest singular vector of the adjacency matrix does not work.
+
+Consider M from the distribution M (p). Let u be the n1 dimensional vector indexed as the rows of M whose entries are 1 if the corresponding vertex is in A1 and -1 otherwise. Define the n2 dimensional vector v analogously. The next propositions summarize properties of M .
+Proposition 1. E(M ) = ( - 1)puvT .
+Proposition 2. Let M1 be the rank-1 approximation of M drawn from M (p). Then M1-E(M )  2 M - E(M ) .
+
+The above propositions suffice to show high correlation between the top singular vector and the
+
+vector this is
+
+u when n2 higher than
+
+=O((pnn12))a, nthdepno=rm(olfoMg n-1/En1(M).
+
+This ) for
+
+is because this range
+
+the norm of E(M ) of p. Therefore the
+
+is p n1n2; top singular
+
+vector of M will be correlated with the top singular vector of E(M ). The latter is a rank-1 matrix
+
+with u as its left singular vector.
+
+However, when n2 n1 (eg. k odd) and p = O((n1n2)-1/2), the norm of the zero-mean matrix MnM1 -w-itEEh((MaM1))iins=tihnef(aicthtpmcno2uo)cr,hdwilnhaaritlgeeeranEthd(aMznetr)hoee=sneoOlrsm(epwohfneEr1en(,M2w);e).thseeLeefotttrhimnagterxMi(si)xb((i(e)nt22h/env1e)c1/tpo4rn) 2ow,fhalinelendgthsthoe latter is O(1)). In other words, the top singular value of M is much larger than the value obtained by
+the vector corresponding to the planted assignment! The picture is in fact richer: the straightforward spectral approach succeeds for p n-1 2/3n-2 1/3, while for p n-1 2/3n-2 1/3, the top left singular vector of the centered adjacency matrix is asymptotically uncorrelated with the planted vector [20].
+In spite of this, one can exploit correlations to recover the planted vector below this threshold with
+our resampling algorithm, which in this case provably outperforms the spectral algorithm.
+
+Acknowledgements S. Vempala supported in part by NSF award CCF-1217793.
+
+References
+[1] E. Abbe, A. S. Bandeira, and G. Hall. Exact recovery in the stochastic block model. arXiv preprint arXiv:1405.3267, 2014.
+[2] D. Achlioptas and F. McSherry. Fast computation of low rank matrix approximations. In STOC, pages 611-618, 2001.
+[3] Q. Berthet and P. Rigollet. Complexity theoretic lower bounds for sparse principal component detection. In COLT, pages 1046-1066, 2013.
+[4] A. Blum. Learning boolean functions in an infinite attribute space. Machine Learning, 9:373-386, 1992.
+[5] A. Bogdanov and Y. Qiao. On the security of goldreich's one-way function. In Approximation, Randomization, and Combinatorial Optimization. Algorithms and Techniques, pages 392-405. 2009.
+[6] R. B. Boppana. Eigenvalues and graph bisection: An average-case analysis. In FOCS, pages 280-285, 1987.
+[7] A. Coja-Oghlan. Graph partitioning via adaptive spectral techniques. Combinatorics, Probability & Computing, 19(2):227, 2010.
+
+8
+
+[8] A. Coja-Oghlan, C. Cooper, and A. Frieze. An efficient sparse regularity concept. SIAM Journal on Discrete Mathematics, 23(4):2000-2034, 2010.
+[9] A. Coja-Oghlan, A. Goerdt, A. Lanka, and F. Schadlich. Certifying unsatisfiability of random 2k-sat formulas using approximation techniques. In Fundamentals of Computation Theory, pages 15-26. Springer, 2003.
+[10] A. Daniely, N. Linial, and S. Shalev-Shwartz. More data speeds up training time in learning halfspaces over sparse vectors. In NIPS, pages 145-153, 2013.
+[11] A. Daniely and S. Shalev-Shwartz. Complexity theoretic limitations on learning dnf's. CoRR, abs/1404.3378, 2014.
+[12] S. Decatur, O. Goldreich, and D. Ron. Computational sample complexity. SIAM Journal on Computing, 29(3):854-879, 1999.
+[13] U. Feige and E. Ofek. Easily refutable subformulas of large random 3cnf formulas. In Automata, languages and programming, pages 519-530. Springer, 2004.
+[14] U. Feige and E. Ofek. Spectral techniques applied to sparse random graphs. Random Structures & Algorithms, 27(2):251-275, 2005.
+[15] V. Feldman. Attribute efficient and non-adaptive learning of parities and DNF expressions. Journal of Machine Learning Research, (8):1431-1460, 2007.
+[16] V. Feldman. Open problem: The statistical query complexity of learning sparse halfspaces. In COLT, pages 1283-1289, 2014.
+[17] V. Feldman, E. Grigorescu, L. Reyzin, S. Vempala, and Y. Xiao. Statistical algorithms and a lower bound for planted clique. In STOC, pages 655-664, 2013.
+[18] V. Feldman, W. Perkins, and S. Vempala. Subsampled power iteration: a unified algorithm for block models and planted csp's. CoRR, abs/1407.2774, 2014.
+[19] V. Feldman, W. Perkins, and S. Vempala. On the complexity of random satisfiability problems with planted solutions. In STOC, pages 77-86, 2015.
+[20] L. Florescu and W. Perkins. Spectral thresholds in the bipartite stochastic block model. arXiv preprint arXiv:1506.06737, 2015.
+[21] M. L. Fredman, J. Komlos, and E. Szemeredi. Storing a sparse table with 0 (1) worst case access time. Journal of the ACM (JACM), 31(3):538-544, 1984.
+[22] J. Friedman, A. Goerdt, and M. Krivelevich. Recognizing more unsatisfiable random k-sat instances efficiently. SIAM Journal on Computing, 35(2):408-430, 2005.
+[23] A. Goerdt and M. Krivelevich. Efficient recognition of random unsatisfiable k-sat instances by spectral methods. In STACS 2001, pages 294-304. Springer, 2001.
+[24] M. Kearns. Efficient noise-tolerant learning from statistical queries. JACM, 45(6):983-1006, 1998. [25] S. B. Korada, A. Montanari, and S. Oh. Gossip pca. In SIGMETRICS, pages 209-220, 2011. [26] F. Krzakala, C. Moore, E. Mossel, J. Neeman, A. Sly, L. Zdeborova, and P. Zhang. Spectral redemption
+in clustering sparse networks. PNAS, 110(52):20935-20940, 2013. [27] L. Massoulie. Community detection thresholds and the weak ramanujan property. In STOC, pages 1-10,
+2014. [28] F. McSherry. Spectral partitioning of random graphs. In FOCS, pages 529-537, 2001. [29] E. Mossel, J. Neeman, and A. Sly. A proof of the block model threshold conjecture. arXiv preprint
+arXiv:1311.4115, 2013. [30] R. O'Donnell and D. Witmer. Goldreich's prg: Evidence for near-optimal polynomial stretch. In
+Conference on Computational Complexity, 2014. [31] R. Servedio. Computational sample complexity and attribute-efficient learning. Journal of Computer
+and System Sciences, 60(1):161-178, 2000. [32] S. Shalev-Shwartz, O. Shamir, and E. Tromer. Using more data to speed-up training time. In AISTATS,
+pages 1019-1027, 2012. [33] V. Vu. A simple svd algorithm for finding hidden partitions. arXiv preprint arXiv:1404.3918, 2014.
+9
+

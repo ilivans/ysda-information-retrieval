@@ -1,0 +1,746 @@
+Sparse Linear Programming via Primal and Dual Augmented Coordinate Descent
+Ian E.H. Yen  Kai Zhong  Cho-Jui Hsieh  Pradeep Ravikumar  Inderjit S. Dhillon   University of Texas at Austin  University of California at Davis  {ianyen,pradeepr,inderjit}@cs.utexas.edu
+ zhongkai@ices.utexas.edu  chohsieh@ucdavis.edu
+Abstract
+Over the past decades, Linear Programming (LP) has been widely used in different areas and considered as one of the mature technologies in numerical optimization. However, the complexity offered by state-of-the-art algorithms (i.e. interior-point method and primal, dual simplex methods) is still unsatisfactory for problems in machine learning with huge number of variables and constraints. In this paper, we investigate a general LP algorithm based on the combination of Augmented Lagrangian and Coordinate Descent (AL-CD), giving an iteration complexity of O((log(1/))2) with O(nnz(A)) cost per iteration, where nnz(A) is the number of non-zeros in the m  n constraint matrix A, and in practice, one can further reduce cost per iteration to the order of non-zeros in columns (rows) corresponding to the active primal (dual) variables through an active-set strategy. The algorithm thus yields a tractable alternative to standard LP methods for large-scale problems of sparse solutions and nnz(A)  mn. We conduct experiments on large-scale LP instances from 1-regularized multi-class SVM, Sparse Inverse Covariance Estimation, and Nonnegative Matrix Factorization, where the proposed approach finds solutions of 10 3 precision orders of magnitude faster than state-of-the-art implementations of interior-point and simplex methods.
+1 Introduction
+Linear Programming (LP) has been studied since the early 19th century and has become one of the representative tools of numerical optimization with wide applications in machine learning such as 1-regularized SVM [1], MAP inference [2], nonnegative matrix factorization [3], exemplarbased clustering [4, 5], sparse inverse covariance estimation [6], and Markov Decision Process [7]. However, as the demand for scalability keeps increasing, the scalability of existing LP solvers has become unsatisfactory. In particular, most algorithms in machine learning targeting large-scale data have a complexity linear to the data size [8, 9, 10], while the complexity of state-of-the-art LP solvers (i.e. Interior-Point method and Primal, Dual Simplex methods) is still at least quadratic in the number of variables or constraints [11]. The quadratic complexity comes from the need to solve each linear system exactly in both simplex and interior point method. In particular, the simplex method, when traversing from one corner point to another, requires solution to a linear system that has dimension linear to the number of variables or constraints, while in an Interior-Point method, finding the Newton direction requires solving a linear system of similar size. While there are sparse variants of LU and Cholesky decomposition that can utilize the sparsity pattern of matrix in a linear system, the worst-case complexity for solving such system is at least quadratic to the dimension except for very special cases such as a tri-diagonal or band-structured matrix.
+1
+
+For interior point method (IPM), one remedy to the high complexity is employing an iterative method such as Conjugate Gradient (CG) to solve each linear system inexactly. However, this can hardly tackle the ill-conditioned linear systems produced by IPM when iterates approach boundary of constraints [12]. Though substantial research has been devoted to the development of preconditioners that can help iterative methods to mitigate the effect of ill-conditioning [12, 13], creating a preconditioner of tractable size is a challenging problem by itself [13]. Most commercial LP software thus still relies on exact methods to solve the linear system. On the other hand, some dual or primal (stochastic) sub-gradient descent methods have cheap cost for each iteration, but require O(1/2) iterations to find a solution of  precision, which in practice can even hardly find a feasible solution satisfying all constraints [14]. Augmented Lagrangian Method (ALM) was invented early in 1969, and since then there have been several works developed Linear Program solver based on ALM [15, 16, 17]. However, the challenge of ALM is that it produces a series of bound-constrained quadratic problems that, in the traditional sense, are harder to solve than linear system produced by IPM or Simplex methods [17]. Specifically, in a Projected-CG approach [18], one needs to solve several linear systems via CG to find solution to the bound-constrained quadratic program, while there is no guarantee on how many iterations it requires. On the other hand, Projected Gradient Method (PGM), despite its guaranteed iteration complexity, has very slow convergence in practice. More recently, Multi-block ADMM [19, 20] was proposed as a variant of ALM that, for each iteration, only updates one pass (or even less) blocks of primal variables before each dual update, which however, requires a much smaller step size in the dual update to ensure convergence [20, 21] and thus requires large number of iterations for convergence to moderate precision. To our knowledge, there is still no report on a significant improvement of ALM-based methods over IPM or Simplex method for Linear Programming. In the recent years, Coordinate Descent (CD) method has demonstrated efficiency in many machine learning problems with bound constraints or other non-smooth terms [9, 10, 22, 23, 24, 25] and has solid analysis on its iteration complexity [26, 27]. In this work, we show that CD algorithm can be naturally combined with ALM to solve Linear Program more efficiently than existing methods on large-scale problems. We provide an O((log(1/))2) iteration complexity of the Augmented Lagrangian with Coordinate Descent (AL-CD) algorithm that bounds the total number of CD updates required for an -precise solution, and describe an implementation of AL-CD that has cost O(nnz(A)) for each pass of CD. In practice, an active-set strategy is introduced to further reduce cost of each iteration to the active size of variables and constraints for primal-sparse and dual-sparse LP respectively, where a primal-sparse LP has most of variables being zero, and a dual-sparse LP has few binding constraints at the optimal solution. Note, unlike in IPM, the conditioning of each subproblem in ALM does not worsen over iterations [15, 16]. The AL-CD framework thus provides an alternative to interior point and simplex methods when it is infeasible to exactly solving an n  n (or m  m) linear system.
+
+2 Sparse Linear Program
+
+We are interested in solving linear programs of the form
+
+min
+x2Rn
+s.t.
+
+f (x) = cT x
+AI x  bI , AEx = bE xj 0, j 2 [nb]
+
+(1)
+
+where AI is mI by n matrix of coefficients and AE is mE by n. Without loss of generality, we assume non-negative constraints are imposed on the first nb variables, denoted as xb, such that x = [xb; xf ] and c = [cb; cf ]. The inequality and equality coefficient matrices can then be partitioned as AI = [AI,b AI,f ] and AE = [AE,b AE,f ]. The dual problem of (1) then takes the form
+
+min
+y2Rm
+s.t.
+
+g(y) = bT y ATb y  cb ,
+
+ATf y = cf
+
+(2)
+
+yi 0, i 2 [mI ].
+
+2
+
+where m = mI + mE, b = [bI ; bE], Ab = [AI,b; AE,b], Af = [AI,f ; AE,f ], and y = [yI ; yE]. In most of LP occur in machine learning, m and n are both at scale in the order 105 106, for which an algorithm with cost O(mn), O(n2) or O(m2) is unacceptable. Fortunately, there are usually various types of sparsity present in the problem that can be utilized to lower the complexity. First, the constraint matrix A = [AI ; AE] are usually pretty sparse in the sense that nnz(A)  mn, and one can compute matrix-vector product Ax in O(nnz(A)). However, in most of current LP solvers, not only matrix-vector product but also a linear system involving A needs to be solved, which in general, has cost much more than O(nnz(A)) and can be up to O(min(n3, m3)) in the worst case. In particular, the simplex-type methods, when moving from one corner to another, requires solving a linear system that involves a sub-matrix of A with columns corresponding to the basic variables [11], while in an interior point method (IPM), one also needs to solve a normal equation system of matrix ADtAT to obtain the Newton direction, where Dt is a diagonal matrix that gradually enforces complementary slackness as IPM iteration t grows [11]. While one remedy to the high complexity is to employ iterative method such as Conjugate Gradient (CG) to solve the system inexactly within IPM, this approach can hardly handle the ill-conditionedness occurs when IPM iterates approaches boundary [12]. On the other hand, the Augmented Lagrangian approach does not have such asymptotic ill-conditionedness and thus an iterative method with complexity linear to O(nnz(A)) can be used to produce sufficiently accurate solution for each sub-problem. Besides sparsity in the constraint matrix A, two other types of structures, which we termed primal and dual sparsity, are also prevalent in the context of machine learning. A primal-sparse LP refers to an LP with optimal solution x comprising only few non-zero elements, while a dual-sparse LP refers to an LP with few binding constraints at optimal, which corresponds to the non-zero dual variables. In the following, we give two examples of sparse LP.
+
+L1-Regularized Support Vector Machine The problem of L1-regularized multi-class Support Vector Machine [1]
+
+min
+wm ,i
+
+Xk Xl kwmk1 + i
+
+m=1
+
+i=1
+
+(3)
+
+s.t. wyTi xi wmT xi emi i, 8(i, m)
+
+wclhasesreke, mion=ly
+
+0 if yi those
+
+= m, leads
+
+teomi m=isc1laostshifiercwatiisoen.
+
+The will
+
+task is dual-sparse since among all samples become binding constraints. The problem
+
+i and (3) is
+
+also primal-sparse since it does feature selection through 1-penalty. Note the constraint matrix in
+
+(3) is also sparse since each constraint only involves two weight vectors, and the pattern xi can be
+
+also sparse.
+
+Sparse Inverse Covariance Estimation The Sparse Inverse Covariance Estimation aims to find a sparse matrix  that approximate the inverse of Covariance matrix. One of the most popular approach to this solves a program of the form [6]
+
+min
+2Rdd
+s.t.
+
+kk1 kS
+
+Idkmax 
+
+(4)
+
+which is primal-sparse due to the k.k1 penalty. The problem has a dense constraint matrix, which however, has special structure where the coefficient matrix S can be decomposed into a product of two low-rank and (possibly) sparse n by d matrices S = ZT Z. In case Z is sparse or n  d, this decomposition can be utilized to solve the Linear Program much more efficiently. We will discuss on how to utilize such structure in section 4.3.
+
+3 Primal and Dual Augmented Coordinate Descent
+In this section, we describe an Augmented Lagrangian method (ALM) that carefully tackles the sparsity in a LP. The choice between Primal and Dual ALM depends on the type of sparsity present in the LP. In particular, a primal AL method can solve a problem of few non-zero variables more efficiently, while dual ALM will be more efficient for problem with few binding constraints. In the following, we describe the algorithm only from the primal point of view, while the dual version can be obtained by exchanging the roles of primal (1) and dual (2).
+
+3
+
+Algorithm 1 (Primal) Augmented Lagrangian Method
+
+Initialization: y0 2 Rm and 0 > 0. repeat
+
+1. 2.
+
+Solve (6) to obtain (xt+1, Update yt+1 = yt + t
+
+t+1) from yt. AI xt+1 bI + AE xt+1 bE
+
+t+1
+
+.
+
+3. t = t + 1.
+
+4. Increase t by a constant factor if necessary.
+
+until k[AI xt bI ]+k1  p and kAExt bEk1  .
+
+3.1 Augmented Lagrangian Method (Dual Proximal Method)
+
+Let g(y) be the dual objective function (2) that takes 1 if y is infeasible. The primal AL algorithm can be interpreted as a dual proximal point algorithm [16] that for each iteration t solves
+
+yt+1 = argmin
+y
+
+g(y)
+
++
+
+1 2t
+
+ky
+
+ytk2.
+
+(5)
+
+Since g(y) is nonsmooth, (5) is not easier to solve than the original dual problem. However, the dual of (5) takes the form:
+
+min
+x, 
+
+F (x,
+
+)
+
+=
+
+cT x
+
++
+
+t 2
+
+s.t. xb 0,  0,
+
+AI x bI +  AE x bE
+
++
+
+1 t
+
+
+
+yyIEtt
+
+2
+
+(6)
+
+which is a bound-constrained quadratic problem. Note given (x, ) as Lagrangian Multipliers of (5), the corresponding y minimizing Lagrangian L(x, , y) is
+
+
+
+y(x, ) = t
+
+AI x bI +  AE x bE
+
+ + yyIEtt
+
+,
+
+(7)
+
+and thus one can solve (x, ) from (6) and find yt+1 through (7). The resulting algorithm is sketched in Algorithm 1. For problem of medium scale, (6) is not easier to solve than a linear system due to non-negative constraints, and thus an ALM is not preferred to IPM in the traditional sense. However, for large-scale problem with m  n nnz(A), the ALM becomes advantageous since: (i) the conditioning of (6) does not worsen over iterations, and thus allows iterative methods to solve it approximately in time proportional to O(nnz(A)). (ii) For a primal-sparse (dual-sparse) problem, most of primal (dual) variables become binding at zero as iterates approach to the optimal solution, which yields a potentially much smaller subproblem.
+
+3.2 Solving Subproblem via Coordinate Descent
+
+Given a dual solution yt, we employ a variant of Randomized Coordinate Descent (RCD) method to solve subproblem (6). First, we note that, given x, the part of variables in  can minimized in closed-form as
+
+(x) = [bI AI x yIt /t]+,
+
+(8)
+
+where function [v]+ truncates each element of vector v to be non-negative as [v]+i = max{vi, 0}. Then (6) can be re-written as
+
+min
+x
+
+F(x)
+
+=
+
+cT x
+
++
+
+t 2
+
+s.t. xb 0.
+
+[AI x AE x
+
+bbIE++yyIt E/t /t]+t
+
+2
+
+(9)
+
+4
+
+Algorithm 2 RCD for subproblem (6)
+
+INPUT: t > 0 and (xt,0, wt,0, vt,0) satisfying relation (11), (12).
+
+OUTPUT: (xt,k, wt,k, vt,k)
+
+repeat
+
+1. Pick a coordinate j uniformly at random
+
+2. 3. 4.
+
+CODobomtlaiipnnuetNseeerawrjctoFhn((x1d5i)r,)erctot2jiofiFnn(ddxjs).t.ep
+
+size.
+
+5. 6.
+
+Update xt,k+1 Maintain relation
+
+xt,k (11),
+
++(12)r.dj
+
+.
+
+7. k k + 1.
+
+until kd(x)k1  t.
+
+Algorithm 3 PN-CG for subproblem (6)
+
+INPUT: t > 0 and (xt,0, wt,0, vt,0) satisfying relation (11), (12).
+
+OUTPUT: (xt,k, wt,k, vt,k)
+
+repeat
+
+1. Identify active variables At,k.
+
+2. Compute [rj F (x)]At,k and set Dt,k.
+
+3. 4.
+
+Find Find
+
+NsteepwstoiznedviiraecptrioonjecdtAetd,kliwneitsheCarGch. .
+
+5. 6.
+
+Update xt,k+1 Maintain relation
+
+(xt,k (11),
+
++r (12).
+
+dj
+
+)+.
+
+7. k k + 1.
+
+until kdAt,k k1  t.
+
+Denote the objective function as F(x). The gradient of (9) can be expressed as
+
+rF(x) = c + tATI [w]+ + tATEv
+
+where
+
+w = AI x bI + yIt /t v = AEx bE + yEt /t,
+
+and the (generalized) Hessian of (9) is
+
+(10)
+(11) (12)
+
+r2F(x) = tATI D(w)AI + tATEAE,
+
+(13)
+
+where D(w) is an mI by mI diagonal matrix with Dii(w) = 1 if wi > 0 and Dii = 0 otherwise.
+
+The RCD algorithm then proceeds as follows. In each iteration k, it picks a coordinate from j 2
+
+{1, .., n} uniformly at random and minimizes w.r.t. the coordinate. The minimization is conducted
+
+by a single-variable Newton quadratic approximation
+
+step,
+
+which
+
+first
+
+finds
+
+the
+
+Newton
+
+direction
+
+dj
+
+through
+
+minimizing
+
+a
+
+dj = argmin
+d
+s.t.
+
+rj F(xt,k)d
+
++
+
+1 2
+
+r2j F
+
+(xt,k
+
+)d2
+
+xtj,k + d 0,
+
+and then conducted a line search to find the smallest r 2 {0, 1, 2, ...} satisfying
+
+(14)
+
+F(xt,k + rdj ej ) F(xt,k)  r(rj F(xt,k)dj ).
+
+(15)
+
+for some line-search parameter 2 (0, 1/2], 2 (0, 1), where ej denotes a vector with only jth
+
+element equal to 1 and all others equal to 0. Note the single-variable problem (14) has closed-form
+
+solution
+
+h
+
+i
+
+dj = xtj,k rj F(xtj,k)/r2j F(xtj,k) + xtj,k,
+
+(16)
+
+which in a naive implementation, takes O(nnz(A)) time due to the computation of (11) and (12).
+
+However, in a clever implementation, one can maintain the relation (11), (12) as follows whenever
+
+a coordinate xj is updated by rdj
+
+ wt,k+1 vt,k+1
+
+ =
+
+wt,k vt,k
+
++
+
+ r dj
+
+aIj aEj
+
+,
+
+(17)
+
+wsehceorneda-djer=iva[atiIjv;e oafEj j]tdhecnoooterdsinthaetejth column of AI and AE. Then the gradient and (generalized)
+
+rjF(x) = cj + thaIj , [w]+i + thaEj , vi !
+
+XX
+
+r2j F(x) = t
+
+(aIi,j )2 + (aEi,j )2
+
+i:wi >0
+
+i
+
+(18)
+
+5
+
+can be computed in O(nnz(aj)) time. Similarly, for each coordinate update, one can evaluate the
+
+difference of related to the
+
+function value jth variable.
+
+F(xt,k
+
++
+
+dj ej )
+
+F(xt,k) in O(nnz(aj)) by only computing terms
+
+The overall procedure for solving subproblem is summarized in Algorithm 2. In practice, a random permutation is used instead of uniform sampling to ensure that every coordinate is updated once before proceeding to the next round, which can speed up convergence and ease the checking of stopping condition kd(x)k1  t, and an active-set strategy is employed to avoid updating variables with dj = 0. We describe details in section 4
+
+3.3 Convergence Analysis
+
+In this section, we prove the iteration complexity of AL-CD method. Existing analysis [26, 27]
+
+shows that Randomized Coordinate Descent can be up to n times faster than Gradient-based methods in certain conditions. However, to prove a global linear rate of convergence the analysis requires
+
+objective function to be strongly convex, which is not true for our sub-problem (6). Here we follow
+
+the approach in [28, 29] to show global linear convergence of Algorithm 2 by utilizing the fact that,
+
+when restricted to a constant subspace, (6) is strongly convex. All proofs will be included in the
+
+appendix.
+
+Theorem 1 (Linear Convergence). Denote F  as the optimum of (6) and x = [x; ]. The iterates
+
+{xk}1k=0 of the RCD Algorithm 2 has  
+
+E[F (xk+1)] F   1
+
+1 n
+
+E[F (xk)] F  ,
+
+(19)
+
+where
+
+= max 16tM (F 0 F ) , 2M (1 + 4L2g) , 6 ,
+
+M = maxj2[n] kajk2 is an upper bound on coordinate-wise second derivative, and Lg is local Lipschitz-continuous constant of function g(z) = tkz b + yt/tk2, and  is constant of Hoffman's bound that depends on the polyhedron formed by the set of optimal solutions.
+
+Then the following theorem gives a bound on the number of iterations required to find an 0-precise solution in terms of the proximal minimization (5).
+
+Theorem 2 (Inner Iteration Complexity). Denote y(xk) as the dual solution (7) corresponding to the primal iterate xk. To guarantee
+
+with probability 1
+
+ky(xk) yt+1k  0
+
+p,
+
+it
+
+suffices
+
+running
+
+RCsD Algorithm
+
+2
+
+for
+
+number !
+
+of
+
+iterations
+
+k 2 n log
+
+2(F (x0) F ) 1 tp 0
+
+.
+
+(20)
+
+Now we prove the overall iteration complexity of AL-CD. Note that existing linear convergence
+
+analysis of ALM on Linear Program [16] assumes exact solutions of subproblem (6), which is
+
+not possible in practice. Our next theorem extends the linear convergence result to cases when
+
+subproblems are solved inexactly, and in particular, shows the total number of coordinate descent
+
+updates required to find an -accurate solution.
+
+Theorem 3 (Iteration Complexity). Denote aocf tydtuoatlhperosextimofaloputpidmaatlesd,u{aylts}o1tl=u1tioansst.haTot suffices to run Algorithm 1 for
+
+{gyent}e1tr=a1teadsbtyheexsaeqctueunpcdeatoefsi,tearnadteysSobtaasintheed
+
+from inexprojection
+
+guarantee kyt ySt  k  2 with probability 1 p, it
+
+
+
+T
+
+=
+
+(1
+
++
+
+1 
+
+)
+
+log
+
+LR 
+
+(21)
+
+outer
+
+iterations
+
+with
+
+t
+
+= k
+
+(1 + 2
+
+n)Llo, gand!solv+e
+
+each sub-problem (6) byrunning
+
+3 2
+
+log
+
+(1
+
++
+
+1 
+
+)
+
+log
+
+LR 
+
+Algorithm
+
+2
+
+for (22)
+
+iqnner iterations, where L is a constant depending on the polyhedral set of optimal solutions, ! =
+
+2(1+)L(F 0 p
+
+F ) , R = kproxtg(y0)
+
+y0k, and F 0, F  are upper and lower bounds on the
+
+initial and optimal function values of subproblem respectively.
+
+6
+
+3.4 Fast Asymptotic Convergence via Projected Newton-CG
+
+The RCD algorithm converges to a solution of moderate precision efficiently, but in some problems a higher precision might be required. In such case, we transfer the subproblem solver from RCD to a Projected Newton-CG (PN-CG) method after iterates are close enough to the optimum. Note the Projected Newton method does not have global iteration complexity but has fast convergence for iterates very close to the optimal.
+
+Denote F (x) as the objective in (9). Each iterate of PN-CG begins by finding the set of active
+
+variables defined as
+
+At,k = {j|xtj,k > 0 _ rj F (xt,k) < 0}.
+
+(23)
+
+Then the algorithm fixes xtj,k = 0, 8j 2/ At,k and solves a Newton linear system w.r.t. j 2 At,k
+
+[r2At,k F (xt,k)]d = [rAt,k F (xt,k)]
+
+(24)
+
+to obtain direction d for the current active variables. Let dAt,k denotes a size-n vector taking value in d for j 2 At,k and taking value 0 for j 2/ At,k. The algorithm then conducts a projected line search to find smallest r 2 {0, 1, 2, ...} satisfying
+
+F ([xt,k + rdAt,k ]+) F (xt,k)  r(rj F (xt,k)dAt,k ),
+
+(25)
+
+and update tractability
+
+x of
+
+by xt,k+1 this approach
+
+(xt,k + r lies on the
+
+cdojn)+di.tioCnoimngpaorfeldinteoarinstyesritoemr p(o2i4n)t,
+
+method, one key to the which does not worsen
+
+as outer iteration t increases, so an iterative Conjugate Gradient (CG) method can be used to obtain
+
+accurate solution without factorizing the Hessian matrix. The only operation required within CG is
+
+the Hessian-vector product
+
+[r2At,k F (xt,k)]s = t [ATI D(wt,k)AI + ATE AE ]At,k s,
+
+(26)
+
+where the operator [.]At,k takes the sub-matrix with row and column indices belonging to At,k. For a primal or dual-sparse LP, the product (26) can be evaluated very efficiently, since it only involves non-zero elements in columns of AI , AE belonging to the active set, and rows of AI corresponding to the binding constraints for which Dii(wt,k) > 0. The overall cost of the product (26) is only
+
+O nnz([AI ]Dt,k,At,k ) + nnz([AE ]:,At,k ) ,
+
+wpuhtearteionDatl,kbo=ttle{nie|wckit,kof
+
+> 0} is PN-CG
+
+the set of current binding is on the CG iterations for
+
+constraints. Considering that the comsolving linear system (24), the efficient
+
+computation of product (26) reduces the overall complexity of PN-CG significantly. The whole
+
+procedure is summarized in Algorithm 3.
+
+4 Practical Issues
+4.1 Precision of Subproblem Minimization In practice, it is unnecessary to solve subproblem (6) to high precision, especially for iterations of ALM in the beginning. In our implementation, we employ a two-phase strategy, where in the first phase we limit the cost spent on each sub-problem (6) to be a constant multiple of nnz(A), while in the second phase we dynamically increment the AL parameter t and inner precision t to ensure sufficient decrease in the primal and dual infeasibility respectively. The two-phase strategy is particularly useful for primal or dual-sparse problem, where sub-problem in the latter phase has smaller active set that results in less computation cost even when solved to high precision.
+
+4.2 Active-Set Strategy Our implementation of Algorithm 2 maintains an active set of variables A, which initially contains all variables, but during the RCD iterates, any variable xj binding at 0 with gradient rjF greater than a threshold will be excluded from A till the end of each subproblem solving. A will be re-initialized after each dual proximal update (7). Note in the initial phase, the cost spent on each subproblem is a constant multiple of nnz(A), so if |A| is small one would spend more iterations on the active variables to achieve faster convergence.
+
+7
+
+4.3 Dealing with Decomposable Constraint Matrix When we have a m by n constraint matrix A = U V T that can be decomposed into product of an m  r matrix U and a r  n matrix V T , if r  min{m, n} or nnz(U ) + nnz(V )  nnz(A), we can re-formulate the constraint Ax  b as U z  b , V T x = z with auxiliary variables z 2 Rr. This new representation reduce the cost of Hessian-vector product in Algorithm 3 and the cost of each pass of CD in Algorithm 2 from O(nnz(A)) to O(nnz(U ) + nnz(V )).
+
+5 Numerical Experiments
+
+Table 1: Timing Results (in sec. unless specified o.w.) on Multiclass L1-regularized SVM
+
+Data rcv1 news sector mnist cod-rna.rf vehicle real-sim
+
+nb 4,833,738 2,498,415 11,597,992
+75,620 69,537 79,429 114,227
+
+mI 778,200 302,765 666,848 540,000 59,535 157,646 72,309
+
+P-Simp. > 48hr > 48hr > 48hr 6,454 86,130 3,296 > 48hr
+
+D-Simp. > 48hr 37,912 9,282 2,556 5,738 143.33 49,405
+
+Barrier > 48hr > 48hr > 48hr 73,036 > 48hr 8,858 89,476
+
+D-ALCD 3,452 148 1,419 146 3,130 31 179
+
+P-ALCD 3,155 395 2,029 7,207 2,676 598 297
+
+Table 2: Timing Results (in sec. unless specified o.w.) on Sparse Inverse Covariance Estimation
+
+Data textmine E2006 dorothea
+
+nb 60,876 55,834 47,232
+
+mI 60,876 55,834 47,232
+
+mE 43,038 32,174 1,600
+
+nf 43,038 32,174 1,600
+
+P-Simp > 48hr > 48hr 3,980
+
+D-Simp > 48hr > 48hr
+103
+
+Barrier > 48hr 94623
+82
+
+D-ALCD 43,096 > 48hr 47
+
+P-ALCD 18,507 4,207
+38
+
+Table 3: Timing Results (in sec. unless specified o.w.) for Nonnegative Matrix Factorization.
+
+Data micromass
+ocr
+
+nb 2,896,770 6,639,433
+
+mI 4,107,438 13,262,864
+
+P-Simp. > 96hr > 96hr
+
+D-Simp. > 96hr > 96hr
+
+Barrier 280,230 284,530
+
+D-ALCD 12,966 40,242
+
+P-ALCD 12,119 > 96hr
+
+In this section, we compare the AL-CD algorithm with state-of-the-art implementation of interior point and primal, dual Simplex methods in commercial LP solver CPLEX, which is of top efficiency among many LP solvers as investigated in [30]. For all experiments, the stopping criteria is set to require both primal and dual infeasibility (in the 1-norm) smaller than 10 3 and set the initial subproblem tolerance t = 10 2 and t = 1. The LP instances are generated from L1-SVM (3), Sparse Inverse Covariance Estimation (4) and Nonnegative Matrix Factorization [3]. For the Sparse Inverse Covariance Estimation problem, we use technique introduced in section 4.3 to decompose the lowrank matrix S, and since (4) results in d independent problems for each column of the estimated matrix, we report result on only one of them. The data source and statistics are included in the appendix. Among all experiments, we observe that the proposed primal, dual AL-CD methods become particularly advantageous when the matrix A is sparse. For example, for text data set rcv1, real-sim and news in Table 1, the matrix A is particularly sparse and AL-CD can be orders of magnitude faster than other approaches by avoiding solving n  n linear system exactly. In addition, the dual-ALCD (also dual simplex) is more efficient in L1-SVM problem due to the problem's strong dual sparsity, while the primal-ALCD is more efficient on the primal-sparse Inverse Covariance estimation problem. For the Nonnegative Matrix Factorization problem, both the dual and primal LP solutions are not particularly sparse due to the choice of matrix approximation tolerance (1% of #samples), but the AL-CD approach is still comparably more efficient. Acknowledgement We acknowledge the support of ARO via W911NF-12-1-0390, and the support of NSF via grants CCF-1320746, CCF-1117055, IIS-1149803, IIS-1320894, IIS-1447574, DMS1264033, and NIH via R01 GM117594-01 as part of the Joint DMS/NIGMS Initiative to Support Research at the Interface of the Biological and Mathematical Sciences.
+
+8
+
+References
+[1] J. Zhu, S. Rosset, T. Hastie, and R. Tibshirani. 1-norm support vector machines. NIPS, 2004. [2] D. Koller and N. Friedman. Probabilistic graphical models: principles and techniques. MIT press, 2009. [3] N. Gillis and R. Luce. Robust near-separable nonnegative matrix factorization using linear optimization.
+JMLR, 2014. [4] A. Nellore and R. Ward. Recovery guarantees for exemplar-based clustering. arXiv., 2013. [5] I. Yen, X. Lin, K. Zhong, P. Ravikumar, and I. Dhillon. A convex exemplar-based approach to MAD-
+Bayes Dirichlet process mixture models. In ICML, 2015. [6] M. Yuan. High dimensional inverse covariance matrix estimation via linear programming. JMLR, 2010. [7] D. Bello and G. Riano. Linear programming solvers for Markov decision processes. In Systems and
+Information Engineering Design Symposium, pages 90-95, 2006. [8] T. Joachims. Training linear svms in linear time. In KDD. ACM, 2006. [9] C. Hsieh, K. Chang, C. Lin, S.S. Keerthi, and S. Sundararajan. A dual coordinate descent method for
+large-scale linear SVM. In ICML, volume 307. ACM, 2008. [10] G. Yuan, C. Hsieh K. Chang, and C. Lin. A comparison of optimization methods and software for large-
+scale l1-regularized linear classification. JMLR, 11, 2010. [11] J. Nocedal and S.J. Wright. Numerical Optimization. Springer, 2006. [12] J. Gondzio. Interior point methods 25 years later. EJOR, 2012. [13] J. Gondzio. Matrix-free interior point method. Computational Optimization and Applications, 2012. [14] V.Eleuterio and D.Lucia. Finding approximate solutions for large scale linear programs. Thesis, 2009. [15] Evtushenko, Yu. G, Golikov, AI, and N. Mollaverdy. Augmented lagrangian method for large-scale linear
+programming problems. Optimization Methods and Software, 20(4-5):515-524, 2005. [16] F. Delbos and J.C. Gilbert. Global linear convergence of an augmented lagrangian algorithm for solving
+convex quadratic optimization problems. 2003. [17] O. Guler. Augmented lagrangian algorithms for linear programming. Journal of optimization theory and
+applications, 75(3):445-470, 1992. [18] J. More J and G. Toraldo. On the solution of large quadratic programming problems with bound con-
+straints. SIAM Journal on Optimization, 1(1):93-113, 1991. [19] M. Hong and Z. Luo. On linear convergence of alternating direction method of multipliers. arXiv, 2012. [20] H. Wang, A. Banerjee, and Z. Luo. Parallel direction method of multipliers. In NIPS, 2014. [21] C.Chen, B.He, Y.Ye, and X.Yuan. The direct extension of admm for multi-block convex minimization
+problems is not necessarily convergent. Mathematical Programming, 2014. [22] I.Dhillon, P.Ravikumar, and A.Tewari. Nearest neighbor based greedy coordinate descent. In NIPS, 2011. [23] I. Yen, C. Chang, T. Lin, S. Lin, and S. Lin. Indexed block coordinate descent for large-scale linear
+classification with limited memory. In KDD. ACM, 2013. [24] I. Yen, S. Lin, and S. Lin. A dual-augmented block minimization framework for learning with limited
+memory. In NIPS, 2015. [25] K. Zhong, I. Yen, I. Dhillon, and P. Ravikumar. Proximal quasi-Newton for computationally intensive
+l1-regularized m-estimators. In NIPS, 2014. [26] P. Richtarik and M. Takac. Iteration complexity of randomized block-coordinate descent methods for
+minimizing a composite function. Mathematical Programming, 144(1-2):1-38, 2014. [27] Y. Nesterov. Efficiency of coordinate descent methods on huge-scale optimization problems. SIAM
+Journal on Optimization, 22(2):341-362, 2012. [28] P. Wang and C. Lin. Iteration complexity of feasible descent methods for convex optimization. The
+Journal of Machine Learning Research, 15(1):1523-1548, 2014. [29] I. Yen, C. Hsieh, P. Ravikumar, and I.S. Dhillon. Constant nullspace strong convexity and fast convergence
+of proximal methods under high-dimensional settings. In NIPS, 2014. [30] B. Meindl and M. Templ. Analysis of commercial and free and open source solvers for linear optimization
+problems. Eurostat and Statistics Netherlands, 2012. [31] A.J. Hoffman. On approximate solutions of systems of linear inequalities. Journal of Research of the
+National Bureau of Standards, 49(4):263-265, 1952. [32] A. Rahimi and B. Recht. Random features for large-scale kernel machines. In NIPS, 2007. [33] I. Yen, T. Lin, S. Lin, P. Ravikumar, and I. Dhillon. Sparse random feature algorithm as coordinate descent
+in Hilbert space. In NIPS, 2014.
+9
+
