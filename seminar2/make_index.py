@@ -4,14 +4,12 @@ import cPickle
 import argparse
 from collections import defaultdict, Counter
 
-import pandas as pd
-import numpy as np
 from numpy import log2
 from scipy.special import expit
 
 from utils import get_terms
 
-EPSILON = 1e-3
+EPSILON = 1e-6
 
 
 def build_index(dir_path):
@@ -29,20 +27,14 @@ def build_index(dir_path):
 
 
 def build_inverted_index(index):
-    inverted_index = defaultdict(lambda: list())
+    inverted_index = defaultdict(lambda: dict())
     for document_id, document in index.iteritems():
         tokens = get_terms(document)
         terms_frequencies = Counter(tokens)
         for term, frequency in terms_frequencies.iteritems():
             tf = float(frequency) / (len(tokens) + EPSILON)  # 0 <= tf < 1
-            inverted_index[term].append([document_id, tf])
-
-    # Inverted index with DataFrame as a value
-    inverted_index_df = dict()
-    for term, doc_ids_and_frequencies in inverted_index.iteritems():
-        inverted_index_df[term] = pd.DataFrame(doc_ids_and_frequencies, columns=["doc_id", term])
-
-    return inverted_index_df
+            inverted_index[term][document_id] = tf
+    return dict(inverted_index)
 
 
 def get_documents_number(dir_path):
@@ -51,10 +43,11 @@ def get_documents_number(dir_path):
 
 def get_inverse_document_frequencies(inverted_index, num_docs):
     term_to_idf = dict()
-    for term, doc_ids_and_frequencies in inverted_index.iteritems():
-        num_docs_local = doc_ids_and_frequencies.shape[0]
+    for term, posting_list in inverted_index.iteritems():
+        num_docs_local = len(posting_list)
         idf = 2 * expit(log2(max(float(num_docs) / (num_docs_local + EPSILON), 1.))) - 1  # 0 <= idf < 1
         term_to_idf[term] = idf
+    return term_to_idf
 
 
 def main():
