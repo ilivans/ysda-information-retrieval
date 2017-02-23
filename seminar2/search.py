@@ -30,7 +30,7 @@ def get_tfidf_matrix(documents_ids, terms, inverted_index, term_to_idf):
 
 
 def main():
-    inverted_index, id_to_path, term_to_idf = cPickle.load(open("iindex.pkl", "rb"))
+    inverted_index, id_to_path, term_to_idf = cPickle.load(open("stuff.pkl", "rb"))
 
     while True:
         query = raw_input("\nType your query: ")

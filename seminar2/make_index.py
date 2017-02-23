@@ -60,7 +60,7 @@ def main():
     inverted_index = build_inverted_index(index)
     num_docs = get_documents_number(dir_path)
     term_to_idf = get_inverse_document_frequencies(inverted_index, num_docs)
-    cPickle.dump((inverted_index, id_to_path, term_to_idf), open("iindex.pkl", "wb"))
+    cPickle.dump((inverted_index, id_to_path, term_to_idf), open("stuff.pkl", "wb"))
 
 
 if __name__ == "__main__":
