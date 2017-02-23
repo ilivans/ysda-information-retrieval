@@ -5,11 +5,11 @@ import argparse
 from collections import defaultdict, Counter
 
 from numpy import log2
-from scipy.special import expit
 
 from utils import get_terms
 
 EPSILON = 1e-6
+PICKLE_PATH = "stuff.pkl"
 
 
 def build_index(dir_path):
@@ -30,9 +30,12 @@ def build_inverted_index(index):
     inverted_index = defaultdict(lambda: dict())
     for document_id, document in index.iteritems():
         tokens = get_terms(document)
+        if not len(tokens):
+            continue
         terms_frequencies = Counter(tokens)
+        max_frequency =  terms_frequencies.most_common(1)[0][1]
         for term, frequency in terms_frequencies.iteritems():
-            tf = float(frequency) / (len(tokens) + EPSILON)  # 0 <= tf < 1
+            tf = float(frequency) / max_frequency  # 0 <= tf <= 1
             inverted_index[term][document_id] = tf
     return dict(inverted_index)
 
@@ -45,7 +48,7 @@ def get_inverse_document_frequencies(inverted_index, num_docs):
     term_to_idf = dict()
     for term, posting_list in inverted_index.iteritems():
         num_docs_local = len(posting_list)
-        idf = 2 * expit(log2(max(float(num_docs) / (num_docs_local + EPSILON), 1.))) - 1  # 0 <= idf < 1
+        idf = log2(float(num_docs) / num_docs_local) / log2(num_docs) # 0 <= idf <= 1
         term_to_idf[term] = idf
     return term_to_idf
 
@@ -60,7 +63,7 @@ def main():
     inverted_index = build_inverted_index(index)
     num_docs = get_documents_number(dir_path)
     term_to_idf = get_inverse_document_frequencies(inverted_index, num_docs)
-    cPickle.dump((inverted_index, id_to_path, term_to_idf), open("stuff.pkl", "wb"))
+    cPickle.dump((inverted_index, id_to_path, term_to_idf), open(PICKLE_PATH, "wb"))
 
 
 if __name__ == "__main__":

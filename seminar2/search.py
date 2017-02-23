@@ -6,6 +6,7 @@ import numpy as np
 from tabulate import tabulate
 
 from utils import get_terms
+from make_index import PICKLE_PATH
 
 TOP_SIZE = 10
 
@@ -30,7 +31,7 @@ def get_tfidf_matrix(documents_ids, terms, inverted_index, term_to_idf):
 
 
 def main():
-    inverted_index, id_to_path, term_to_idf = cPickle.load(open("stuff.pkl", "rb"))
+    inverted_index, id_to_path, term_to_idf = cPickle.load(open(PICKLE_PATH, "rb"))
 
     while True:
         query = raw_input("\nType your query: ")
