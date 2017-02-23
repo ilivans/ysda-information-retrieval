@@ -4,4 +4,4 @@ tokenize = RegexpTokenizer("\w+").tokenize
 
 
 def get_terms(text):
-    return map(str.lower, tokenize(text))
+    return tokenize(text.lower())
