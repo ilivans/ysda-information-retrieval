@@ -1,0 +1,915 @@
+Top-k Multiclass SVM
+
+Maksim Lapin,1 Matthias Hein2 and Bernt Schiele1 1Max Planck Institute for Informatics, Saarbrucken, Germany
+2Saarland University, Saarbrucken, Germany
+Abstract
+Class ambiguity is typical in image classification problems with a large number of classes. When classes are difficult to discriminate, it makes sense to allow k guesses and evaluate classifiers based on the top-k error instead of the standard zero-one loss. We propose top-k multiclass SVM as a direct method to optimize for top-k performance. Our generalization of the well-known multiclass SVM is based on a tight convex upper bound of the top-k error. We propose a fast optimization scheme based on an efficient projection onto the top-k simplex, which is of its own interest. Experiments on five datasets show consistent improvements in top-k accuracy compared to various baselines.
+
+1 Introduction
+
+As the number of classes increases, two important issues emerge: class overlap and multilabel nature of examples [9]. This phenomenon asks for adjustments of both the evaluation metrics as well as the loss functions employed. When a predictor is allowed k guesses and is not penalized for k - 1 mistakes, such an evaluation measure is known as top-k error. We argue that this is an important metric that will inevitably receive more attention in the future as the illustration in Figure 1 indicates.
+
+Figure 1: Images from SUN 397 [29] illustrating class ambiguity. Top: (left to right) Park, River, Pond. Bottom: Park, Campus, Picnic area.
+
+How obvious is it that each row of Figure 1 shows examples of different classes? Can we imagine a human to predict correctly on the first attempt? Does it even make sense to penalize a learning system for such "mistakes"? While the problem of class ambiguity is apparent in computer vision, similar problems arise in other domains when the number of classes becomes large.
+
+We propose top-k multiclass SVM as a generalization of the well-known multiclass SVM [5]. It is based on a tight convex upper bound of the top-k zero-one loss which we call top-k hinge loss. While it turns out to be similar to a top-k version of the ranking based loss proposed by [27], we show that the top-k hinge loss is a lower bound on their version and is thus a tighter bound on the top-k zero-one loss. We propose an efficient implementation based on stochastic dual coordinate ascent (SDCA) [24]. A key ingredient in the optimization is the (biased) projection onto the top-k simplex. This projection turns out to be a tricky generalization of the continuous quadratic knapsack problem, respectively the projection onto the standard simplex. The proposed algorithm for solving it has complexity O(m log m) for x  Rm. Our implementation of the top-k multiclass SVM scales to large datasets like Places 205 with about 2.5 million examples and 205 classes [30]. Finally, extensive experiments on several challenging computer vision problems show that top-k multiclass SVM consistently improves in top-k error over the multiclass SVM (equivalent to our top-1 multiclass SVM), one-vs-all SVM and other methods based on different ranking losses [11, 16].
+
+1
+
+2 Top-k Loss in Multiclass Classification
+
+In multiclass classification, one is given a set S = {(xi, yi) | i = 1, . . . , n} of n training examples xi  X along with the corresponding labels yi  Y. Let X = Rd be the feature space and Y = {1, . . . , m} the set of labels. The task is to learn a set of m linear predictors wy  Rd such that the risk of the classifier arg maxyY wy, x is minimized for a given loss function, which is usually chosen to be a convex upper bound of the zero-one loss. The generalization to nonlinear predictors using kernels is discussed below.
+The classification problem becomes extremely challenging in the presence of a large number of ambiguous classes. It is natural in that case to extend the evaluation protocol to allow k guesses, which leads to the popular top-k error and top-k accuracy performance measures. Formally, we consider a ranking of labels induced by the prediction scores wy, x . Let the bracket [*] denote a permutation of labels such that [j] is the index of the j-th largest score, i.e.
+w[1], x  w[2], x  . . .  w[m], x .
+The top-k zero-one loss errk is defined as
+errk(f (x), y) = 1 w[k],x > wy,x ,
+where f (x) = ( w1, x , . . . , wm, x ) and 1P = 1 if P is true and 0 otherwise. Note that the standard zero-one loss is recovered when k = 1, and errk(f (x), y) is always 0 for k = m. Therefore, we are interested in the regime 1  k < m.
+
+2.1 Multiclass Support Vector Machine
+
+In this section we review the multiclass SVM of Crammer and Singer [5] which will be extended to the top-k multiclass SVM in the following. We mainly follow the notation of [24].
+
+Given a training pair (xi, yi), the multiclass SVM loss on example xi is defined as myaYx{1y=yi + wy, xi - wyi , xi }.
+
+(1)
+
+Since our optimization scheme is based on Fenchel duality, we also require a convex conjugate of the primal loss function (1). Let c 1-eyi , where 1 is the all ones vector and ej is the j-th standard basis vector in Rm, let a  Rm be defined componentwise as aj wj, xi - wyi , xi , and let
+ {x  Rm | 1, x  1, 0  xi, i = 1, . . . , m}.
+Proposition 1 ([24],  5.1). A primal-conjugate pair for the multiclass SVM loss (1) is
+
+(a) = max{0, (a + c)[1]},
+
+(b) =
+
+- c, b +
+
+if b  , otherwise.
+
+(2)
+
+Note that thresholding with 0 in (a) is actually redundant as (a + c)[1]  (a + c)yi = 0 and is only given to enhance similarity to the top-k version defined later.
+
+2.2 Top-k Support Vector Machine
+The main motivation for the top-k loss is to relax the penalty for making an error in the top-k predictions. Looking at  in (2), a direct extension to the top-k setting would be a function
+k(a) = max{0, (a + c)[k]},
+which incurs a loss iff (a + c)[k] > 0. Since the ground truth score (a + c)[yi] = 0, we conclude that
+k(a) > 0  w[1], xi  . . .  w[k], xi > wyi , xi - 1, which directly corresponds to the top-k zero-one loss errk with margin 1. Note that the function k ignores the values of the first (k - 1) scores, which could be quite large if there are highly similar classes. That would be fine in this model as long as the correct prediction is
+
+2
+
+within the first k guesses. However, the function k is unfortunately nonconvex since the function fk(x) = x[k] returning the k-th largest coordinate is nonconvex for k  2. Therefore, finding a
+globally optimal solution is computationally intractable.
+
+Instead, we propose the following convex upper bound on k, which we call the top-k hinge loss,
+
+1k
+
+k(a) = max
+
+0, k
+
+(a + c)[j] ,
+
+j=1
+
+(3)
+
+where the sum of the k largest components is known to be convex [3]. We have that
+
+k(a)  k(a)  1(a) = (a),
+for any k  1 and a  Rm. Moreover, k(a) < (a) unless all k largest scores are the same. This extra slack can be used to increase the margin between the current and the (m - k) remaining least similar classes, which should then lead to an improvement in the top-k metric.
+
+2.2.1 Top-k Simplex and Convex Conjugate of the Top-k Hinge Loss
+
+In this section we derive the conjugate of the proposed loss (3). We begin with a well known result that is used later in the proof. All proofs can be found in the supplement. Let [a]+ = max{0, a}.
+
+Lemma 1 ([17], Lemma 1).
+
+k j=1
+
+h[j]
+
+=
+
+mint
+
+kt +
+
+mj=1[hj - t]+ .
+
+We also define a set k which arises naturally as the effective domain1 of the conjugate of (3). By analogy, we call it the top-k
+Top-1
+Top-2 simplex as for k = 1 it reduces to the standard simplex with the
+Top-3
+1 inequality constraint (i.e. 0  k). Let [m] 1, . . . , m.
+Definition 1. The top-k simplex is a convex polytope defined as
+
+1 1/2 k(r) x 1, x  r, 0  xi  k 1, x , i  [m] ,
+1/3
+
+0 0
+1/3 1/2
+
+11
+
+1/3 1/2
+
+Figure 2: Top-k simplex k(1)
+
+for m = 3. Unlike the standard
+
+simplex, it has
+
+m k
+
++ 1 vertices.
+
+where r  0 is the bound on the sum 1, x . We let k k(1).
+The crucial difference to the standard simplex is the upper bound on xi's, which limits their maximal contribution to the total sum 1, x . See Figure 2 for an illustration.
+The first technical contribution of this work is as follows. Proposition 2. A primal-conjugate pair for the top-k hinge loss (3) is given as follows:
+
+1k
+
+k(a) = max
+
+0, k
+
+(a + c)[j] ,
+
+j=1
+
+k(b) =
+
+- c, b +
+
+if b  k, otherwise.
+
+(4)
+
+Moreover, k(a) = max{ a + c,  |   k}.
+
+Therefore, we see that the proposed formulation (3) naturally extends the multiclass SVM of Crammer and Singer [5], which is recovered when k = 1. We have also obtained an interesting extension (or rather contraction, since k  ) of the standard simplex.
+
+2.3 Relation of the Top-k Hinge Loss to Ranking Based Losses
+Usunier et al. [27] have recently formulated a very general family of convex losses for ranking and multiclass classification. In their framework, the hinge loss on example xi can be written as
+m
+L(a) = y max{0, (a + c)[y]},
+y=1
+1 A convex function f : X  R  {} has an effective domain dom f = {x  X | f (x) < +}.
+
+3
+
+where 1  . . .  m  0 is a non-increasing sequence of non-negative numbers which act as weights for the ordered losses.
+
+The relation to the
+
+top-k
+
+hinge
+
+loss
+
+becomes apparent if
+
+we
+
+choose
+
+j
+
+=
+
+1 k
+
+if j
+
+
+
+k,
+
+and
+
+0
+
+otherwise.
+
+In that case, we obtain another version of the top-k hinge loss
+
+k a
+
+1 =
+k
+
+k
+
+max{0, (a + c)[j]}.
+
+j=1
+
+(5)
+
+It is straightforward to check that
+
+k(a)  k(a)  k(a)  1(a) = 1(a) = (a).
+
+The bound k(a)  k(a) holds with equality if (a + c)[1]  0 or (a + c)[k]  0. Otherwise, there is a gap and our top-k loss is a strictly better upper bound on the actual top-k zero-one loss. We
+perform extensive evaluation and comparison of both versions of the top-k hinge loss in  5.
+
+While [27] employed LaRank [1] and [9], [28] optimized an approximation of L(a), we show in the supplement how the loss function (5) can be optimized exactly and efficiently within the Prox-
+SDCA framework.
+
+Multiclass to binary reduction. It is also possible to compare directly to ranking based methods
+that solve a binary problem using the following reduction. We employ it in our experiments to evaluate the ranking based methods SVMPerf [11] and TopPush [16]. The trick is to augment the training set by embedding each xi  Rd into Rmd using a feature map y for each y  Y. The mapping y places xi at the y-th position in Rmd and puts zeros everywhere else. The example yi (xi) is labeled +1 and all y(xi) for y = yi are labeled -1. Therefore, we have a new training set with mn examples and md dimensional (sparse) features. Moreover, w, y(xi) = wy, xi
+which establishes the relation to the original multiclass problem.
+
+Another approach to general performance measures is given in [11]. It turns out that using the above reduction, one can show that under certain constraints on the classifier, the recall@k is equivalent to the top-k error. A convex upper bound on recall@k is then optimized in [11] via structured SVM. As their convex upper bound on the recall@k is not decomposable in an instance based loss, it is not directly comparable to our loss. While being theoretically very elegant, the approach of [11] does not scale to very large datasets.
+
+3 Optimization Framework
+
+We begin with a general 2-regularized multiclass classification problem, where for notational convenience we keep the loss function unspecified. The multiclass SVM or the top-k multiclass SVM
+are obtained by plugging in the corresponding loss function from  2.
+
+3.1 Fenchel Duality for 2-Regularized Multiclass Classification Problems
+Let X  Rdxn be the matrix of training examples xi  Rd, let W  Rdxm be the matrix of primal variables obtained by stacking the vectors wy  Rd, and A  Rmxn the matrix of dual variables.
+Before we prove our main result of this section (Theorem 1), we first impose a technical constraint on a loss function to be compatible with the choice of the ground truth coordinate. The top-k hinge loss from Section 2 satisfies this requirement as we show in Proposition 3. We also prove an auxiliary Lemma 2, which is then used in Theorem 1. Definition 2. A convex function  is j-compatible if for any y  Rm with yj = 0 we have that
+sup{ y, x - (x) | xj = 0} = (y).
+
+This constraint is needed to prove equality in the following Lemma.
+
+Lemma 2. Let  be j-compatible, let Hj = I - 1ej , and let (x) = (Hjx), then
+
+(y) =
+
+(y - yjej) +
+
+if 1, y = 0, otherwise.
+
+4
+
+We can now use Lemma 2 to compute convex conjugates of the loss functions.
+Theorem 1. Let i be yi-compatible for each i  [n], let  > 0 be a regularization parameter, and let K = X X be the Gram matrix. The primal and Fenchel dual objective functions are given as:
+
+1n
+
+
+
+P (W ) = + n
+
+i
+
+W
+
+xi - wyi , xi 1
+
++ tr W 2
+
+W
+
+,
+
+i=1
+
+D(A) = - 1 n
+
+n
+
+i
+
+(-n(ai
+
+-
+
+ayi,ieyi ))
+
+-
+
+ 2
+
+tr
+
+AK A
+
+i=1
+
+, if 1, ai = 0 i, + otherwise.
+
+Moreover, we have that W = XA and W xi = AKi, where Ki is the i-th column of K.
+
+Finally, we show that Theorem 1 applies to the loss functions that we consider. Proposition 3. The top-k hinge loss function from Section 2 is yi-compatible.
+
+We have repeated the derivation from Section 5.7 in [24] as there is a typo in the optimization
+problem (20) leading to the conclusion that ayi,i must be 0 at the optimum. Lemma 2 fixes this by making the requirement ayi,i = - j=yi aj,i explicit. Note that this modification is already mentioned in their pseudo-code for Prox-SDCA.
+
+3.2 Optimization of Top-k Multiclass SVM via Prox-SDCA
+
+As an optimization scheme, we employ the
+proximal stochastic dual coordinate ascent
+(Prox-SDCA) framework of Shalev-Shwartz
+and Zhang [24], which has strong convergence
+guarantees and is easy to adapt to our prob-
+lem. In particular, we iteratively update a batch ai  Rm of dual variables corresponding to the training pair (xi, yi), so as to maximize the
+
+Algorithm 1 Top-k Multiclass SVM
+1: Input: training data {(xi, yi)ni=1}, parameters k (loss),  (regularization), (stopping cond.)
+2: Output: W  Rdxm, A  Rmxn 3: Initialize: W  0, A  0 4: repeat 5: randomly permute training data 6: for i = 1 to n do
+
+dual objective D(A) from Theorem 1. We also maintain the primal variables W = XA and stop when the relative duality gap is below .
+
+7: 8:
+9:
+
+si  W xi {prediction scores} aoi ld  ai {cache previous values} ai  update(k, , xi 2 , yi, si, ai)
+
+This procedure is summarized in Algorithm 1. 10:
+Let us make a few comments on the advantages
+
+{see  3.2.1 for details} W  W + xi(ai - aoi ld)
+{rank-1 update}
+
+of the proposed method. First, apart from the 11: end for
+
+update step which we discuss below, all main 12: until relative duality gap is below
+
+operations can be computed using a BLAS li-
+
+brary, which makes the overall implementation efficient. Second, the update step in Line 9 is optimal
+
+in the sense that it yields maximal dual objective increase jointly over m variables. This is opposed
+
+to SGD updates with data-independent step sizes, as well as to maximal but scalar updates in other
+
+SDCA variants. Finally, we have a well-defined stopping criterion as we can compute the duality
+
+gap (see discussion in [2]). The latter is especially attractive if there is a time budget for learning.
+
+The algorithm can also be easily kernelized since W xi = AKi (cf. Theorem 1).
+
+3.2.1 Dual Variables Update
+
+For the proposed top-k hinge loss from Section 2, optimization of the dual objective D(A) over
+
+ai  Rm given other variables fixed is an instance of a regularized (biased) projection problem onto
+
+the
+
+top-k
+
+simplex
+
+k (
+
+1 n
+
+).
+
+Let
+
+a\j
+
+be
+
+obtained
+
+by
+
+removing
+
+the
+
+j-th
+
+coordinate
+
+from
+
+vector
+
+a.
+
+Proposition 4. The following two problems are equivalent with a\i yi = -x and ayi,i = 1, x
+
+max{D(A) |
+ai
+
+1, ai
+
+= 0}
+
+
+
+min{ b - x 2 + 
+x
+
+1, x
+
+2
+
+|x
+
+
+
+k
+
+(
+
+1 n
+
+)},
+
+where b =
+
+1 xi ,xi
+
+q\yi + (1 - qyi )1 , q = W xi - xi, xi ai and  = 1.
+
+We
+
+discuss
+
+in
+
+the
+
+following
+
+section
+
+how
+
+to
+
+project
+
+onto
+
+the
+
+set
+
+k (
+
+1 n
+
+)
+
+efficiently.
+
+5
+
+4 Efficient Projection onto the Top-k Simplex
+
+One of our main technical results is an algorithm for efficiently computing projections onto k(r), respectively the biased projection introduced in Proposition 4. The optimization problem in Proposi-
+tion 4 reduces to the Euclidean projection onto k(r) for  = 0, and for  > 0 it biases the solution to be orthogonal to 1. Let us highlight that k(r) is substantially different from the standard simplex and none of the existing methods can be used as we discuss below.
+
+4.1 Continuous Quadratic Knapsack Problem
+
+Finding the Euclidean projection onto the simplex is an instance of the general optimization problem
+
+minx{
+
+a-x
+
+2 2
+
+|
+
+b, x
+
+ r, l  xi  u} known as the continuous quadratic knapsack problem
+
+(CQKP). For example, to project onto the simplex we set b = 1, l = 0 and r = u = 1. This is a well
+
+examined problem and several highly efficient algorithms are available (see the surveys [18, 19]).
+
+The first main difference to our set is the upper bound on the xi's. All existing algorithms expect
+
+that u is fixed, which allows them to consider decompositions minxi {(ai - xi)2 | l  xi  u} which
+
+can
+
+be
+
+solved
+
+in
+
+closed-form.
+
+In
+
+our
+
+case,
+
+the
+
+upper
+
+bound
+
+1 k
+
+1, x
+
+introduces coupling across all
+
+variables, which makes the existing algorithms not applicable. A second main difference is the bias
+
+term  1, x 2 added to the objective. The additional difficulty introduced by this term is relatively
+
+minor. Thus we solve the problem for general  (including  = 0 for the Euclidean projection onto
+
+k(r)) even though we need only  = 1 in Proposition 4. The only case when our problem reduces to CQKP is when the constraint 1, x  r is satisfied with equality. In that case we can let u = r/k
+
+and use any algorithm for the knapsack problem. We choose [13] since it is easy to implement, does
+
+not require sorting, and scales linearly in practice. The bias in the projection problem reduces to a
+
+constant r2 in this case and has, therefore, no effect.
+
+4.2 Projection onto the Top-k Cone
+
+When the constraint 1, x  r is not satisfied with equality at the optimum, it has essentially no influence on the projection problem and can be removed. In that case we are left with the problem of the (biased) projection onto the top-k cone which we address with the following lemma.
+Lemma 3. Let x  Rd be the solution to the following optimization problem
+
+min{
+x
+
+a-x
+
+2+
+
+1, x
+
+2
+
+|0
+
+
+
+xi
+
+
+
+1 k
+
+1, x
+
+, i  [d]},
+
+and let U
+
+{i | xi
+
+=
+
+1 k
+
+1, x }, M
+
+{i | 0
+
+<
+
+xi
+
+<
+
+1 k
+
+1, x }, L
+
+{i | xi = 0}.
+
+1. If U =  and M = , then x = 0.
+
+2.
+
+If U
+
+=
+
+ and M
+
+=
+
+, then U
+
+=
+
+{[1], . . . , [k]}, xi
+
+=
+
+1 k+k2
+
+k i=1
+
+a[i]
+
+for
+
+i
+
+
+
+U,
+
+where
+
+[i] is the index of the i-th largest component in a.
+
+3. Otherwise (M = ), the following system of linear equations holds
+
+u 
+
+= |M |
+
+iU ai + (k - |U |)
+
+iM ai /D,
+
+t = |U | (1 + k) iM ai - (k - |U | + k |M |) iU ai /D,
+
+D = (k - |U |)2 + (|U | + k2) |M | ,
+
+(6)
+
+together with the feasibility constraints on t
+
+max ai  t  min ai,
+
+iL
+
+iM
+
+and we have x = min{max{0, a - t}, u}.
+
+t + uk
+
+max ai  t + u  min ai,
+
+iM
+
+iU
+
+(7)
+
+We now show how to check if the (biased) projection is 0. For the standard simplex, where the cone is the positive orthant Rd+, the projection is 0 when all ai  0. It is slightly more involved for k.
+
+Lemma 4. The biased projection x onto the top-k cone is zero if
+
+k i=1
+
+a[i]
+
+
+
+0
+
+(sufficient
+
+condi-
+
+tion). If  = 0 this is also necessary.
+
+6
+
+Projection. Lemmas 3 and 4 suggest a simple algorithm for the (biased) projection onto the topk cone. First, we check if the projection is constant (cases 1 and 2 in Lemma 3). In case 2, we compute x and check if it is compatible with the corresponding sets U , M , L. In the general case 3, we suggest a simple exhaustive search strategy. We sort a and loop over the feasible partitions U , M , L until we find a solution to (6) that satisfies (7). Since we know that 0  |U | < k and k  |U | + |M |  d, we can limit the search to (k - 1)(d - k + 1) iterations in the worst case, where each iteration requires a constant number of operations. For the biased projection, we leave x = 0 as the fallback case as Lemma 4 gives only a sufficient condition. This yields a runtime complexity of O(d log(d) + kd), which is comparable to simplex projection algorithms based on sorting.
+
+4.3 Projection onto the Top-k Simplex
+
+As we argued in  4.1, the (biased) projection onto the top-k simplex becomes either the knapsack problem or the (biased) projection onto the top-k cone depending on the constraint 1, x  r at the optimum. The following Lemma provides a way to check which of the two cases apply.
+Lemma 5. Let x  Rd be the solution to the following optimization problem
+
+min{ a - x 2 + 
+x
+
+1, x 2 |
+
+1, x
+
+
+
+r,
+
+0
+
+
+
+xi
+
+
+
+1 k
+
+1, x , i  [d]},
+
+let (t, u) be the optimal thresholds such that x = min{max{0, a - t}, u}, and let U be defined as
+
+in
+
+Lemma
+
+3.
+
+Then
+
+it
+
+must
+
+hold
+
+that
+
+
+
+=
+
+t
+
++
+
+p k
+
+-
+
+r
+
+
+
+0,
+
+where
+
+p
+
+=
+
+iU ai - |U | (t + u).
+
+Projection. We can now use Lemma 5 to compute the (biased) projection onto k(r) as follows. First, we check the special cases of zero and constant projections, as we did before. If that fails, we proceed with the knapsack problem since it is faster to solve. Having the thresholds (t, u) and the partitioning into the sets U , M , L, we compute the value of  as given in Lemma 5. If   0, we are done. Otherwise, we know that 1, x < r and go directly to the general case 3 in Lemma 3.
+
+5 Experimental Results
+We have two main goals in the experiments. First, we show that the (biased) projection onto the top-k simplex is scalable and comparable to an efficient algorithm [13] for the simplex projection (see the supplement). Second, we show that the top-k multiclass SVM using both versions of the top-k hinge loss (3) and (5), denoted top-k SVM and top-k SVM respectively, leads to improvements in top-k accuracy consistently over all datasets and choices of k. In particular, we note improvements compared to the multiclass SVM of Crammer and Singer [5], which corresponds to top-1 SVM/top-1 SVM. We release our implementation of the projection procedures and both SDCA solvers as a C++ library2 with a Matlab interface.
+5.1 Image Classification Experiments
+We evaluate our method on five image classification datasets of different scale and complexity: Caltech 101 Silhouettes [26] (m = 101, n = 4100), MIT Indoor 67 [20] (m = 67, n = 5354), SUN 397 [29] (m = 397, n = 19850), Places 205 [30] (m = 205, n = 2448873), and ImageNet 2012 [22] (m = 1000, n = 1281167). For Caltech, d = 784, and for the others d = 4096. The results on the two large scale datasets are in the supplement.
+We cross-validate hyper-parameters in the range 10-5 to 103, extending it when the optimal value is at the boundary. We use LibLinear [7] for SVMOVA, SVMPerf [11] with the corresponding loss function for Recall@k, and the code provided by [16] for TopPush. When a ranking method like Recall@k and TopPush does not scale to a particular dataset using the reduction of the multiclass to a binary problem discussed in  2.3, we use the one-vs-all version of the corresponding method. We implemented Wsabie++ (denoted W++, Q/m) based on the pseudo-code from Table 3 in [9].
+On Caltech 101, we use features provided by [26]. For the other datasets, we extract CNN features of a pre-trained CNN (fc7 layer after ReLU). For the scene recognition datasets, we use the Places 205 CNN [30] and for ILSVRC 2012 we use the Caffe reference model [10].
+2https://github.com/mlapin/libsdca
+
+7
+
+Method
+
+Caltech 101 Silhouettes
+
+MIT Indoor 67
+
+Top-1 Top-2 Top-3 Top-4 Top-5 Top-10 Method Top-1 Method Top-1 Method Top-1
+
+Top-1 [26] Top-2 [26] Top-5 [26]
+
+62.1 - 79.6 - 83.1 - BLH [4] 48.3 DGE [6] 66.87 RAS [21] 69.0 61.4 - 79.2 - 83.4 - SP [25] 51.4 ZLX [30] 68.24 KL [14] 70.1 60.2 - 78.7 - 83.4 - JVJ [12] 63.10 GWG [8] 68.88
+
+Method
+
+Top-1 Top-2 Top-3 Top-4 Top-5 Top-10 Top-1 Top-2 Top-3 Top-4 Top-5 Top-10
+
+SVMOVA TopPush
+Recall@1 Recall@5 Recall@10
+W++, 0/256 W++, 1/256 W++, 2/256
+
+61.81 73.13 76.25 77.76 78.89 83.57 63.11 75.16 78.46 80.19 81.97 86.95
+61.55 73.13 77.03 79.41 80.97 85.18 61.60 72.87 76.51 78.76 80.54 84.74 61.51 72.95 76.46 78.72 80.54 84.92
+62.68 76.33 79.41 81.71 83.18 88.95 59.25 65.63 69.22 71.09 72.95 79.71 55.09 61.81 66.02 68.88 70.61 76.59
+
+71.72 70.52
+71.57 71.49 71.42
+70.07 68.13 64.63
+
+81.49 83.13
+83.06 81.49 81.49
+84.10 81.49 78.43
+
+84.93 86.94
+87.69 85.45 85.52
+89.48 86.64 84.18
+
+86.49 90.00
+90.45 87.24 87.24
+92.46 89.63 88.13
+
+87.39 91.64
+92.24 88.21 88.28
+94.48 91.42 89.93
+
+90.45 95.90
+96.19 92.01 92.16
+97.91 95.45 94.55
+
+top-1 SVM 62.81 74.60 77.76 80.02 81.97 86.91 top-10 SVM 62.98 77.33 80.49 82.66 84.57 89.55 top-20 SVM 59.21 75.64 80.88 83.49 85.39 90.33
+top-1 SVM 62.81 74.60 77.76 80.02 81.97 86.91 top-10 SVM 64.02 77.11 80.49 83.01 84.87 89.42 top-20 SVM 63.37 77.24 81.06 83.31 85.18 90.03
+
+73.96 85.22 70.00 85.45 65.90 84.10
+73.96 85.22 71.87 85.30 71.94 85.30
+
+89.25 90.00 89.93
+89.25 90.45 90.07
+
+91.94 93.13 92.69
+91.94 93.36 92.46
+
+93.43 94.63 94.25
+93.43 94.40 94.33
+
+96.94 97.76 97.54
+96.94 97.76 97.39
+
+Top-1 accuracy
+
+XHE [29] SPM [23]
+
+38.0 47.2  0.2
+
+SUN 397 (10 splits)
+
+LSH [15] GWG [8]
+
+49.48  0.3 51.98
+
+ZLX [30] KL [14]
+
+54.32  0.1 54.65  0.2
+
+Method
+
+Top-1
+
+Top-2
+
+Top-3
+
+Top-4
+
+Top-5
+
+Top-10
+
+SVMOVA TopPushOVA
+Recall@1OVA Recall@5OVA Recall@10OVA
+
+55.23  0.6 53.53  0.3
+52.95  0.2 50.72  0.2 50.92  0.2
+
+66.23  0.6 65.39  0.3
+65.49  0.2 64.74  0.3 64.94  0.2
+
+70.81  0.4 71.46  0.2
+71.86  0.2 70.75  0.3 70.95  0.2
+
+73.30  0.2 75.25  0.1
+75.88  0.2 74.02  0.3 74.14  0.2
+
+74.93  0.2 77.95  0.2
+78.72  0.2 76.06  0.3 76.21  0.2
+
+79.00  0.3 85.15  0.3
+86.03  0.2 80.66  0.2 80.68  0.2
+
+top-1 SVM top-10 SVM top-20 SVM
+top-1 SVM top-10 SVM top-20 SVM
+
+58.16  0.2 71.66  0.2 78.22  0.1 82.29  0.2 84.98  0.2 91.48  0.2 58.00  0.2 73.65  0.1 80.80  0.1 84.81  0.2 87.45  0.2 93.40  0.2 55.98  0.3 72.51  0.2 80.22  0.2 84.54  0.2 87.37  0.2 93.62  0.2
+58.16  0.2 71.66  0.2 78.22  0.1 82.29  0.2 84.98  0.2 91.48  0.2 59.32  0.1 74.13  0.2 80.91  0.2 84.92  0.2 87.49  0.2 93.36  0.2 58.65  0.2 73.96  0.2 80.95  0.2 85.05  0.2 87.70  0.2 93.64  0.2
+
+Table 1: Top-k accuracy (%). Top section: State of the art. Middle section: Baseline methods. Bottom section: Top-k SVMs: top-k SVM - with the loss (3); top-k SVM - with the loss (5).
+
+Experimental results are given in Table 1. First, we note that our method is scalable to large datasets with millions of training examples, such as Places 205 and ILSVRC 2012 (results in the supplement). Second, we observe that optimizing the top-k hinge loss (both versions) yields consistently better top-k performance. This might come at the cost of a decreased top-1 accuracy (e.g. on MIT Indoor 67), but, interestingly, may also result in a noticeable increase in the top-1 accuracy on larger datasets like Caltech 101 Silhouettes and SUN 397. This resonates with our argumentation that optimizing for top-k is often more appropriate for datasets with a large number of classes.
+Overall, we get systematic increase in top-k accuracy over all datasets that we examined. For example, we get the following improvements in top-5 accuracy with our top-10 SVM compared to top-1 SVM: +2.6% on Caltech 101, +1.2% on MIT Indoor 67, and +2.5% on SUN 397.
+6 Conclusion
+We demonstrated scalability and effectiveness of the proposed top-k multiclass SVM on five image recognition datasets leading to consistent improvements in top-k performance. In the future, one could study if the top-k hinge loss (3) can be generalized to the family of ranking losses [27]. Similar to the top-k loss, this could lead to tighter convex upper bounds on the corresponding discrete losses.
+8
+
+References
+[1] A. Bordes, L. Bottou, P. Gallinari, and J. Weston. Solving multiclass support vector machines with LaRank. In ICML, pages 89-96, 2007.
+[2] O. Bousquet and L. Bottou. The tradeoffs of large scale learning. In NIPS, pages 161-168, 2008. [3] S. Boyd and L. Vandenberghe. Convex Optimization. Cambridge University Press, 2004. [4] S. Bu, Z. Liu, J. Han, and J. Wu. Superpixel segmentation based structural scene recognition. In MM,
+pages 681-684. ACM, 2013. [5] K. Crammer and Y. Singer. On the algorithmic implementation of multiclass kernel-based vector ma-
+chines. The Journal of Machine Learning Research, 2:265-292, 2001. [6] C. Doersch, A. Gupta, and A. A. Efros. Mid-level visual element discovery as discriminative mode
+seeking. In NIPS, pages 494-502, 2013. [7] R.-E. Fan, K.-W. Chang, C.-J. Hsieh, X.-R. Wang, and C.-J. Lin. LIBLINEAR: A library for large linear
+classification. Journal of Machine Learning Research, 9:1871-1874, 2008. [8] Y. Gong, L. Wang, R. Guo, and S. Lazebnik. Multi-scale orderless pooling of deep convolutional activa-
+tion features. In ECCV, 2014. [9] M. R. Gupta, S. Bengio, and J. Weston. Training highly multiclass classifiers. JMLR, 15:1461-1492,
+2014. [10] Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Girshick, S. Guadarrama, and T. Darrell. Caffe:
+Convolutional architecture for fast feature embedding. arXiv preprint arXiv:1408.5093, 2014. [11] T. Joachims. A support vector method for multivariate performance measures. In ICML, pages 377-384,
+2005. [12] M. Juneja, A. Vedaldi, C. Jawahar, and A. Zisserman. Blocks that shout: distinctive parts for scene
+classification. In CVPR, 2013. [13] K. Kiwiel. Variable fixing algorithms for the continuous quadratic knapsack problem. Journal of Opti-
+mization Theory and Applications, 136(3):445-458, 2008. [14] M. Koskela and J. Laaksonen. Convolutional network features for scene recognition. In Proceedings of
+the ACM International Conference on Multimedia, pages 1169-1172. ACM, 2014. [15] M. Lapin, B. Schiele, and M. Hein. Scalable multitask representation learning for scene classification. In
+CVPR, 2014. [16] N. Li, R. Jin, and Z.-H. Zhou. Top rank optimization in linear time. In NIPS, pages 1502-1510, 2014. [17] W. Ogryczak and A. Tamir. Minimizing the sum of the k largest functions in linear time. Information
+Processing Letters, 85(3):117-122, 2003. [18] M. Patriksson. A survey on the continuous nonlinear resource allocation problem. European Journal of
+Operational Research, 185(1):1-46, 2008. [19] M. Patriksson and C. Stromberg. Algorithms for the continuous nonlinear resource allocation problem
+- new implementations and numerical studies. European Journal of Operational Research, 243(3):703- 722, 2015. [20] A. Quattoni and A. Torralba. Recognizing indoor scenes. In CVPR, 2009. [21] A. S. Razavian, H. Azizpour, J. Sullivan, and S. Carlsson. Cnn features off-the-shelf: an astounding baseline for recognition. arXiv preprint arXiv:1403.6382, 2014. [22] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma, Z. Huang, A. Karpathy, A. Khosla, M. Bernstein, A. C. Berg, and L. Fei-Fei. ImageNet Large Scale Visual Recognition Challenge, 2014. [23] J. Sanchez, F. Perronnin, T. Mensink, and J. Verbeek. Image classification with the Fisher vector: theory and practice. IJCV, pages 1-24, 2013. [24] S. Shalev-Shwartz and T. Zhang. Accelerated proximal stochastic dual coordinate ascent for regularized loss minimization. Mathematical Programming, pages 1-41, 2014. [25] J. Sun and J. Ponce. Learning discriminative part detectors for image classification and cosegmentation. In ICCV, pages 3400-3407, 2013. [26] K. Swersky, B. J. Frey, D. Tarlow, R. S. Zemel, and R. P. Adams. Probabilistic n-choose-k models for classification and ranking. In NIPS, pages 3050-3058, 2012. [27] N. Usunier, D. Buffoni, and P. Gallinari. Ranking with ordered weighted pairwise classification. In ICML, pages 1057-1064, 2009. [28] J. Weston, S. Bengio, and N. Usunier. Wsabie: scaling up to large vocabulary image annotation. IJCAI, pages 2764-2770, 2011. [29] J. Xiao, J. Hays, K. A. Ehinger, A. Oliva, and A. Torralba. SUN database: Large-scale scene recognition from abbey to zoo. In CVPR, 2010. [30] B. Zhou, A. Lapedriza, J. Xiao, A. Torralba, and A. Oliva. Learning deep features for scene recognition using places database. In NIPS, 2014.
+9
+

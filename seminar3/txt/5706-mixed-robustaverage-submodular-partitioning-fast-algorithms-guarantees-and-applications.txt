@@ -1,0 +1,950 @@
+Mixed Robust/Average Submodular Partitioning: Fast Algorithms, Guarantees, and Applications
+Kai Wei1 Rishabh Iyer1 Shengjie Wang2 Wenruo Bai1 Jeff Bilmes1
+1 Department of Electrical Engineering, University of Washington 2 Department of Computer Science, University of Washington
+{kaiwei, rkiyer, wangsj, wrbai, bilmes}@u.washington.edu
+Abstract
+We investigate two novel mixed robust/average-case submodular data partitioning problems that we collectively call Submodular Partitioning. These problems generalize purely robust instances of the problem, namely max-min submodular fair allocation (SFA) [12] and min-max submodular load balancing (SLB) [25], and also average-case instances, that is the submodular welfare problem (SWP) [26] and submodular multiway partition (SMP) [5]. While the robust versions have been studied in the theory community [11, 12, 16, 25, 26], existing work has focused on tight approximation guarantees, and the resultant algorithms are not generally scalable to large real-world applications. This is in contrast to the average case, where most of the algorithms are scalable. In the present paper, we bridge this gap, by proposing several new algorithms (including greedy, majorization-minimization, minorization-maximization, and relaxation algorithms) that not only scale to large datasets but that also achieve theoretical approximation guarantees comparable to the state-of-the-art. We moreover provide new scalable algorithms that apply to additive combinations of the robust and average-case objectives. We show that these problems have many applications in machine learning (ML), including data partitioning and load balancing for distributed ML, data clustering, and image segmentation. We empirically demonstrate the efficacy of our algorithms on real-world problems involving data partitioning for distributed optimization (of convex and deep neural network objectives), and also purely unsupervised image segmentation.
+1 Introduction
+The problem of data partitioning is of great importance to many machine learning (ML) and data science applications as is evidenced by the wealth of clustering procedures that have been and continue to be developed and used. Most data partitioning problems are based on expected, or average-case, utility objectives where the goal is to optimize a sum of cluster costs, and this includes the ubiquitous k-means procedure [1]. Other algorithms are based on robust objective functions [10], where the goal is to optimize the worst-case cluster cost. Such robust algorithms are particularly important in mission critical applications, such as parallel and distributed computing, where one single poor partition block can significantly slow down an entire parallel machine (as all compute nodes might need to spin while waiting for a slow node to complete a round of computation). Taking a weighted combination of both robust and average case objective functions allows one to balance between optimizing worst-case and overall performance. We are unaware, however, of any previous work that allows for a mixing between worst- and average-case objectives in the context of data partitioning.
+This paper studies two new mixed robust/average-case partitioning problems of the following form:
+1
+
+Prob.
+
+1:
+
+max
+
+
+
+
+min
+i
+
+fi(Ai
+
+)
+
++
+
+ m
+
+m
+
+fj (Aj ) ,
+
+Prob.
+
+2:
+
+min
+
+
+
+
+max
+i
+
+fi(Ai
+
+)
+
++
+
+ m
+
+m
+
+fj (Aj ) ,
+
+j=1
+
+j=1
+
+where 0    1,  1 - , the set of sets  = (A1 , A2 , * * * , Am) is a partition of a finite set V (i.e, iAi = V and i = j, Ai  Aj = ), and  refers to the set of all partitions of V into m blocks. The parameter  controls the objective:  = 1 is the average case,  = 0 is
+
+the robust case, and 0 <  < 1 is a mixed case. In general, Problems 1 and 2 are hopelessly
+
+intractable, even to approximate, but we assume that the f1, f2, * * * , fm are all monotone nondecreasing (i.e., fi(S)  fi(T ) whenever S  T ), normalized (fi() = 0), and submodular [9] (i.e., S, T  V , fi(S) + fi(T )  fi(S  T ) + fi(S  T )). These assumptions allow us to develop fast,
+
+simple, and scalable algorithms that have approximation guarantees, as is done in this paper. These
+
+assumptions, moreover, allow us to retain the naturalness and applicability of Problems 1 and 2 to
+
+a wide variety of practical problems. Submodularity is a natural property in many real-world ML
+
+applications [20, 15, 18, 27]. When minimizing, submodularity naturally model notions of interacting
+
+costs and complexity, while when maximizing it readily models notions of diversity, summarization
+
+quality, and information. Hence, Problem 1 asks for a partition whose blocks each (and that
+
+collectively) are a good, say, summary of the whole. Problem 2 on the other hand, asks for a partition
+
+whose blocks each (and that collectively) are internally homogeneous (as is typical in clustering).
+
+Taken together, we call Problems 1 and 2 Submodular Partitioning. We further categorize these
+
+problems depending on if the fi's are identical to each other (homogeneous) or not (heterogeneous).1
+
+The heterogeneous case clearly generalizes the homogeneous setting, but as we will see, the additional
+
+homogeneous structure can be exploited to provide more efficient and/or tighter algorithms.
+
+Problem 1 (Max-(Min+Avg)) Approximation factor
+
+ = 0, BINSRCH [16]  = 0, MATCHING [12]
+ = 0, ELLIPSOID [11]
+
+1/(2m - 1)
+
+1/(n - m + 1)
+
+1
+
+3
+
+O( nm 4 log n log 2 m)
+
+ = 1, GREEDWELFARE [8]  = 0, GREEDSAT
+ = 0, MMAX
+ = 0, GREEDMAX 0 <  < 1, COMBSFASWP 0 <  < 1, GENERALGREEDSAT
+
+1/2
+
+(1/2
+
+-
+
+,
+
+ 1/2+
+
+)
+
+O(min i
+
+|Ai
+
+1 |m
+
+log3
+
+m
+
+)
+
+1/m
+
+max{
+
+   +
+
+,
+
+}
+
+/2
+
+ = 0, Hardness  = 1, Hardness
+
+1/2 [12] 1 - 1/e [26]
+
+Problem 2 (Min-(Max+Avg))
+
+ = 0, BALANCED [25]  = 0, SAMPLING [25]
+ = 0, ELLIPSOID [11]  = 1, GREEDSPLIT [29, 22]
+
+Approximation factor min{m, n/m} O( n log n)  O( n log n)
+2
+
+ = 1, RELAX [5]  = 0, MMIN
+ = 0, LOVA SZ ROUND 0 <  < 1, COMBSLBSMP 0 <  < 1, GENERALLOVA SZ ROUND
+
+O(log n) 2miax|Ai  |
+
+m
+
+min{
+
+m m +
+
+,
+
+(m
+
++
+
+)}
+
+m
+
+ = 0, Hardness  = 1, Hardness
+
+m 2 - 2/m [7]
+
+Table 1: Summary of our contributions and existing work on Problems 1 and 2.2 See text for details.
+
+Previous work: Special cases of Problems 1 and 2 have appeared previously. Problem 1 with  = 0 is called submodular fair allocation (SFA), and Problem 2 with  = 0 is called submodular load balancing (SLB), robust optimization problems both of which previously have been studied. When fi's are all modular, SLB is called minimum makespan scheduling. An LP relaxation algorithm provides a 2-approximation for the heterogeneous setting [19]. When the objectives are submodular,
+
+the problem becomes much harder. Even in the homogeneous setting, [25] show that the problem
+
+is information theoretically hard to approximate within o( n/ log n). They provide a balanced partitioning algorithm yielding a factor of min{m, n/m} under the homogeneous setting. They also
+
+give a sampling-based algorithm achieving O( n/ log n) for the homogeneous setting. However,
+the sampling-based algorithm is not practical and scalable since it involves solving, in the worst-case, O(n3 log n) instances of submodular function minimization each of which requires O(n5 + n6)
+computation [23], where  is the cost of a function valuation. Another approach approximates
+
+each submodular function by its ellipsoid approximation (again non-scalable) and reduces SLB
+
+to its modular version (minimum makespan scheduling) leading to an approximation factor of O( n log n) [11]. SFA, on the other hand, has been studied mostly in the heterogeneous setting.
+
+WO(h1e/n(fi'ms alroega3llmm)o)dauplparr,otxhiemtaigtihotnes[t2a]l,gworhiethrema,sstohfeapr,riosbtloemiteirsatNivPe-lyharroduntod
+
+an LP 1/2 +
+
+solution achieving approximate for
+
+any > 0 [12]. When fi's are submodular, [12] gives a matching-based algorithm with a factor 1/(n - m + 1) approximation that performs poorly when m n. [16] proposes a binary search
+
+algorithm yielding an improved factor of 1/(2m - 1). Similar to SLB, [11] applies the same ellipsoid
+
+1Similar sub-categorizations have been called the "uniform" vs. the "non-uniform" case in the past [25, 11]. 2Results obtained in this paper are marked as . Methods for only the homogeneous setting are marked as .
+
+2
+
+approximation techniques leading to a factor of O(nm1/4 log n log3/2 m). These approaches are theoretically interesting, but they do not scale to large problems. Problems 1 and 2, when  = 1, have also been previously studied. Problem 2 becomes the submodular multiway partition (SMP) for which one can obtain a relaxation based 2-approximation [5] in the homogeneous case. In the heterogeneous case, the guarantee is O(log n) [6]. Similarly, [29, 22] propose a greedy splitting 2-approximation algorithm for the homogeneous setting. Problem 1 becomes the submodular welfare [26] for which a scalable greedy algorithm achieves a 1/2 approximation [8]. Unlike the worst case ( = 0), many of the algorithms proposed for these problems are scalable. The general case (0 <  < 1) of Problems 1 and 2 differs from either of these extreme cases since we wish both for a robust (worst-case) and average case partitioning, and controlling  allows one to trade off between the two. As we shall see, the flexibility of a mixture can be more natural in certain applications.
+Applications: There are a number of applications of submodular partitioning in ML as outlined below. Some of these we evaluate in Section 4. Submodular functions naturally capture notions of interacting cooperative costs and homogeneity and thus are useful for clustering and image segmentation [22, 17]. While the average case instance has been used before, a more worst-case variant (i.e., Problem 2 with   0) is useful to produce balanced clusterings (i.e., the submodular valuations of all the blocks should be similar to each other). Problem 2 also addresses a problem in image segmentation, namely how to use only submodular functions (which are instances of pseudo-Boolean functions) for multi-label (i.e., non-Boolean) image segmentation. Problem 2 addresses this problem by allowing each segment j to have its own submodular function fj, and the objective measures the homogeneity fj(Aj ) of segment j based on the image pixels Aj assigned to it. Moreover, by combining the average case and the worst case objectives, one can achieve a tradeoff between the two. Empirically, we evaluate our algorithms on unsupervised image segmentation (Section 4) and find that it outperforms other clustering methods including k-means, k-medoids, spectral clustering, and graph cuts.
+Submodularity also accurately represents computational costs in distributed systems, as shown in [20]. In fact, [20] considers two separate problems: 1) text data partitioning for balancing memory demands; and 2) parameter partitioning for balancing communication costs. Both are treated by solving an instance of SLB (Problem 2,  = 0) where memory costs are modeled using a set-cover submodular function and the communication costs are modeled using a modular (additive) function.
+Another important ML application, evaluated in Section 4, is distributed training of statistical models. As data set sizes grow, the need for statistical training procedures tolerant of the distributed data partitioning becomes more important. Existing schemes are often developed and performed assuming data samples are distributed in an arbitrary or random fashion. As an alternate strategy, if the data is intelligently partitioned such that each block of samples can itself lead to a good approximate solution, a consensus amongst the distributed results could be reached more quickly than when under a poor partitioning. Submodular functions can in fact express the value of a subset of training data for certain machine learning risk functions, e.g., [27]. Using these functions within Problem 1, one can expect a partitioning (by formulating the problem as an instance of Problem 1,   0) where each block is a good representative of the entire set, thereby achieving faster convergence in distributed settings. We demonstrate empirically, in Section 4, that this provides better results on several machine learning tasks, including the training of deep neural networks.
+Our Contributions: In contrast to Problems 1 and 2 in the average case (i.e.,  = 1), existing algorithms for the worst case ( = 0) are not scalable. This paper closes this gap, by proposing three new classes of algorithmic frameworks to solve SFA and SLB: (1) greedy algorithms; (2) semigradient-based algorithms; and (3) a Lovasz extension based relaxation algorithm. For SFA, when m = 2, we formulate the problem as non-monotone submodular maximization, which can be approximated up to a factor of 1/2 with O(n) function evaluations [4]. For general m, we give a simple and scalable greedy algorithm (GREEDMAX), and show a factor of 1/m in the homogeneous setting, improving the state-of-the-art factor of 1/(2m - 1) under the heterogeneous setting [16]. For the heterogeneous setting, we propose a "saturate" greedy algorithm (GREEDSAT) that iteratively solves instances of submodular welfare problems. We show GREEDSAT has a bi-criterion guarantee of (1/2 - , /(1/2 + )), which ensures at least m(1/2 - ) blocks receive utility at least /(1/2 + )OP T for any 0 <  < 1/2. For SLB, we first generalize the hardness result in [25]
+and show that it is hard to approximate better than m for any m = o( n/ log n) even in the homogeneous setting. We then give a Lovasz extension based relaxation algorithm (LOVA SZ ROUND) yielding a tight factor of m for the heterogeneous setting. As far as we know, this is the first algorithm achieving a factor of m for SLB in this setting. For both SFA and SLB, we also obtain more efficient
+3
+
+algorithms with bounded approximation factors, which we call majorization-minimization (MMIN) and minorization-maximization (MMAX).
+Next we show algorithms to handle Problems 1 and 2 with general 0 <  < 1. We first give two simple and generic schemes (COMBSFASWP and COMBSLBSMP), both of which efficiently combines an algorithm for the worst-case problem (special case with  = 0), and an algorithm for the average case (special case with  = 1) to provide a guarantee interpolating between the two bounds. For Problem 1 we generalize GREEDSAT leading to GENERALGREEDSAT, whose guarantee smoothly interpolates in terms of  between the bi-criterion factor by GREEDSAT in the case of  = 0 and the constant factor of 1/2 by the greedy algorithm in the case of  = 1. For Problem 2 we generalize LOVA SZROUND to obtain a relaxation algorithm (GENERALLOVA SZROUND) that achieves an m-approximation for general . The theoretical contributions and the existing work for Problems 1 and 2 are summarized in Table 1.
+Lastly, we demonstrate the efficacy of Problem 2 on unsupervised image segmentation, and the success of Problem 1 to distributed machine learning, including ADMM and neural network training.
+
+2 Robust Submodular Partitioning (Problems 1 and 2 when  = 0)
+Notation: we define f (j|S) f (S  j) - f (S) as the gain of j  V in the context of S  V . We assume w.l.o.g. that the ground set is V = {1, 2, * * * , n}. 2.1 Approximation Algorithms for SFA (Problem 1 with  = 0)
+
+We first study approximation algorithms for SFA. When m = 2, the problem becomes maxAV g(A) where g(A) = min{f1(A), f2(V \ A)} and is submodular thanks to Theorem 2.1.
+Theorem 2.1. If f1 and f2 are monotone submodular, min{f1(A), f2(V \ A)} is also submodular.
+Proofs for all theorems in this paper are given in [28]. The simple bi-directional randomized greedy algorithm [4] therefore approximates SFA with m = 2 to a factor of 1/2 matching the problem's hardness. For general m, we approach SFA from the perspective of the greedy algorithms. In this work we introduce two variants of a greedy algorithm - GREEDMAX (Alg. 1) and GREEDSAT (Alg. 2), suited to the homogeneous and heterogeneous settings, respectively.
+GREEDMAX: The key idea of GREEDMAX (see Alg. 1) is to greedily add an item with the maximum marginal gain to the block whose current solution is minimum. Initializing {Ai}mi=1 with the empty sets, the greedy flavor also comes from that it incrementally grows the solution by greedily improving the overall objective mini=1,...,m fi(Ai) until {Ai}mi=1 forms a partition. Besides its simplicity, Theorem 2.2 offers the optimality guarantee.
+Theorem 2.2. GREEDMAX achieves a guarantee of 1/m under the homogeneous setting.
+
+By assuming the homogeneity of the fi's, we obtain a very simple 1/m-approximation algorithm improving upon the state-of-the-art factor 1/(2m - 1) [16]. Thanks to the lazy evaluation trick as
+described in [21], Line 5 in Alg. 1 need not to recompute the marginal gain for every item in each
+round, leading GREEDMAX to scale to large data sets.
+
+GREEDSAT: Though simple and effective in the homogeneous setting, GREEDMAX performs
+
+arbitrarily poorly under the heterogeneous setting. To this end we provide another algorithm -
+
+"Saturate" Greedy (GREEDSAT, see Alg. 2). The key idea of GREEDSAT is to relax SFA to a much
+
+simpler problem - Submodular Welfare (SWP), i.e., Problem 1 with  = 0. Similar in flavor to the
+
+one proposed in [18] GREEDSAT defines an intermediate objective Fc() =
+
+m i=1
+
+fic(Ai ),
+
+where
+
+fic(A)
+
+=
+
+1 m
+
+min{fi(A), c}
+
+(Line
+
+2).
+
+The
+
+parameter
+
+c
+
+controls
+
+the
+
+saturation
+
+in
+
+each
+
+block.
+
+fic
+
+sat-
+
+isfies submodularity for each i. Unlike SFA, the combinatorial optimization problem max Fc()
+
+(Line 6) is much easier and is an instance of SWP. In this work, we solve Line 6 by the efficient
+
+greedy algorithm as described in [8] with a factor 1/2. One can also use a more computationally
+
+expensive multi-linear relaxation algorithm as given in [26] to solve Line 6 with a tight factor
+
+ = (1 - 1/e). Setting the input argument  as the approximation factor for Line 6, the essential idea of GREEDSAT is to perform a binary search over the parameter c to find the largest c such that the returned solution c for the instance of SWP satisfies Fc (c )  c. GREEDSAT terminates after
+
+solving O(log( mini fi(V ) )) instances of SWP. Theorem 2.3 gives a bi-criterion optimality guarantee.
+
+Theorem 2.3. Given > 0, 0    1 and any 0 <  < , GREEDSAT finds a partition such that
+
+at least
+
+m( - )
+
+blocks
+
+receive
+
+utility
+
+at
+
+least
+
+ 1-+
+
+(max
+
+mini
+
+fi(Ai )
+
+-
+
+).
+
+4
+
+Algorithm 1: GREEDMAX
+1: Input: f , m, V . 2: Let A1 =, . . . , = Am = ; R = V . 3: while R =  do 4: j  argminj f (Aj ); 5: a  argmaxaR f (a|Aj ) 6: Aj  Aj  {a}; R  R \ a 7: end while 8: Output {Ai}mi=1.
+
+Algorithm 4: GREEDMIN
+1: Input: f , m, V ; 2: Let A1 =, . . . , = Am = ; R = V . 3: while R =  do 4: j  argminj f (Aj ) 5: a  minaR f (a|Aj ) 6: Aj  Aj  a; R  R \ a 7: end while 8: Output {Ai}mi=1.
+
+Algorithm 2: GREEDSAT
+
+1: Input: {fi}mi=1, m, V , .
+
+2:
+
+Let Fc()
+
+=
+
+1 m
+
+m i=1
+
+min{fi(Ai
+
+),
+
+c}.
+
+3: Let cmin = 0, cmax = mini fi(V )
+
+4: while cmax - cmin  do
+
+5:
+
+c
+
+=
+
+1 2
+
+(cmax
+
++ cmin)
+
+6: c  argmax Fc()
+
+7: if Fc(c) < c then
+
+8: cmax = c 9: else 10: cmin = c;   c 11: end if
+
+12: end while
+
+13: Output: .
+
+Algorithm 3: LOVA SZ ROUND
+1: Input: {fi}mi=1, {fi}mi=1, m, V . 2: Solve for {xi }mi=1 via convex relaxation. 3: Rounding: Let A1 =, . . . , = Am = . 4: for j = 1, . . . , n do 5: i  argmaxi xi (j); Ai = Ai  j 6: end for 7: Output {Ai}mi=1.
+
+Algorithm 5: MMIN 1: Input: {fi}mi=1, m, V , partition 0. 2: Let t = 0 3: repeat 4: for i = 1, . . . , m do 5: Pick a supergradient mi at Ai t for fi. 6: end for 7: t+1  argmin maxi mi(Ai ) 8: t = t + 1; 9: until t = t-1 10: Output: t.
+Algorithm 6: MMAX 1: Input: {fi}mi=1, m, V , partition 0. 2: Let t = 0. 3: repeat 4: for i = 1, . . . , m do 5: Pick a subgradient hi at Ai t for fi. 6: end for 7: t+1  argmax mini hi(Ai ) 8: t = t + 1; 9: until t = t-1 10: Output: t.
+
+For any 0 <  <  Theorem 2.3 ensures that the top m( - ) valued blocks in the partition returned by GREEDSAT are (/(1-+)- )-optimal.  controls the trade-off between the number of top valued blocks to bound and the performance guarantee attained for these blocks. The smaller  is, the more top blocks are bounded, but with a weaker guarantee. We set the input argument  = 1/2 (or  = 1 - 1/e) as the worst-case performance guarantee for solving SWP so that the above theoretical analysis follows. However, the worst-case is often achieved only by very contrived submodular functions. For the ones used in practice, the greedy algorithm often leads to near-optimal solution ([18] and our own observations). Setting  as the actual performance guarantee for SWP (often very close to 1) can improve the empirical bound, and we, in practice, typically set  = 1 to good effect.
+
+MMAX: Lastly, we introduce another algorithm for the heterogeneous setting, called minorization-
+
+maximization (MMAX, see Alg. 6). Similar to the one proposed in [14], the idea is to iteratively
+
+maximize tight lower bounds of the submodular functions. Submodular functions have tight modular
+
+lower bounds, which are related to the subdifferential f (Y ) of the submodular set function f at a set Y  V [9]. Denote a subgradient at Y by hY  f (Y ), the extreme points of f (Y ) may be com-
+puted via a greedy algorithm: Let  be a permutation of V that assigns the elements in Y to the first
+
+|Y | positions ((i)  Y if and only if i  |Y |). Each such permutation defines a chain with elements S0 = , Si = {(1), (2), . . . , (i)}, and S|Y | = Y . An extreme point hY of f (Y ) has each entry as hY ((i)) = f (Si) - f (Si-1). Defined as above, hY forms a lower bound of f , tight at Y -- i.e., hY (X) = jX hY (j)  f (X), X  V and hY (Y ) = f (Y ). The idea of MMAX is to consider a
+modular lower bound tight at the set corresponding to each block of a partition. In other words, at iteration t + 1, for each block i, we approximate fi with its modular lower bound tight at Ai t and solve a modular version of Problem 1 (Line 7), which admits efficient approximation algorithms [2]. MMAX is initialized with a partition 0, which is obtained by solving Problem 1, where each fi is replaced
+with a simple modular function fi (A) = aA fi(a). The following worst-case bound holds:
+
+Theorem 2.4. MMAX achieves a worst-case guarantee of O(mini ),1+(|A|Aii|-|1)m(1l-og3fmi (Ai )) where
+
+ = (A1 , * * *
+
+, Am ) is the partition obtained by the algorithm, and f (A) = 1 - minvV
+
+f (v|A\v) f (v)
+
+
+
+[0, 1] is the curvature of a submodular function f at A  V .
+
+5
+
+2.2 Approximation Algorithms for SLB (Problem 2 with  = 0)
+We next investigate SLB, where existing hardness results [25] are o( n/ log n), which is independent of m and implicitly assumes that m = ( n/ log n). However, applications for SLB are often dependent on m with m n. We hence offer hardness analysis in terms of m in the following.
+Theorem 2.5. For any > 0, SLB cannot be approximated to a factor of (1 - )m for any m = o( n/ log n) with polynomial number of queries even under the homogeneous setting.
+
+For the rest of the paper, we assume m = o( n/ log n) for SLB, unless stated otherwise.
+
+GREEDMIN: Theorem 2.5 implies that SLB is hard to approximate better than m. However, an arbitrary partition    already achieves the best approximation factor of m that one can hope for under the homogeneous setting, since maxi f (Ai )  f (V )  i f (Ai )  m maxi f (Ai ) for any   . In practice, one can still implement a greedy style heuristic, which we refer to as GREEDMIN (Alg. 4). Very similar to GREEDMAX, GREEDMIN only differs in Line 5, where the item with the smallest marginal gain is added. Since the functions are all monotone, any additions to a block can (if anything) only increase its value, so we choose to add to the minimum valuation block in Line 4 to attempt to keep the maximum valuation block from growing further.
+
+LOVA SZ ROUND: Next we consider the heterogeneous setting, for which we propose a tight
+
+algorithm - LOVA SZ ROUND (see Alg. 3). The algorithm proceeds as follows: (1) apply the Lovasz
+
+extension of submodular functions to relax SLB to a convex program, which is exactly solved to
+
+a fractional solution (Line 2); (2) map the fractional solution to a partition using the -rounding
+
+technique as proposed in [13] (Line 3 - 6). The Lovasz extension, which naturally connects a
+
+submodular function f with its convex relaxation f, is defined as follows: given any x  [0, 1]n,
+
+we obtain a permutation x by ordering its elements in non-increasing order, and thereby a chain of
+
+sets S0x , . . . ,  Snx with Sjx = {x(1), . . . , x(j)} for j = 1, . . . , n. The Lovasz extension f
+
+for f is the weighted sum of the ordered entries of x: f(x) =
+
+n j=1
+
+x(x(j))(f
+
+(Sjx
+
+)
+
+-
+
+f
+
+(Sj-x 1 )).
+
+Given the convexity of the fi's , SLB is relaxed to the following convex program:
+
+m
+
+min max fi(xi), s.t xi(j)  1, for j = 1, . . . , n
+
+x1,...,xm[0,1]n i
+
+i=1
+
+(1)
+
+Denoting the optimal solution for Eqn 1 as {x1, . . . , xm}, the -rounding step simply maps each item j  V to a block i such that i  argmaxi xi (j) . The bound for LOVA SZ ROUND is as follows:
+
+Theorem 2.6. LOVA SZROUND achieves a worst-case approximation factor m.
+
+We remark that, to the best of our knowledge, LOVA SZROUND is the first algorithm that is tight and that gives an approximation in terms of m for the heterogeneous setting.
+
+MMIN: Similar to MMAX for SFA, we propose Majorization-Minimization (MMIN, see Alg. 5) for SLB. Here, we iteratively choose modular upper bounds, which are defined via superdifferentials f (Y ) of a submodular function [15] at Y . Moreover, there are specific supergradients [14] that
+define the following two modular upper bounds (when referring to either one, we use mfX ):
+
+mfX,1(Y ) f (X) -
+
+f (j|X\j) +
+
+f (j|), mfX,2(Y ) f (X) -
+
+f (j|V \j) + f (j|X).
+
+j X \Y
+
+jY \X
+
+j X \Y
+
+jY \X
+
+Then mfX,1(Y )  f (Y ) and mfX,2(Y )  f (Y ), Y  V and mfX,1(X) = mfX,2(X) = f (X). At iteration t + 1, for each block i, MMIN replaces fi with a choice of its modular upper bound mi tight at Ai t and solves a modular version of Problem 2 (Line 7), for which there exists an efficient LP relaxation based algorithm [19]. Similar to MMAX, the initial partition 0 is obtained by solving Problem
+
+2, where each fi is substituted with fi (A) = aA fi(a). The following worst-case bound holds:
+
+Theorem 2.7.  = (A1  , * *
+
+MMIN achieves a worst-case guarantee * , Am ) denotes the optimal partition.
+
+of
+
+(2
+
+maxi
+
+),1+(|Ai 
+
+|Ai  | |-1)(1-fi
+
+(Ai 
+
+))
+
+where
+
+6
+
+Test accuracy (%)
+
+5-Partition on 20newsgroup with ADMM 86
+85
+84
+83
+82
+81
+80 Submodular partition Random partition
+79 5 10 15 20 25 30 35 Number of iterations 10-Partition on 20newsgroup with ADMM
+84
+82
+80
+78
+76
+74 Submodular partition Adversarial partition Random partition
+5 10 15 20 25 30 35 Number of iterations
+(a)20Newsgroups
+
+Test accuracy (%)
+
+Test accuracy (%)
+
+99.1 99
+98.9 98.8 98.7 98.6 98.5 98.4 98.3
+99.2 99
+98.8 98.6 98.4 98.2
+98 97.8
+
+5-Partition on MNIST with Distributed NN
+
+Submodular partition Random partition
+
+5 10 15 Number of iterations
+10-Partition on MNIST with Distributed NN
+
+20
+
+Submodular partition Random partition
+
+5 10 15 Number of iterations
+
+20
+
+(b) MNIST
+
+Test accuracy (%)
+
+Test accuracy (%)
+
+30-Partition on TIMIT
+
+50
+
+45
+
+40
+
+35
+
+30
+
+25
+
+20
+
+15 Submodular partition Random partition
+
+5 10 15 20 25 30 35 40 45 50 Number of iterations
+40-Block Partition on TIMIT with Distributed NN
+
+55
+
+50
+45
+40
+35
+30
+25
+20
+15 Submodular partition Random partition
+10 5 10 15 20 25 30 35 40 45 50 55 Number of iterations
+(c) TIMIT
+
+Test accuracy (%)
+
+Figure 1: Comparison between submodular and random partitions for distributed ML, including ADMM (Fig 1a) and distributed neural nets (Fig 1b) and (Fig 1c). For the box plots, the central mark is the median, the box edges are 25th and 75th percentiles, and the bars denote the best and worst cases.
+
+3 General Submodular Partitioning (Problems 1 and 2 when 0 <  < 1)
+
+In this section we study Problem 1 and Problem 2, in the most general case, i.e., 0 <  < 1. We first
+propose a simple and general "extremal combination" scheme that works both for problem 1 and 2. It naturally combines an algorithm for solving the worst-case problem ( = 0) with an algorithm for solving the average case ( = 1). We use Problem 1 as an example, but the same scheme easily works
+for Problem 2. Denote ALGWC as the algorithm for the worst-case problem (i.e. SFA), and ALGAC as the algorithm for the average case (i.e., SWP). The scheme is to first obtain a partition 1 by running ALGWC on the instance of Problem 1 with  = 0 and a second partition 2 by running ALGAC with  = 1. Then we output one of 1 and 2, with which the higher valuation for Problem 1 is achieved. We call this scheme COMBSFASWP. Suppose ALGWC solves the worst-case problem with a factor   1 and ALGAC for the average case with   1. When applied to Problem 2 we refer to this scheme as COMBSLBSMP (  1 and   1). The following guarantee holds for both schemes:
+
+Theorem 3.1.
+
+For
+
+any
+
+
+
+
+
+(0,
+
+1)
+
+COMBSFASWP
+
+solves
+
+Problem
+
+1
+
+with
+
+a
+
+factor
+
+max{
+
+ +
+
+,
+
+}
+
+in
+
+the
+
+heterogeneous
+
+case,
+
+and
+
+max{min{,
+
+1 m
+
+},
+
+ +
+
+,
+
+}
+
+in
+
+the
+
+homogeneous
+
+case.
+
+Similarly,
+
+COMBSLBSMP
+
+solves
+
+Problem
+
+2
+
+with
+
+a
+
+factor
+
+min{
+
+m m+
+
+,
+
+(m
+
++
+
+)}
+
+in
+
+the
+
+heterogeneous
+
+case,
+
+and
+
+min{m,
+
+m m+
+
+,
+
+(m
+
++
+
+)}
+
+in
+
+the
+
+homogeneous
+
+case.
+
+The drawback of COMBSFASWP and COMBSLBSMP is that they do not explicitly exploit the trade-
+
+off between the average-case and worst-case objectives in terms of . To obtain more practically
+
+interesting algorithms, we also give GENERALGREEDSAT that generalizes GREEDSAT to solve Prob-
+
+lem
+
+
+
+1 m
+
+1.
+
+Similar to GREED
+
+m j=1
+
+fj
+
+(Aj ),
+
+c}
+
+in
+
+SAT
+
+we define an intermediate objective:
+
+Fc()
+
+=
+
+1 m
+
+GENERALGREEDSAT. Following the same algorithmic
+
+m i=1
+
+min{fi
+
+(Ai
+
+)+
+
+design as in GREED-
+
+SAT, GENERALGREEDSAT only differs from GREEDSAT in Line 6, where the submodular welfare
+
+problem is defined on the new objective Fc(). In [28] we show that GENERALGREEDSAT gives /2
+
+approximation, while also yielding a bi-criterion guarantee that generalizes Theorem 2.3. In particular
+
+GENERALGREEDSAT recovers the bicriterion guarantee as shown in Theorem 2.3 when  = 0. In
+
+the case of  = 1, GENERALGREEDSAT recovers the 1/2-approximation guarantee of the greedy
+
+algorithm for solving the submodular welfare problem, i.e., the average-case objective. Moreover an
+
+improved guarantee is achieved by GENERALGREEDSAT as  increases. Details are given in [28].
+
+To solve Problem 2 we generalize LOVA SZ ROUND leading to GENERALLOVA SZ ROUND. Similar to LOVA SZ ROUND we relax each submodular objective as its convex relaxation using the Lovasz extension. Almost the same as LOVA SZ ROUND, GENERALLOVA SZ ROUND only differs in Line 2, where Problem 2 is relaxed as the following convex program: minx1,...,xm[0,1]n  maxi fi(xi) +
+
+7
+
+
+
+1 m
+
+m j=1
+
+fj (xj ),
+
+s.t
+
+m i=1
+
+xi(j)
+
+
+
+1,
+
+for
+
+j
+
+=
+
+1, . . . , n.
+
+Following
+
+the
+
+same
+
+rounding
+
+procedure
+
+as LOVA SZ ROUND, GENERALLOVA SZ ROUND is guaranteed to give an m-approximation for
+
+Problem 2 with general . Details are given in [28].
+
+4 Experiments and Conclusions
+
+We conclude in this section by empirically evaluating the algorithms proposed for Problems 1 and 2 on real-world data partitioning applications including distributed ADMM, distributed deep neural network training, and lastly unsupervised image segmentation tasks.
+
+ADMM: We first consider data partitioning for distributed convex optimization. The evaluation task is text categorization on the 20 Newsgroup data set, which consists of 18,774 articles divided almost evenly across 20 classes. We formulate the multi-class classification as an 2 regularized logistic regression, which is solved by ADMM implemented as [3]. We run 10 instances of random partitioning on the training data as a baseline. In this case, we use the feature based function (same as the one used in [27]), in the homogeneous setting of Problem 1 (with  = 0). We use GREEDMAX as the partitioning algorithm. In Figure 1a, we observe that the resulting partitioning performs much better than a random partitioning (and significantly better than an adversarial partitioning, formed by grouping similar items together). More details are given in [28].
+
+Distributed Deep Neural Network (DNN) Training: Next we evaluate our framework on distributed deep neural network (DNN) training. We test on two tasks: 1) handwritten digit recognition on the MNIST database, which consists of 60,000 training and 10,000 test samples; 2) phone classification on the TIMIT data, which has 1,124,823 training and 112,487 test samples. A 4-layer DNN model is applied to the MNIST experiment, and we train a 5-layer DNN for TIMIT. For both experiments the submodular partitioning is obtained by solving the homogeneous case of Problem 1 ( = 0) using GREEDMAX on a form of clustered facility location (as proposed and used in [27]). We perform distributed training using an averaging stochastic gradient descent scheme, similar to the one in [24]. We also run 10 instances of random partitioning as a baseline. As shown in Figure 1b and 1c, the submodular partitioning outperforms the random baseline. An adversarial partitioning, which is formed by grouping items with the same class, in either case, cannot even be trained.
+
+Unsupervised Image Segmentation: We test the
+
+F-measure on all of GrabCut
+
+Original
+
+efficacy of Problem 2 on unsupervised image seg-
+
+1.0
+
+Ground Truth
+
+mentation over the GrabCut
+
+data set (30 color images
+
+0.810
+
+k-means
+
+and their ground truth fore-
+
+ground/background labels).
+
+0.823
+
+k-medoids
+
+By "unsupervised", we
+
+mean that no labeled data at any time in supervised
+
+0.854
+
+Spectral Clustering
+
+or semi-supervised training, nor any kind of interactive
+
+0.853
+
+Graph Cut
+
+segmentation, was used in forming or optimizing the
+
+0.870
+
+Submodular Partitioning
+
+objective. The submodular
+
+partitioning for each image Figure 2: Unsupervised image segmentation (right: some examples).
+
+is obtained by solving the
+
+homogeneous case of Problem 2 ( = 0.8) using a modified variant of GREEDMIN on the facility lo-
+
+cation function. We compare our method against the other unsupervised methods k-means, k-medoids,
+
+spectral clustering, and graph cuts. Given an m-partition of an image and its ground truth labels, we
+
+assign each of the m blocks either to the foreground or background label having the larger intersection.
+
+In Fig. 2 we show example segmentation results after this mapping on several example images as well
+
+as averaged F-measure (relative to ground truth) over the whole data set. More details are given in [28].
+
+Acknowledgments: This material is based upon work supported by the National Science Foundation under Grant No. IIS-1162606, the National Institutes of Health under award R01GM103544, and by a Google, a Microsoft, and an Intel research award. R. Iyer acknowledges support from a Microsoft Research Ph.D Fellowship. This work was supported in part by TerraSwarm, one of six centers of STARnet, a Semiconductor Research Corporation program sponsored by MARCO and DARPA.
+
+8
+
+References
+[1] D. Arthur and S. Vassilvitskii. k-means++: The advantages of careful seeding. In SODA, 2007. [2] A. Asadpour and A. Saberi. An approximation algorithm for max-min fair allocation of indivisible goods.
+In SICOMP, 2010. [3] S. Boyd, N. Parikh, E. Chu, B. Peleato, and J. Eckstein. Distributed optimization and statistical learning
+via the alternating direction method of multipliers. Foundations and Trends in Machine Learning, 2011. [4] N. Buchbinder, M. Feldman, J. Naor, and R. Schwartz. A tight linear time (1/2)-approximation for
+unconstrained submodular maximization. In FOCS, 2012. [5] C. Chekuri and A. Ene. Approximation algorithms for submodular multiway partition. In FOCS, 2011. [6] C. Chekuri and A. Ene. Submodular cost allocation problem and applications. In Automata, Languages
+and Programming, pages 354-366. Springer, 2011. [7] A. Ene, J. Vondrak, and Y. Wu. Local distribution and the symmetry gap: Approximability of multiway
+partitioning problems. In SODA, 2013. [8] M. Fisher, G. Nemhauser, and L. Wolsey. An analysis of approximations for maximizing submodular set
+functions--II. In Polyhedral combinatorics, 1978. [9] S. Fujishige. Submodular functions and optimization, volume 58. Elsevier, 2005. [10] L. A. Garcia-Escudero, A. Gordaliza, C. Matran, and A. Mayo-Iscar. A review of robust clustering methods.
+Advances in Data Analysis and Classification, 4(2-3):89-109, 2010. [11] M. Goemans, N. Harvey, S. Iwata, and V. Mirrokni. Approximating submodular functions everywhere. In
+SODA, 2009. [12] D. Golovin. Max-min fair allocation of indivisible goods. Technical Report CMU-CS-05-144, 2005. [13] R. Iyer, S. Jegelka, and J. Bilmes. Monotone closure of relaxed constraints in submodular optimization:
+Connections between minimization and maximization: Extended version. [14] R. Iyer, S. Jegelka, and J. Bilmes. Fast semidifferential based submodular function optimization. In ICML,
+2013. [15] S. Jegelka and J. Bilmes. Submodularity beyond submodular energies: coupling edges in graph cuts. In
+CVPR, 2011. [16] S. Khot and A. Ponnuswami. Approximation algorithms for the max-min allocation problem. In APPROX,
+2007. [17] V. Kolmogorov and R. Zabin. What energy functions can be minimized via graph cuts? In TPAMI, 2004. [18] A. Krause, B. McMahan, C. Guestrin, and A. Gupta. Robust submodular observation selection. In JMLR,
+2008. [19] J. K. Lenstra, D. B. Shmoys, and E . Tardos. Approximation algorithms for scheduling unrelated parallel
+machines. In Mathematical programming, 1990. [20] M. Li, D. Andersen, and A. Smola. Graph partitioning via parallel submodular approximation to accelerate
+distributed machine learning. In arXiv preprint arXiv:1505.04636, 2015. [21] M. Minoux. Accelerated greedy algorithms for maximizing submodular set functions. In Optimization
+Techniques, 1978. [22] M. Narasimhan, N. Jojic, and J. A. Bilmes. Q-clustering. In NIPS, 2005. [23] J. Orlin. A faster strongly polynomial time algorithm for submodular function minimization. Mathematical
+Programming, 2009. [24] D. Povey, X. Zhang, and S. Khudanpur. Parallel training of deep neural networks with natural gradient and
+parameter averaging. arXiv preprint arXiv:1410.7455, 2014. [25] Z. Svitkina and L. Fleischer. Submodular approximation: Sampling-based algorithms and lower bounds.
+In FOCS, 2008. [26] J. Vondrak. Optimal approximation for the submodular welfare problem in the value oracle model. In
+STOC, 2008. [27] K. Wei, R. Iyer, and J. Bilmes. Submodularity in data subset selection and active learning. In ICML, 2015. [28] K. Wei, R. Iyer, S. Wang, W. Bai, and J. Bilmes. Mixed robust/average submodular partitioning: Fast
+algorithms, guarantees, and applications: NIPS 2015 Extended Supplementary. [29] L. Zhao, H. Nagamochi, and T. Ibaraki. On generalized greedy splitting algorithms for multiway partition
+problems. Discrete applied mathematics, 143(1):130-143, 2004.
+9
+

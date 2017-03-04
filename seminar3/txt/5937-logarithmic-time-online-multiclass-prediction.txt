@@ -1,0 +1,1121 @@
+Logarithmic Time Online Multiclass prediction
+
+Anna Choromanska Courant Institute of Mathematical Sciences
+New York, NY, USA
+achoroma@cims.nyu.edu
+
+John Langford Microsoft Research New York, NY, USA
+jcl@microsoft.com
+
+Abstract
+We study the problem of multiclass classification with an extremely large number of classes (k), with the goal of obtaining train and test time complexity logarithmic in the number of classes. We develop top-down tree construction approaches for constructing logarithmic depth trees. On the theoretical front, we formulate a new objective function, which is optimized at each node of the tree and creates dynamic partitions of the data which are both pure (in terms of class labels) and balanced. We demonstrate that under favorable conditions, we can construct logarithmic depth trees that have leaves with low label entropy. However, the objective function at the nodes is challenging to optimize computationally. We address the empirical problem with a new online decision tree construction procedure. Experiments demonstrate that this online algorithm quickly achieves improvement in test error compared to more common logarithmic training time approaches, which makes it a plausible method in computationally constrained large-k applications.
+1 Introduction
+The central problem of this paper is computational complexity in a setting where the number of classes k for multiclass prediction is very large. Such problems occur in natural language (Which translation is best?), search (What result is best?), and detection (Who is that?) tasks. Almost all machine learning algorithms (with the exception of decision trees) have running times for multiclass classification which are O(k) with a canonical example being one-against-all classifiers [1].
+In this setting, the most efficient possible accurate approach is given by information theory [2]. In essence, any multiclass classification algorithm must uniquely specify the bits of all labels that it predicts correctly on. Consequently, Kraft's inequality ([2] equation 5.6) implies that the expected computational complexity of predicting correctly is (H(Y )) per example where H(Y ) is the Shannon entropy of the label. For the worst case distribution on k classes, this implies (log(k)) computation is required.
+Hence, our goal is achieving O(log(k)) computational time per example1 for both training and testing, while effectively using online learning algorithms to minimize passes over the data.
+The goal of logarithmic (in k) complexity naturally motivates approaches that construct a logarithmic depth hierarchy over the labels, with one label per leaf. While this hierarchy is sometimes available through prior knowledge, in many scenarios it needs to be learned as well. This naturally leads to a partition problem which arises at each node in the hierarchy. The partition problem is finding a classifier: c : X  {-1, 1} which divides examples into two subsets with a purer set of labels than the original set. Definitions of purity vary, but canonical examples are the number of labels remaining in each subset, or softer notions such as the average Shannon entropy of the class labels. Despite resulting in a classifier, this problem is fundamentally different from standard binary classification. To see this, note that replacing c(x) with -c(x) is very bad for binary classification, but has no impact on the quality of a partition2. The partition problem is fundamentally non-convex
+1Throughout the paper by logarithmic time we mean logarithmic time per example. 2The problem bears parallels to clustering in this regard.
+1
+
+for
+
+symmetric
+
+classes
+
+since
+
+the
+
+average
+
+c(x)-c(x) 2
+
+of
+
+c(x)
+
+and
+
+-c(x)
+
+is
+
+a
+
+poor
+
+partition
+
+(the
+
+always-0
+
+function places all points on the same side).
+
+The choice of partition matters in problem dependent ways. For example, consider examples on a
+line with label i at position i and threshold classifiers. In this case, trying to partition class labels {1, 3} from class label 2 results in poor performance.
+
+The partition problem is typically solved for decision tree learning via an enumerate-and-test approach amongst a small set of possible classifiers (see e.g. [3]). In the multiclass setting, it is desirable to achieve substantial error reduction for each node in the tree which motivates using a richer set of classifiers in the nodes to minimize the number of nodes, and thereby decrease the computational complexity. The main theoretical contribution of this work is to establish a boosting algorithm for learning trees with O(k) nodes and O(log k) depth, thereby addressing the goal of logarithmic time train and test complexity. Our main theoretical result, presented in Section 2.3, generalizes a binary boosting-by-decision-tree theorem [4] to multiclass boosting. As in all boosting results, performance is critically dependent on the quality of the weak learner, supporting intuition that we need sufficiently rich partitioners at nodes. The approach uses a new objective for decision tree learning, which we optimize at each node of the tree. The objective and its theoretical properties are presented in Section 2.
+
+LOMtree vs one-against-all
+
+A complete system with multiple partitions
+
+1 could be constructed top down (as the boost-
+
+OAA ing theorem) or bottom up (as Filter tree [5]).
+
+LOMtree
+
+A bottom up partition process appears impossi-
+
+0.8 ble with representational constraints as shown
+
+in Section 6 in the Supplementary material so
+
+0.6 we focus on top-down tree creation.
+
+accuracy
+
+Whenever there are representational constraints
+
+0.4 on partitions (such as linear classifiers), find-
+
+ing a strong partition function requires an ef-
+
+0.2 ficient search over this set of classifiers. Efficient searches over large function classes are
+
+routinely performed via gradient descent tech-
+
+0 26 105
+
+1000
+
+21841 105033 niques for supervised learning, so they seem
+
+number of classes
+
+like a natural candidate. In existing literature,
+
+Figure 1: A comparison of One-Against- examples for doing this exist when the problem
+
+All (OAA) and the Logarithmic Online Multi- is indeed binary, or when there is a prespeci-
+
+class Tree (LOMtree) with One-Against-All con- fied hierarchy over the labels and we just need
+
+strained to use the same training time as the to find partitioners aligned with that hierarchy.
+
+LOMtree by dataset truncation and LOMtree con- Neither of these cases applies--we have multi-
+
+strained to use the same representation complex- ple labels and want to dynamically create the
+
+ity as One-Against-All. As the number of class choice of partition, rather than assuming that
+
+labels grows, the problem becomes harder and the one was handed to us. Does there exist a pu-
+
+LOMtree becomes more dominant.
+
+rity criterion amenable to a gradient descent ap-
+
+proach? The precise objective studied in theory
+
+fails this test due to its discrete nature, and even natural approximations are challenging to tractably
+
+optimize under computational constraints. As a result, we use the theoretical objective as a moti-
+
+vation and construct a new Logarithmic Online Multiclass Tree (LOMtree) algorithm for empirical
+
+evaluation.
+
+Creating a tree in an online fashion creates a new class of problems. What if some node is initially created but eventually proves useless because no examples go to it? At best this results in a wasteful solution, while in practice it starves other parts of the tree which need representational complexity. To deal with this, we design an efficient process for recycling orphan nodes into locations where they are needed, and prove that the number of times a node is recycled is at most logarithmic in the number of examples. The algorithm is described in Section 3 and analyzed in Section 3.1.
+
+And is it effective? Given the inherent non-convexity of the partition problem this is unavoidably an empirical question which we answer on a range of datasets varying from 26 to 105K classes in Section 4. We find that under constrained training times, this approach is quite effective compared to all baselines while dominating other O(log k) train time approaches.
+
+What's new? To the best of our knowledge, the splitting criterion, the boosting statement, the LOMtree algorithm, the swapping guarantee, and the experimental results are all new here.
+
+2
+
+1.1 Prior Work
+Only a few authors address logarithmic time training. The Filter tree [5] addresses consistent (and robust) multiclass classification, showing that it is possible in the statistical limit. The Filter tree does not address the partition problem as we do here which as shown in our experimental section is often helpful. The partition finding problem is addressed in the conditional probability tree [6], but that paper addresses conditional probability estimation. Conditional probability estimation can be converted into multiclass prediction [7], but doing so is not a logarithmic time operation.
+Quite a few authors have addressed logarithmic testing time while allowing training time to be O(k) or worse. While these approaches are intractable on our larger scale problems, we describe them here for context. The partition problem can be addressed by recursively applying spectral clustering on a confusion graph [8] (other clustering approaches include [9]). Empirically, this approach has been found to sometimes lead to badly imbalanced splits [10]. In the context of ranking, another approach uses k-means hierarchical clustering to recover the label sets for a given partition [11].
+The more recent work [12] on the multiclass classification problem addresses it via sparse output coding by tuning high-cardinality multiclass categorization into a bit-by-bit decoding problem. The authors decouple the learning processes of coding matrix and bit predictors and use probabilistic decoding to decode the optimal class label. The authors however specify a class similarity which is O(k2) to compute (see Section 2.1.1 in [12]), and hence this approach is in a different complexity class than ours (this is also born out experimentally). The variant of the popular error correcting output code scheme for solving multi-label prediction problems with large output spaces under the assumption of output sparsity was also considered in [13]. Their approach in general requires O(k) running time to decode since, in essence, the fit of each label to the predictions must be checked and there are O(k) labels. Another approach [14] proposes iterative least-squares-style algorithms for multi-class (and multi-label) prediction with relatively large number of examples and data dimensions, and the work of [15] focusing in particular on the cost-sensitive multiclass classification. Both approaches however have O(k) training time.
+Decision trees are naturally structured to allow logarithmic time prediction. Traditional decision trees often have difficulties with a large number of classes because their splitting criteria are not well-suited to the large class setting. However, newer approaches [16, 17] have addressed this effectively at significant scales in the context of multilabel classification (multilabel learning, with missing labels, is also addressed in [18]). More specifically, the first work [16] performs brute force optimization of a multilabel variant of the Gini index defined over the set of positive labels in the node and assumes label independence during random forest construction. Their method makes fast predictions, however has high training costs [17]. The second work [17] optimizes a rank sensitive loss function (Discounted Cumulative Gain). Additionally, a well-known problem with hierarchical classification is that the performance significantly deteriorates lower in the hierarchy [19] which some authors solve by biasing the training distribution to reduce error propagation while simultaneously combining bottom-up and top-down approaches during training [20].
+The reduction approach we use for optimizing partitions implicitly optimizes a differential objective. A non-reductive approach to this has been tried previously [21] on other objectives yielding good results in a different context.
+2 Framework and theoretical analysis
+In this section we describe the essential elements of the approach, and outline the theoretical properties of the resulting framework. We begin with high-level ideas.
+2.1 Setting
+We employ a hierarchical approach for learning a multiclass decision tree structure, training this structure in a top-down fashion. We assume that we receive examples x  X  Rd, with labels y  {1, 2, . . . , k}. We also assume access to a hypothesis class H where each h  H is a binary classifier, h : X  {-1, 1}. The overall objective is to learn a tree of depth O(log k), where each node in the tree consists of a classifier from H. The classifiers are trained in such a way that hn(x) = 1 (hn denotes the classifier in node n of the tree3) means that the example x is sent to the right subtree of node n, while hn(x) = -1 sends x to the left subtree. When we reach a leaf, we predict according to the label with the highest frequency amongst the examples reaching that leaf.
+3Further in the paper we skip index n whenever it is clear from the context that we consider a fixed tree node.
+3
+
+In the interest of computational complexity, we want to encourage the number of examples going to the left and right to be fairly balanced. For good statistical accuracy, we want to send examples of class i almost exclusively to either the left or the right subtree, thereby refining the purity of the class distributions at subsequent levels in the tree. The purity of a tree node is therefore a measure of whether the examples of each class reaching the node are then mostly sent to its one child node (pure split) or otherwise to both children (impure split). The formal definitions of balancedness and purity are introduced in Section 2.2. An objective expressing both criteria4 and resulting theoretical properties are illustrated in the following sections. A key consideration in picking this objective is that we want to effectively optimize it over hypotheses h  H, while streaming over examples in an online fashion5. This seems unsuitable with some of the more standard decision tree objectives such as Shannon or Gini entropy, which leads us to design a new objective. At the same time, we show in Section 2.3 that under suitable assumptions, optimizing the objective also leads to effective reduction of the average Shannon entropy over the entire tree.
+
+2.2 An objective and analysis of resulting partitions
+
+We now define a criterion to measure the quality of a hypothesis h  H in creating partitions at a fixed node n in the tree. Let i denotes the proportion of label i amongst the examples reaching this node. Let P (h(x) > 0) and P (h(x) > 0|i) denote the fraction of examples reaching n for which
+
+h(x) > 0, marginally and conditional on class i respectively. Then we define the objective6:
+
+k
+
+J(h) = 2 i |P (h(x) > 0) - P (h(x) > 0|i)| .
+
+(1)
+
+i=1
+We aim to maximize the objective J(h) to obtain high quality partitions. Intuitively, the objective encourages the fraction of examples going to the right from class i to be substantially different from the background fraction for each class i. As a concrete simple scenario, if P (h(x) > 0) = 0.5 for some hypothesis h, then the objective prefers P (h(x) > 0|i) to be as close to 0 or 1 as possible for each class i, leading to pure partitions. We now make these intuitions more formal.
+
+Definition 1 (Purity). The hypothesis h  H induces a pure split if
+
+k
+
+ := i min(P (h(x) > 0|i), P (h(x) < 0|i))  ,
+
+i=1
+where   [0, 0.5), and  is called the purity factor.
+
+In particular, a partition is called maximally pure if  = 0, meaning that each class is sent exclusively to the left or the right. We now define a similar definition for the balancedness of a split.
+Definition 2 (Balancedness). The hypothesis h  H induces a balanced split if c  P (h(x) > 0)  1 - c,
+
+=
+where c  (0, 0.5], and  is called the balancing factor.
+
+A partition is called maximally balanced if  = 0.5, meaning that an equal number of examples are sent to the left and right children of the partition. The balancing factor and the purity factor are related as shown in Lemma 1 (the proofs of Lemma 1 and the following lemma (Lemma 2) are deferred to the Supplementary material).
+Lemma 1. For any hypothesis h, and any distribution over examples (x, y), the purity factor  and the balancing factor  satisfy   min{(2 - J(h))/(4) - , 0.5}.
+
+A partition is called maximally pure and balanced if it satisfies both  = 0 and  = 0.5. We see that J(h) = 1 for a hypothesis h inducing a maximally pure and balanced partition as captured in the next lemma. Of course we do not expect to have hypotheses producing maximally pure and balanced splits in practice.
+Lemma 2. For any hypothesis h : X  {-1, 1}, the objective J(h) satisfies J(h)  [0, 1]. Furthermore, if h induces a maximally pure and balanced partition then J(h) = 1.
+4We want an objective to achieve its optimum for simultaneously pure and balanced split. The standard entropy-based criteria, such as Shannon or Gini entropy, as well as the criterion we will propose, posed in Equation 1, satisfy this requirement (for the entropy-based criteria see [4], for our criterion see Lemma 2).
+5Our algorithm could also be implemented as batch or streaming, where in case of the latter one can for example make one pass through the data per every tree level, however for massive datasets making multiple passes through the data is computationally costly, further justifying the need for an online approach.
+6The proposed objective function exhibits some similarities with the so-called Carnap's measure [22, 23] used in probability and inductive logic.
+
+4
+
+2.3 Quality of the entire tree
+
+The above section helps us understand the quality of an individual split produced by effectively maximizing J(h). We next reason about the quality of the entire tree as we add more and more nodes. We measure the quality of trees using the average entropy over all the leaves in the tree, and track the decrease of this entropy as a function of the number of nodes. Our analysis extends the theoretical analysis in [4], originally developed to show the boosting properties of the decision trees for binary classification problems, to the multiclass classification setting.
+
+Given a tree T , we consider the entropy function Gt as the measure of the quality of tree:
+
+k1
+
+Gt = wl l,i ln
+lL i=1
+
+l,i
+
+where l,i's are the probabilities that a randomly chosen data point x drawn from P, where P is a fixed target distribution over X , has label i given that x reaches node l, L denotes the set of all
+
+tree leaves, t denotes the number of internal tree nodes, and wl is the weight of leaf l defined as the probability a randomly chosen x drawn from P reaches leaf l (note that lL wl = 1).
+
+We next state the main theoretical result of this paper (it is captured in Theorem 1). We adopt
+the weak learning framework. The weak hypothesis assumption, captured in Definition 3, posits that each node of the tree T has a hypothesis h in its hypothesis class H which guarantees simultaneously a "weak" purity and a "weak" balancedness of the split on any distribution P over X . Under this
+assumption, one can use the new decision tree approach to drive the error below any threshold.
+
+Definition 3 (Weak Hypothesis Assumption). Let m denote any node of the tree T , and let m =
+
+P (hm(x) > 0) and Pm,i = P (hm(x) > 0|i). Furthermore, let   R+ be such that for all m,
+
+  (0, min(m, 1 - m)]. We say that the weak hypothesis assumption is satisfied when for any
+
+distribution P over X at each node m of the tree T there exists a hypothesis hm  H such that
+
+J(hm)/2 =
+
+k i=1
+
+m,i|Pm,i
+
+-
+
+m|
+
+
+
+.
+
+Theorem 1. Under the Weak Hypothesis Assumption, for any   [0, 1], to obtain Gt   it suffices
+4(1-)2 ln k
+to make t  (1/) 2 splits.
+
+We defer the proof of Theorem 1 to the Supplementary material and provide its sketch now. The
+analysis studies a tree construction algorithm where we recursively find the leaf node with the highest weight, and choose to split it into two children. Let n be the heaviest leaf at time t. Consider splitting it to two children. The contribution of node n to the tree entropy changes after it splits. This change
+(entropy reduction) corresponds to a gap in the Jensen's inequality applied to the concave function,
+and thus can further be lower-bounded (we use the fact that Shannon entropy is strongly concave
+with respect to 1-norm (see e.g., Example 2.5 in Shalev-Shwartz [24])). The obtained lower-bound turns out to depend proportionally on J(hn)2. This implies that the larger the objective J(hn) is at time t, the larger the entropy reduction ends up being, which further reinforces intuitions to maximize J. In general, it might not be possible to find any hypothesis with a large enough objective J(hn) to guarantee sufficient progress at this point so we appeal to a weak learning assumption. This assumption can be used to further lower-bound the entropy reduction and prove Theorem 1.
+
+3 The LOMtree Algorithm
+The objective function of Section 2 has another convenient form which yields a simple online algorithm for tree construction and training. Note that Equation 1 can be written (details are shown in Section 12 in the Supplementary material) as
+J(h) = 2Ei[|Ex[1(h(x) > 0)] - Ex[1(h(x) > 0|i)]|]. Maximizing this objective is a discrete optimization problem that can be relaxed as follows
+J(h) = 2Ei[|Ex[h(x)] - Ex[h(x)|i]|], where Ex[h(x)|i] is the expected score of class i.
+We next explain our empirical approach for maximizing the relaxed objective. The empirical estimates of the expectations can be easily stored and updated online in every tree node. The decision whether to send an example reaching a node to its left or right child node is based on the sign of the difference between the two expectations: Ex[h(x)] and Ex[h(x)|y], where y is a label of the data point, i.e. when Ex[h(x)]-Ex[h(x)|y] > 0 the data point is sent to the left, else it is sent to the right. This procedure is conveniently demonstrated on a toy example in Section 13 in the Supplement.
+During training, the algorithm assigns a unique label to each node of the tree which is currently a leaf. This is the label with the highest frequency amongst the examples reaching that leaf. While
+
+5
+
+Algorithm 1 LOMtree algorithm (online tree training)
+
+Input: regression algorithm R, max number of tree non-leaf nodes T , swap resistance RS
+
+Subroutine SetNode (v)
+
+mv =  (mv(y) - sum of the scores for class y) lv =  (lv(y) - number of points of class y reaching v) nv =  (nv(y) - number of points of class y which are used to train regressor in v) ev =  (ev(y) - expected score for class y)
+Ev = 0 (expected total score) Cv = 0 (the size of the smallest leaf7 in the subtree with root v)
+
+Subroutine UpdateC (v)
+
+While (v = r AND CPARENT(v) = Cv) v = PARENT(v); Cv = min(CLEFT(v), CRIGHT(v))8
+
+Subroutine Swap (v)
+
+Find a leaf s for which (Cs = Cr) sPA=PARENT(s); sGPA= GRANDPA(s); sSIB=SIBLING(s)9 If (sPA = LEFT(sGPA)) LEFT(sGPA) = sSIB Else RIGHT(sGPA) = sSIB
+UpdateC (sSIB); SetNode (s); LEFT(v) = s; SetNode (sPA); RIGHT(v) = sPA
+
+Create root r = 0: SetNode (r); t = 1
+
+For each example (x, y) do
+
+Set j = r
+
+Do
+
+If (lj(y) = )
+mj(y) = 0; lj(y) = 0; nj(y) = 0; ej(y) = 0
+lj (y)++ If(j is a leaf)
+
+If(lj has at least 2 non-zero entries) If(t<T OR Cj-maxi lj(i)>RS(Cr+1)) If (t<T )
+
+SetNode (LEFT(j)); SetNode (RIGHT(j)); t++
+
+Else Swap(j)
+
+CLEFT(j)= Cj /2 ; CRIGHT(j)=Cj-CLEFT(j); UpdateC (LEFT(j)) If(j is not a leaf)
+
+If (Ej > ej(y)) c = -1 Else c = 1 Train hj with example (x, c): R(x, c)
+nj(y) ++; mj(y) += hj(x); ej(y) = mj(y)/nj(y); Ej =
+Set j to the child of j corresponding to hj Else
+
+k i=1
+
+mj (i)
+
+10
+
+k i=1
+
+nj (i)
+
+Cj ++ break
+
+testing, a test example is pushed down the tree along the path from the root to the leaf, where in each non-leaf node of the path its regressor directs the example either to the left or right child node. The test example is then labeled with the label assigned to the leaf that this example descended to.
+The training algorithm is detailed in Algorithm 1 where each tree node contains a classifier (we use linear classifiers), i.e. hj is the regressor stored in node j and hj(x) is the value of the prediction of hj on example x11. The stopping criterion for expanding the tree is when the number of non-leaf nodes reaches a threshold T .
+3.1 Swapping Consider a scenario where the current training example descends to leaf j. The leaf can split (create two children) if the examples that reached it in the past were coming from at least two different
+7The smallest leaf is the one with the smallest total number of data points reaching it in the past. 8PARENT(v), LEFT(v) and RIGHT(v) denote resp. the parent, and the left and right child of node v. 9GRANDPA(v) and SIBLING(v) denote respectively the grandparent of node v and the sibling of node v, i.e. the node which has the same parent as v. 10In the implementation both sums are stored as variables thus updating Ev takes O(1) computations. 11We also refer to this prediction value as the 'score' in this section.
+6
+
+r ... ...
+j . . . . . . sGPA . . . sPA s sSIB ... ...
+
+r
+
+... ...
+
+j ... s sPA
+
+. . . sGPA . . . sSIB ... ...
+
+Figure 2: Illustration of the swapping procedure. Left: before the swap, right: after the swap.
+
+classes. However, if the number of non-leaf nodes of the tree reaches threshold T , no more nodes can be expanded and thus j cannot create children. Since the tree construction is done online, some nodes created at early stages of training may end up useless because no examples reach them later on. This prevents potentially useful splits such as at leaf j. This problem can be solved by recycling orphan nodes (subroutine Swap in Algorithm 1). The general idea behind node recycling is to allow nodes to split if a certain condition is met. In particular, node j splits if the following holds:
+
+Cj - max lj(i) > RS(Cr + 1),
+i{1,2,...,k}
+
+(2)
+
+where r denotes the root of the entire tree, Cj is the size of the smallest leaf in the subtree with root j, where the smallest leaf is the one with the smallest total number of data points reaching it in the past, lj is a k-dimensional vector of non-negative integers where the ith element is the count of the number of data points with label i reaching leaf j in the past, and finally RS is a "swap resistance". The subtraction of maxi{1,2,...,k} lj(i) in Equation 2 ensures that a pure node will not be recycled.
+If the condition in Inequality 2 is satisfied, the swap of the nodes is performed where an orphan leaf s, which was reached by the smallest number of examples in the past, and its parent sPA are detached from the tree and become children of node j whereas the old sibling sSIB of an orphan node s becomes a direct child of the old grandparent sGPA. The swapping procedure is shown in Figure 2. The condition captured in the Inequality 2 allows us to prove that the number of times any given node is recycled is upper-bounded by the logarithm of the number of examples whenever the swap resistance is 4 or more (Lemma 3).
+Lemma 3. Let the swap resistance RS be greater or equal to 4. Then for all sequences of examples, the number of times Algorithm 1 recycles any given node is upper-bounded by the logarithm (with base 2) of the sequence length.
+
+4 Experiments
+
+We address several hypotheses experimentally.
+
+1. The LOMtree algorithm achieves true logarithmic time computation in practice.
+
+2. The LOMtree algorithm is competitive with or better than all other logarithmic train/test
+
+time algorithms for multiclass classification.
+
+3. The LOMtree algorithm has statistical performance close to more common O(k) ap-
+
+proaches. Table 1: Dataset sizes.
+Isolet Sector Aloi ImNet ODP
+
+To address these hypotheses, we conducted experiments on a variety of benchmark multiclass datasets: Iso-
+
+size 52.3MB 19MB 17.7MB104GB12 3GB
+
+let, Sector, Aloi, ImageNet (Im-
+
+# features 617 54K 128 6144 0.5M
+
+Net) and ODP13. The details of the
+
+# examples 7797 9619 108K 14.2M 1577418
+
+datasets are provided in Table 1. The
+
+# classes 26 105 1000 22K 105K
+
+datasets were divided into training
+
+(90%) and testing (10%). Further-
+
+more, 10% of the training dataset was
+
+used as a validation set.
+
+The baselines we compared LOMtree with are a balanced random tree of logarithmic depth (Rtree) and the Filter tree [5]. Where computationally feasible, we also compared with a one-against-all classifier (OAA) as a representative O(k) approach. All methods were implemented in the Vowpal Wabbit [25] learning system and have similar levels of optimization. The regressors in the tree nodes for LOMtree, Rtree, and Filter tree as well as the OAA regressors were trained by online gradient descent for which we explored step sizes chosen from the set {0.25, 0.5, 0.75, 1, 2, 4, 8}. We used
+
+12compressed 13The details of the source of each dataset are provided in the Supplementary material.
+
+7
+
+linear regressors. For each method we investigated training with up to 20 passes through the data and we selected the best setting of the parameters (step size and number of passes) as the one minimizing the validation error. Additionally, for the LOMtree we investigated different settings of the stopping criterion for the tree expansion: T = {k - 1, 2k - 1, 4k - 1, 8k - 1, 16k - 1, 32k - 1, 64k - 1}, and swap resistance RS = {4, 8, 16, 32, 64, 128, 256}.
+In Table 2 and 3 we report respectively train time and per-example test time (the best performer is indicated in bold). Training time (and later reported test error) is not provided for OAA on ImageNet and ODP due to intractability14-both are petabyte scale computations15.
+
+Table 2: Training time on selected problems. Table 3: Per-example test time on all problems.
+
+Isolet Sector Aloi
+
+Isolet Sector Aloi ImNet ODP
+
+LOMtree 16.27s 12.77s 51.86s LOMtree 0.14ms 0.13ms 0.06ms 0.52ms 0.26ms
+
+OAA 19.58s 18.37s 11m2.43s
+
+OAA 0.16 ms 0.24ms 0.33ms 0.21s 1.05s
+
+The first hypothesis is consistent with the experimental results. Time-wise LOMtree significantly outperforms OAA due to building only close-to logarithmic depth trees. The improvement in the training time increases with the number of classes in the classification problem. For instance on Aloi training with LOMtree is 12.8 times faster than with OAA. The same can be said about the test time, where the per-example test time for Aloi, ImageNet and ODP are respectively 5.5, 403.8 and 4038.5 times faster than OAA. The significant advantage of LOMtree over OAA is also captured in Figure 3.
+
+log (time ratio)
+2
+
+LOMtree vs one-against-all 12 10
+8 6 4 2
+
+6 8 10 12 14 log2(number of classes)
+
+16
+
+Figure 3: Logarithm of the ratio of per-example
+
+test times of OAA and LOMtree on all problems.
+
+Next, in Table 4 (the best logarithmic time performer is indicated in bold) we report test error of logarithmic train/test time algorithms. We also show the binomial symmetrical 95% confidence intervals for our results. Clearly the second hypothesis is also consistent with the experimental results. Since the Rtree imposes a random label partition, the resulting error it obtains is generally worse than the error obtained by the competitor methods including LOMtree which learns the label partitioning directly from the data. At the same time LOMtree beats Filter tree on every dataset, though for ImageNet and ODP (both have a high level of noise) the advantage of LOMtree is not as significant.
+
+Table 4: Test error (%) and confidence interval on all problems.
+
+LOMtree Rtree Filter tree
+
+OAA
+
+Isolet 6.361.71 16.922.63 15.102.51 3.561.30%
+
+Sector 16.192.33 15.772.30 17.702.41 9.171.82%
+
+Aloi 16.500.70 83.740.70 80.500.75 13.780.65%
+
+ImNet 90.170.05 96.990.03 92.120.04
+
+NA
+
+ODP 93.460.12 93.850.12 93.760.12
+
+NA
+
+The third hypothesis is weakly consistent with the empirical results. The time advantage of LOMtree comes with some loss of statistical accuracy with respect to OAA where OAA is tractable. We conclude that LOMtree significantly closes the gap between other logarithmic time methods and OAA, making it a plausible approach in computationally constrained large-k applications.
+
+5 Conclusion
+
+The LOMtree algorithm reduces the multiclass problem to a set of binary problems organized in a tree structure where the partition in every tree node is done by optimizing a new partition criterion online. The criterion guarantees pure and balanced splits leading to logarithmic training and testing time for the tree classifier. We provide theoretical justification for our approach via a boosting statement and empirically evaluate it on multiple multiclass datasets. Empirically, we find that this is the best available logarithmic time approach for multiclass classification problems.
+14Note however that the mechanics of testing datastes are much easier - one can simply test with effectively untrained parameters on a few examples to measure the test speed thus the per-example test time for OAA on ImageNet and ODP is provided.
+15Also to the best of our knowledge there exist no state-of-the-art results of the OAA performance on these datasets published in the literature.
+
+8
+
+Acknowledgments
+We would like to thank Alekh Agarwal, Dean Foster, Robert Schapire and Matus Telgarsky for valuable discussions.
+References
+[1] R. Rifkin and A. Klautau. In defense of one-vs-all classification. J. Mach. Learn. Res., 5:101-141, 2004. [2] T. M. Cover and J. A. Thomas. Elements of Information Theory. John Wiley & Sons, Inc., 1991. [3] L. Breiman, J. H. Friedman, R. A. Olshen, and C. J. Stone. Classification and Regression Trees. CRC
+Press LLC, Boca Raton, Florida, 1984. [4] M. Kearns and Y. Mansour. On the boosting ability of top-down decision tree learning algorithms. Journal
+of Computer and Systems Sciences, 58(1):109-128, 1999 (also In STOC, 1996). [5] A. Beygelzimer, J. Langford, and P. D. Ravikumar. Error-correcting tournaments. In ALT, 2009. [6] A. Beygelzimer, J. Langford, Y. Lifshits, G. B. Sorkin, and A. L. Strehl. Conditional probability tree
+estimation analysis and algorithms. In UAI, 2009. [7] C. M. Bishop. Pattern Recognition and Machine Learning. Springer, 2006. [8] S. Bengio, J. Weston, and D. Grangier. Label embedding trees for large multi-class tasks. In NIPS, 2010. [9] G. Madzarov, D. Gjorgjevikj, and I. Chorbev. A multi-class svm classifier utilizing binary decision tree.
+Informatica, 33(2):225-233, 2009. [10] J. Deng, S. Satheesh, A. C. Berg, and L. Fei-Fei. Fast and balanced: Efficient label tree learning for large
+scale object recognition. In NIPS, 2011. [11] J. Weston, A. Makadia, and H. Yee. Label partitioning for sublinear ranking. In ICML, 2013. [12] B. Zhao and E. P. Xing. Sparse output coding for large-scale visual recognition. In CVPR, 2013. [13] D. Hsu, S. Kakade, J. Langford, and T. Zhang. Multi-label prediction via compressed sensing. In NIPS,
+2009. [14] A. Agarwal, S. M. Kakade, N. Karampatziakis, L. Song, and G. Valiant. Least squares revisited: Scalable
+approaches for multi-class prediction. In ICML, 2014. [15] O. Beijbom, M. Saberian, D. Kriegman, and N. Vasconcelos. Guess-averse loss functions for cost-
+sensitive multiclass boosting. In ICML, 2014. [16] R. Agarwal, A. Gupta, Y. Prabhu, and M. Varma. Multi-label learning with millions of labels: Recom-
+mending advertiser bid phrases for web pages. In WWW, 2013. [17] Y. Prabhu and M. Varma. Fastxml: A fast, accurate and stable tree-classifier for extreme multi-label
+learning. In ACM SIGKDD, 2014. [18] H.-F. Yu, P. Jain, P. Kar, and I. S. Dhillon. Large-scale multi-label learning with missing labels. In ICML,
+2014. [19] T.-Y. Liu, Y. Yang, H. Wan, H.-J. Zeng, Z. Chen, and W.-Y. Ma. Support vector machines classification
+with a very large-scale taxonomy. In SIGKDD Explorations, 2005. [20] P. N. Bennett and N. Nguyen. Refined experts: improving classification in large taxonomies. In SIGIR,
+2009. [21] A. Montillo, J. Tu, J. Shotton, J. Winn, J.E. Iglesias, D.N. Metaxas, and A. Criminisi. Entanglement and
+differentiable information gain maximization. Decision Forests for Computer Vision and Medical Image Analysis, 2013. [22] K. Tentori, V. Crupi, N. Bonini, and D. Osherson. Comparison of confirmation measures. Cognition, 103(1):107 - 119, 2007. [23] R. Carnap. Logical Foundations of Probability. 2nd ed. Chicago: University of Chicago Press. Par. 87 (pp. 468-478), 1962. [24] S. Shalev-Shwartz. Online learning and online convex optimization. Found. Trends Mach. Learn., 4(2):107-194, 2012. [25] J. Langford, L. Li, and A. Strehl. http://hunch.net/vw, 2007. [26] Y. Nesterov. Introductory lectures on convex optimization : a basic course. Applied optimization, Kluwer Academic Publ., 2004. [27] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei. Imagenet: A large-scale hierarchical image database. In CVPR, 2009.
+9
+
+Logarithmic Time Online Multiclass prediction (Supplementary Material)
+
+6 Bottom-up partitions do not work
+The most natural bottom-up construction for creating partitions is not viable as will be now shown by an example. Bottom-up construction techniques start by pairing labels, either randomly or arbitrarily, and then building a predictor of whether the class label is left or right conditioned on the class label being one of the paired labels. In order to construct a full tree, this operation must compose, pairing trees with size 2 to create trees of size 4. Here, we show that the straightforward approach to composition fails.
+Suppose we have a one dimensional feature space with examples of class label i having feature value i and we work with threshold predictors. Suppose we have 4 classes 1, 2, 3, 4, and we happen to pair (1, 3) and (2, 4). It is easy to build a linear predictor for each of these splits. The next step is building a predictor for (1, 3) vs (2, 4) which is impossible because all thresholds in (-, 1), (2, 3), and (4, ) err on two labels while thresholds on (1, 2) and (3, 4) err on one label.
+
+7 Proof of Lemma 1
+
+We start from deriving an upper-bound on J(h). For the ease of notation let Pi = P (h(x) > 0|i). Thus
+k kk
+J(h) = 2 i |P (h(x) > 0|i) - P (h(x) > 0)| = 2 i Pi - jPj ,
+i=1 i=1 j=1
+
+where i={1,2,...,k}0  Pi  1. Let i = min(Pi, 1 - Pi) and recall the purity factor  =
+
+k i=1
+
+ii
+
+and
+
+the
+
+balancing
+
+factor
+
+
+
+=
+
+P (h(x)
+
+>
+
+0).
+
+Without loss of generality let 
+
+
+
+1 2
+
+.
+
+Furthermore, let
+
+L1
+
+=
+
+{i
+
+:
+
+i
+
+
+
+{1, 2, . . . , k}, Pi
+
+
+
+1 }, 2
+
+L2
+
+=
+
+{i
+
+:
+
+i
+
+
+
+{1,
+
+2,
+
+.
+
+.
+
+.
+
+,
+
+k},
+
+Pi
+
+
+
+[,
+
+1 2
+
+)}
+
+First notice that
+
+and L3 = {i : i  {1, 2, . . . , k}, Pi < }.
+
+k
+
+ = iPi = i(1 - i) +
+
+ii = i - 2 ii + 
+
+i=1 iL1
+
+iL2 L3
+
+iL1
+
+iL1
+
+(3)
+
+Therefore
+
+J (h)
+
+k
+
+= 2
+
+i |Pi - | = i(1 - i - ) + i(i - ) + i( - i)
+
+i=1 iL1
+
+iL2
+
+iL3
+
+= i(1 - ) - ii + ii - i + i - ii
+
+iL1
+
+iL1
+
+iL2
+
+iL2
+
+iL3
+
+iL3
+
+Note that iL3 i = 1 - iL1 i - iL2 i and therefore
+
+J (h) =
+2
+
+i(1-)- ii + ii - i + (1- i - i)- ii
+
+iL1
+
+iL1
+
+iL2
+
+iL2
+
+iL1
+
+iL2
+
+iL3
+
+= i(1 - 2) - ii + ii + (1 - 2 i) - ii
+
+iL1
+
+iL1
+
+iL2
+
+iL2
+
+iL3
+
+10
+
+Furthermore, since - iL1 ii + iL2 ii - iL3 ii = - + 2 iL2 ii we further write that
+
+J (h) =
+2
+
+i(1 - 2) + (1 - 2 i) -  + 2 ii
+
+iL1
+
+iL2
+
+iL2
+
+By Equation 3, it can be further rewritten as
+
+J (h)
+
+= (1 - 2)( + 2 2
+
+ii - ) + (1 - 2
+
+i) -  + 2
+
+ii
+
+iL1
+
+iL2
+
+iL2
+
+= 2(1 - )( - ) + 2(1 - 2) ii + 2 i(i - )
+
+Since i's are bounded by 0.5 we obtain
+
+iL1
+
+iL2
+
+J (h)
+
+1
+
+ 2(1 - )( - ) + 2(1 - 2) 2
+
+ii + 2
+
+i( 2 - )
+
+iL1
+
+iL2
+
+ 2(1 - )( - ) + 2(1 - 2) + 1 - 2
+
+= 2(1 - ) - 2(1 - ) + 2(1 - 2) + 1 - 2
+
+Thus:
+
+= 1 - 22 - 2   2 - J(h) - . 4
+
+8 Proof of Lemma 2
+
+Proof. We first show that J(h)  [0, 1]. We start from deriving an upper-bound on J(h), where h  H is some hypothesis in the hypothesis class. For the ease of notation let Pi = P (h(x) > 0|i). Thus
+
+k
+
+J(h) = 2 i |P (h(x) > 0|i) - P (h(x) > 0)|
+
+(4)
+
+i=1
+
+kk
+= 2 i Pi - j Pj ,
+i=1 j=1
+
+where i={1,2,...,k}0  Pi  1. The objective J (h) is certainly maximized on the extremes of the
+[0, 1] interval. The upper-bound on J(h) can be thus obtained by setting some of the Pi's to 1's and remaining ones to 0's. To be more precise, let
+L1 = {i : i  {1, 2, . . . , k}, Pi = 1} and L2 = {i : i  {1, 2, . . . , k}, Pi = 0}.
+Therefore it follows that 
+
+J (h)  2  i(1 - j) + i j
+
+iL1
+
+jL1
+
+iL2 jL1
+
+=2
+
+i - ( i)2 + (1 - i) i
+
+iL1
+
+iL1
+
+iL1
+
+iL1
+
+=4
+
+i - ( i)2
+
+iL1
+
+iL1
+
+Let b = iL1 i thus
+
+J(h)  4b(1 - b) = -4b2 + 4b
+
+(5)
+
+Since b  [0, 1], it is straightforward that -4b2 + 4b  [0, 1] and thus J(h)  [0, 1].
+
+We now proceed to prove the main statement of Lemma 2, if h induces a maximally pure and balanced partition then J(h) = 1. Since h is maximally balanced, P (h(x) > 0) = 0.5. Simultaneously, since h is maximally pure i={1,2,...,k}(P (h(x) > 0|i) = 0 or P (h(x) > 0|i) = 1).
+Substituting that into Equation 5 yields that J(h) = 1.
+
+11
+
+9 Proof of Theorem 1
+
+Proof. The analysis studies a tree construction algorithm where we recursively find the leaf node
+
+with the highest weight, and choose to split it into two children. Consider the tree constructed
+
+over t steps where in each step we take one leaf node and split it into two. Let n be the heaviest
+
+node at time t and its weight wn be denoted by w for brevity. Consider splitting this leaf to two children n0 and n1. For the ease of notation let w0 = wn0 and w1 = wn1 . Also for the ease of notation let  = P (hn(x) > 0) and Pi = P (hn(x) > 0|i). Let i be the shorthand for
+
+n,i and h be the shorthand for hn. Recall that  =
+
+k i=1
+
+iPi
+
+and
+
+k i=1
+
+i
+
+=
+
+1.
+
+Also
+
+notice
+
+that
+
+w0 = w(1-) and w1 = w. Let  be the k-element vector with ith entry equal to i. Furthermore
+
+let G() =
+
+k i=1
+
+i
+
+ln
+
+1 i
+
+.
+
+Before the split the contribution of node n to Gt
+
+was wG().
+
+Let n0,i
+
+=
+
+i (1-Pi ) 1-
+
+and n1,i
+
+=
+
+i Pi 
+
+be the probabilities that a randomly chosen x drawn from P has label i given that x reaches nodes
+
+n0 and n1 respectively. For brevity, let n0,i be denoted by 0,i and n1,i be denoted by 1,i. Furthermore let 0 be the k-element vector with ith entry equal to 0,i and let 1 be the k-element
+
+vector with ith entry equal to 1,i. Notice that  = (1 - )0 + 1. After the split the contribution
+
+of the same, now internal, node n changes to w((1 - )G(0) + G(1)). We denote the difference
+
+between them as t and thus
+
+t := Gt - Gt+1 = w G() - (1 - )G(0) - G(1) .
+
+(6)
+
+We aim to lower-bound t. The entropy reduction of Equation 6 [4] corresponds to a gap in the Jensen's inequality applied to the concave function G(). This leads to the lower-bound on t
+given in Lemma 4 (the lemma is proven in Section 10 in the Supplementary material).
+
+Lemma 4. The entropy reduction t of Equation 6 can be lower-bounded as follows
+
+t
+
+
+
+J (h)2Gt 8(1 - )t ln k
+
+Lemma 4 implies that the larger the objective J(h) is at time t, the larger the entropy reduction ends up being, which further reinforces intuitions to maximize J. In general, it might not be possible to find any hypothesis with a large enough objective J(h) to guarantee sufficient progress at this point
+so we appeal to a weak learning assumption. This assumption can be used to further lower-bound t. The lower-bound can then be used (details are in Section 9 in the Supplementary material) to obtain the main theoretical statement of the paper captured in Theorem 1.
+
+From the definition of  it follows that 1 -     . Also note that the weak hypothesis
+
+assumption guarantees J(h)  2, which applied to the lower-bound on t captured in Lemma 4
+
+yields
+
+t
+
+
+
+2(1
+
+ -
+
+2Gt )2t
+
+ln
+
+k
+
+.
+
+Let  =
+
+8 (1-)2
+
+ln
+
+k
+
+
+
+.
+
+Then
+
+t
+
+>
+
+ 2 Gt 16t
+
+.
+
+Thus
+
+we
+
+obtain
+
+the
+
+recurrence
+
+inequality
+
+Gt+1
+
+ Gt - t
+
+<
+
+Gt
+
+-
+
+2Gt 16t
+
+=
+
+Gt
+
+1 - 2 16t
+
+One can now compute the minimum number of splits required to reduce Gt below , where   [0, 1]. Applying the proof technique from [4] (the proof of Theorem 10) gives the final statement of
+Theorem 1.
+
+10 Proof of Lemma 4
+
+Proof. Without loss of generality assume that P1  P2  * * *  Pk. As mentioned before, the entropy reduction t corresponds to a gap in the Jensen's inequality applied to the concave function G(). Also recall that Shannon entropy is strongly concave with respect to 1-norm (see e.g., Example 2.5 in Shalev-Shwartz [24]). As a specific consequence (see e.g. Theorem 2.1.9 in Nesterov [26])
+we obtain
+
+t  w(1 - )
+
+0 - 1
+
+2 1
+
+=
+
+w (1 - )
+
+k
+
+|i(Pi - )|
+
+2
+wJ (h)2 =,
+4(1 - )
+
+i=1
+
+(7)
+
+12
+
+where the last equality results from the definition of J(h) = 2
+
+k i=1
+
+i|Pi
+
+-
+
+|.
+
+Note
+
+that
+
+the
+
+following
+
+holds
+
+w
+
+
+
+Gt 2t ln
+
+k
+
+,
+
+where
+
+recall
+
+that
+
+w
+
+is
+
+the
+
+weight
+
+of
+
+the
+
+heaviest
+
+leaf
+
+in
+
+the
+
+tree, i.e. the leaf with the highest weight, at round t. This leaf is selected to the currently considered
+
+split [4]. In particular, the lower-bound on w is the consequence of the following
+
+k
+Gt = wl l,i ln
+lL i=1
+
+1 l,i
+
+ wl ln k  2tw ln k,
+lL
+
+where w
+
+=
+
+maxlL wl.
+
+Thus w
+
+
+
+Gt 2t ln k
+
+which when substituted to Equation 7 gives the final
+
+statement of the lemma.
+
+11 Proof of Lemma 3
+
+Proof. We bound the number of swaps that any node makes. Consider RS = 4 and let j be the node
+
+that is about to split and s be the orphan node that will be recycled (thus Cr = Cs). The condition
+
+in Equation 2 implies that the swap is done if Cj > 4(Cr + 1) = 4(Cs + 1). Algorithm 1 makes s a
+
+child of Cr gets
+
+j during updated.
+
+tShiencsewtahpeavnadluseetosfiCtssnceowunattelretaostCdsnoeuwbl=es
+
+Cj /2 after a
+
+ 2(Cr swap and
+
++ 1) = 2(Cs + all counters are
+
+1). Then bounded
+
+by the number of examples n, the node can be involved in at most log2 n swaps.
+
+12 Equivalent forms of the objective function
+
+Consider the objective function as given in Equation 1
+
+k
+J(h) = 2 i |P (h(x) > 0) - P (h(x) > 0|i)| .
+i=1
+Recall that X denotes the set of all examples and let Xi denote the set of examples in class i. Also let |X | denote the cardinality of set X and let |Xi| denote the cardinality of set Xi. Then we can re-write the objective as
+
+k
+J(h) = 2 i
+i=1
+
+xX 1(h(x) > 0) - xXi 1(h(x) > 0) |X | |Xi|
+
+k
+
+= 2 i |Ex[1(h(x) > 0)] - Ex[1(h(x) > 0|i)]|
+
+i=1
+
+= 2Ei[|Ex[1(h(x) > 0)] - Ex[1(h(x) > 0|i)]|].
+
+13
+
+13 Toy example of the behavior of LOMtree algorithm
+Figure 4 shows the toy example of the behavior of LOMtree algorithm for the first few data points. Without loss of generality we consider the root node (exactly the same actions would be performed in any other tree node). Notice that the algorithm achieves simultaneously balanced and pure split of classes reaching the considered node. e denotes the expectation Ex[h(x)], and e1, e2, e3, e4 denote the expectations Ex[h(x)|i = 1], Ex[h(x)|i = 2], Ex[h(x)|i = 3], and Ex[h(x)|i = 4]. For simplicity we assume score h(x) can only be either 1 (if the example is sent to the right) or -1 (if the example is sent to the left). The figure should be read as follows (we explain how to read first few illustrations):
+a) Root is initialized. Expectation e is initialized to 0. b) The first example x1 comes with label 1 (we denote it as (x1, 1)). e1 is initialized to 0.
+The difference between e and e1 is computed: e - e1 = 0. The difference is non-positive thus the example is sent to the right child of the root, which is now being created (the left child is created along with the right child as we always create both children of any node simultaneously). c) Expectations e and e1 get updated. It is shown that root and its right child saw an example of class 1. d) The second example x2 comes with label 2 (we denote it as (x2, 2)). e2 is initialized to 0. The difference between e and e2 is computed: e - e2 = 1. The difference is positive thus the example is sent to the left child of the root. e) Expectations e and e2 get updated. It is shown that root saw examples of class 1 and 2, whereas its resp. left and right child saw example of class resp. 2 and 1. f) . . .
+a) b) c)
+d) e) f)
+g) h) i)
+j) k) Figure 4: Toy example of the behavior of LOMtree algorithm in the tree root.
+14
+
+14 Experiments - dataset details
+Below we provide the details of the datasets that we were using for the experiments in Section 4: * Isolet: downloaded from http://www.cs.huji.ac.il/shais/datasets/ ClassificationDatasets.html * Sector and Aloi: downloaded from http://www.csie.ntu.edu.tw/cjlin/ libsvmtools/datasets/multiclass.html * ImageNet [27]: features extracted according to http://www.di.ens.fr/willow/ research/cnn/, dataset obtained from the authors. * ODP [20]: obtained from Paul Bennett. Our version has significantly more classes than reported in the cited paper because we use the entire dataset.
+15
+

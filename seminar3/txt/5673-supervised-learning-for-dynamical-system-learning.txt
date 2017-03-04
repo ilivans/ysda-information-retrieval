@@ -1,0 +1,344 @@
+Supervised Learning for Dynamical System Learning
+
+Ahmed Hefny Carnegie Mellon University
+Pittsburgh, PA 15213 ahefny@cs.cmu.edu
+
+Carlton Downey Carnegie Mellon University
+Pittsburgh, PA 15213 cmdowney@cs.cmu.edu
+
+Geoffrey J. Gordon Carnegie Mellon University
+Pittsburgh, PA 15213 ggordon@cs.cmu.edu
+
+Abstract
+Recently there has been substantial interest in spectral methods for learning dynamical systems. These methods are popular since they often offer a good tradeoff between computational and statistical efficiency. Unfortunately, they can be difficult to use and extend in practice: e.g., they can make it difficult to incorporate prior information such as sparsity or structure. To address this problem, we present a new view of dynamical system learning: we show how to learn dynamical systems by solving a sequence of ordinary supervised learning problems, thereby allowing users to incorporate prior knowledge via standard techniques such as L1 regularization. Many existing spectral methods are special cases of this new framework, using linear regression as the supervised learner. We demonstrate the effectiveness of our framework by showing examples where nonlinear regression or lasso let us learn better state representations than plain linear regression does; the correctness of these instances follows directly from our general analysis.
+
+1 Introduction
+Likelihood-based approaches to learning dynamical systems, such as EM [1] and MCMC [2], can be slow and suffer from local optima. This difficulty has resulted in the development of so-called "spectral algorithms" [3], which rely on factorization of a matrix of observable moments; these algorithms are often fast, simple, and globally optimal.
+Despite these advantages, spectral algorithms fall short in one important aspect compared to EM and MCMC: the latter two methods are meta-algorithms or frameworks that offer a clear template for developing new instances incorporating various forms of prior knowledge. For spectral algorithms, by contrast, there is no clear template to go from a set of probabilistic assumptions to an algorithm. In fact, researchers often relax model assumptions to make the algorithm design process easier, potentially discarding valuable information in the process.
+To address this problem, we propose a new framework for dynamical system learning, using the idea of instrumental-variable regression [4, 5] to transform dynamical system learning to a sequence of ordinary supervised learning problems. This transformation allows us to apply the rich literature on supervised learning to incorporate many types of prior knowledge. Our new methods subsume a variety of existing spectral algorithms as special cases.
+The remainder of this paper is organized as follows: first we formulate the new learning framework (Sec. 2). We then provide theoretical guarantees for the proposed methods (Sec. 4). Finally, we give two examples of how our techniques let us rapidly design new and useful dynamical system learning methods by encoding modeling assumptions (Sec. 5).
+1
+
+1 2 3 4
+o1 o2 o3 o4
+s1 s2 s3 s4
+Figure 1: A latent-state dynamical system. Observation ot is determined by latent state st and noise t.
+
+S1A regression [|]
+
+history 
+
+future /
+
+-1
+
+
+
++-1 +
+
+S2 regression shifted future +1
+
+extended future / S1B regression  [|]
+Condition on  (filter)  +1 Marginalize  (predict)  +1|-1
+
+Figure 2: Learning and applying a dynamical system with instrumental regression. The predictions from S1 provide training data to S2. At test time, we filter or predict using the weights from S2.
+
+2 A framework for spectral algorithms
+A dynamical system is a stochastic process (i.e., a distribution over sequences of observations) such that, at any time, the distribution of future observations is fully determined by a vector st called the latent state. The process is specified by three distributions: the initial state distribution P (s1), the state transition distribution P (st+1 | st), and the observation distribution P (ot | st). For later use, we write the observation ot as a function of the state st and random noise t, as shown in Figure 1.
+Given a dynamical system, one of the fundamental tasks is to perform inference, where we predict future observations given a history of observations. Typically this is accomplished by maintaining a distribution or belief over states bt|t-1 = P (st | o1:t-1) where o1:t-1 denotes the first t - 1 observations. bt|t-1 represents both our knowledge and our uncertainty about the true state of the system. Two core inference tasks are filtering and prediction.1 In filtering, given the current belief bt = bt|t-1 and a new observation ot, we calculate an updated belief bt+1 = bt+1|t that incorporates ot. In prediction, we project our belief into the future: given a belief bt|t-1 we estimate bt+k|t-1 = P (st+k | o1:t-1) for some k > 0 (without incorporating any intervening observations).
+The typical approach for learning a dynamical system is to explicitly learn the initial, transition, and observation distributions by maximum likelihood. Spectral algorithms offer an alternate approach to learning: they instead use the method of moments to set up a system of equations that can be solved in closed form to recover estimates of the desired parameters. In this process, they typically factorize a matrix or tensor of observed moments--hence the name "spectral."
+Spectral algorithms often (but not always [6]) avoid explicitly estimating the latent state or the initial, transition, or observation distributions; instead they recover observable operators that can be used to perform filtering and prediction directly. To do so, they use an observable representation: instead of maintaining a belief bt over states st, they maintain the expected value of a sufficient statistic of future observations. Such a representation is often called a (transformed) predictive state [7].
+In more detail, we define qt = qt|t-1 = E[t | o1:t-1], where t = (ot:t+k-1) is a vector of future features. The features are chosen such that qt determines the distribution of future observations P (ot:t+k-1 | o1:t-1).2 Filtering then becomes the process of mapping a predictive state qt to qt+1 conditioned on ot, while prediction maps a predictive state qt = qt|t-1 to qt+k|t-1 = E[t+k | o1:t-1] without intervening observations.
+1There are other forms of inference in addition to filtering and prediction, such as smoothing and likelihood evaluation, but they are outside the scope of this paper.
+2For convenience we assume that the system is k-observable: that is, the distribution of all future observations is determined by the distribution of the next k observations. (Note: not by the next k observations themselves.) At the cost of additional notation, this restriction could easily be lifted.
+2
+
+A typical way to derive a spectral method is to select a set of moments involving t, work out the expected values of these moments in terms of the observable operators, then invert this relationship to get an equation for the observable operators in terms of the moments. We can then plug in an empirical estimate of the moments to compute estimates of the observable operators.
+
+While effective, this approach can be statistically inefficient (the goal of being able to solve for the observable operators is in conflict with the goal of maximizing statistical efficiency) and can make it difficult to incorporate prior information (each new source of information leads to new moments and a different and possibly harder set of equations to solve). To address these problems, we show that we can instead learn the observable operators by solving three supervised learning problems.
+
+The main idea is that, just as we can represent a belief about a latent state st as the conditional expectation of a vector of observable statistics, we can also represent any other distributions needed for prediction and filtering via their own vectors of observable statistics. Given such a representation, we can learn to filter and predict by learning how to map these vectors to one another.
+
+In particular, the key intermediate quantity for filtering is the "extended and marginalized" belief
+P (ot, st+1 | o1:t-1)--or equivalently P (ot:t+k | o1:t-1). We represent this distribution via a vector t = (ot:t+k) of features of the extended future. The features are chosen such that the extended state pt = E[t | o1:t-1] determines P (ot:t+k | o1:t-1). Given P (ot:t+k | o1:t-1), filtering and prediction reduce respectively to conditioning on and marginalizing over ot.
+
+In many models (including Hidden Markov Models (HMMs) and Kalman filters), the extended state
+
+pt is linearly related to the predictive state qt--a property we exploit for our framework. That is,
+
+pt = W qt
+
+(1)
+
+for some linear operator W . For example, in a discrete system t can be an indicator vector repre-
+senting the joint assignment of the next k observations, and t can be an indicator vector for the next k + 1 observations. The matrix W is then the conditional probability table P (ot:t+k | ot:t+k-1).
+
+Our goal, therefore, is to learn this mapping W . Naively, we might try to use linear regression for
+this purpose, substituting samples of t and t in place of qt and pt since we cannot observe qt or pt directly. Unfortunately, due to the overlap between observation windows, the noise terms on t and t are correlated. So, naive linear regression will give a biased estimate of W .
+
+To counteract this bias, we employ instrumental regression [4, 5]. Instrumental regression uses instrumental variables that are correlated with the input qt but not with the noise t:t+k. This property provides a criterion to denoise the inputs and outputs of the original regression problem: we remove
+that part of the input/output that is not correlated with the instrumental variables. In our case, since past observations o1:t-1 do not overlap with future or extended future windows, they are not correlated with the noise t:t+k+1, as can be seen in Figure 1. Therefore, we can use history features ht = h(o1:t-1) as instrumental variables.
+
+In more detail, by taking the expectation of (1) given ht, we obtain an instrument-based moment condition: for all t,
+
+E[pt | ht] = E[W qt | ht]
+
+E[E[t | o1:t-1] | ht] = W E[E[t | o1:t-1] | ht]
+
+E[t | ht] = W E[t | ht]
+
+(2)
+
+Assuming that there are enough independent dimensions in ht that are correlated with qt, we maintain the rank of the moment condition when moving from (1) to (2), and we can recover W by least squares regression if we can compute E[t | ht] and E[t | ht] for sufficiently many examples t.
+
+Fortunately, conditional expectations such as E[t | ht] are exactly what supervised learning algorithms are designed to compute. So, we arrive at our learning framework: we first use supervised learning to estimate E[t | ht] and E[t | ht], effectively denoising the training examples, and then use these estimates to compute W by finding the least squares solution to (2).
+
+In summary, learning and inference of a dynamical system through instrumental regression can be described as follows:
+
+* Model Specification: Pick features of history ht = h(o1:t-1), future t = (ot:t+k-1) and extended future t = (ot:t+k). t must be a sufficient statistic for P(ot:t+k-1 |
+o1:t-1). t must satisfy
+
+3
+
+Model/Algorithm
+Spectral Algorithm for HMM [3]
+
+SSID for Kalman filters (time dependent gain)
+
+SSID for stable
+
+Kalman
+
+filters
+
+(constant gain)
+
+Uncontrolled HSEPSR [9]
+
+future features t
+U eot where eot is an indicator vector and U spans the range of qt (typically the top m left singular vectors of the joint probability table P (ot+1, ot)) xt and xt  xt, where xt = U ot:t+k-1 for a matrix U that spans the range of qt (typically the top m left singular vectors of the covariance matrix Cov(ot:t+k-1, ot-k:t-1)) U ot:t+k-1 (U obtained as above)
+Evaluation functional ks(ot:t+k-1, .) for a characteristic kernel ks
+
+extended future features t U eot+1  eot
+yt and yt  yt, where yt is formed by stacking U ot+1:t+k and ot.
+ot and U ot+1:t+k
+ko(ot, .)  ko(ot, .) and t+1  ko(ot, .)
+
+ffilter
+Estimate a state normalizer from S1A output states.
+pt specifies a Gaussian distribution where conditioning on ot is straightforward.
+Estimate steady-state covariance by solving Riccati equation [8]. pt together with the steady-state covariance specify a Gaussian distribution where conditioning on ot is straightforward. Kernel Bayes rule [10].
+
+Table 1: Examples of existing spectral algorithms reformulated as two-stage instrument regression
+with linear S1 regression. Here ot1:t2 is a vector formed by stacking observations ot1 through ot2 and  denotes the outer product. Details and derivations can be found in the supplementary material.
+
+- E[t+1 | o1:t-1] = fpredict(E[t | o1:t-1]) for a known function fpredict.
+- E[t+1 | o1:t] = ffilter(E[t | o1:t-1], ot) for a known function ffilter.
+* S1A (Stage 1A) Regression: Learn a (possibly non-linear) regression model to estimate t = E[t | ht]. The training data for this model are (ht, t) across time steps t.3
+* S1B Regression: Learn a (possibly non-linear) regression model to estimate t = E[t | ht]. The training data for this model are (ht, t) across time steps t.
+* S2 Regression: Use the feature expectations estimated in S1A and S1B to train a model to predict t = W t, where W is a linear operator. The training data for this model are estimates of (t, t) obtained from S1A and S1B across time steps t.
+* Initial State Estimation: Estimate an initial state q1 = E[1] by averaging 1 across several example realizations of our time series.4
+* Inference: Starting from the initial state q1, we can maintain the predictive state qt = E[t | o1:t-1] through filtering: given qt we compute pt = E[t | o1:t-1] = W qt. Then, given the observation ot, we can compute qt+1 = ffilter(pt, ot). Or, in the absence of ot, we can predict the next state qt+1|t-1 = fpredict(pt). Finally, by definition, the predictive state qt is sufficient to compute P(ot:t+k-1 | o1:t-1).5
+The process of learning and inference is depicted in Figure 2. Modeling assumptions are reflected in the choice of the statistics ,  and h as well as the regression models in stages S1A and S1B. Table 1 demonstrates that we can recover existing spectral algorithms for dynamical system learning using linear S1 regression. In addition to providing a unifying view of some successful learning algorithms, the new framework also paves the way for extending these algorithms in a theoretically justified manner, as we demonstrate in the experiments below.
+
+3 Related Work
+
+This work extends predictive state learning algorithms for dynamical systems, which include spectral algorithms for Kalman filters [11], Hidden Markov Models [3, 12], Predictive State Representations (PSRs) [13, 14] and Weighted Automata [15]. It also extends kernel variants such as [9], which builds on [16]. All of the above work effectively uses linear regression or linear ridge regression (although not always in an obvious way).
+
+3Our bounds assume that the training time steps t are sufficiently spaced for the underlying process to mix,
+
+but in practice, the error will only get smaller if we consider all time steps t.
+
+4Assuming ergodicity, we can set the initial state to be the empirical average vector of future features in a
+
+single
+
+long
+
+sequence,
+
+1 T
+
+T t=1
+
+t.
+
+5It might seem reasonable to learn qt+1 = fcombined(qt, ot) directly, thereby avoiding the need to separately
+
+estimate pt and condition on ot. Unfortunately, fcombined is nonlinear for common models such as HMMs.
+
+4
+
+One common aspect of predictive state learning algorithms is that they exploit the covariance structure between future and past observation sequences to obtain an unbiased observable state representation. Boots and Gordon [17] note the connection between this covariance and (linear) instrumental regression in the context of the HSE-HMM. We use this connection to build a general framework for dynamical system learning where the state space can be identified using arbitrary (possibly nonlinear) supervised learning methods. This generalization lets us incorporate prior knowledge to learn compact or regularized models; our experiments demonstrate that this flexibility lets us take better advantage of limited data.
+Reducing the problem of learning dynamical systems with latent state to supervised learning bears similarity to Langford et al.'s sufficient posterior representation (SPR) [18], which encodes the state by the sufficient statistics of the conditional distribution of the next observation and represents system dynamics by three vector-valued functions that are estimated using supervised learning approaches. While SPR allows all of these functions to be non-linear, it involves a rather complicated training procedure involving multiple iterations of model refinement and model averaging, whereas our framework only requires solving three regression problems in sequence. In addition, the theoretical analysis of [18] only establishes the consistency of SPR learning assuming that all regression steps are solved perfectly. Our work, on the other hand, establishes convergence rates based on the performance of S1 regression.
+
+4 Theoretical Analysis
+
+In this section we present error bounds for two-stage instrumental regression. These bounds hold regardless of the particular S1 regression method used, assuming that the S1 predictions converge to the true conditional expectations. The bounds imply that our overall method is consistent.
+Let (xt, yt, zt)  (X , Y, Z) be i.i.d. triplets of input, output, and instrumental variables. (Lack of independence will result in slower convergence in proportion to the mixing time of our process.) Let xt and yt denote E[xt | zt] and E[yt | zt]. And, let xt and yt denote E[xt | zt] and E[yt | zt] as estimated by the S1A and S1B regression steps. Here xt, xt  X and yt, yt  Y.
+We want to analyze the convergence of the output of S2 regression--that is, of the weights W given by ridge regression between S1A outputs and S1B outputs:
+
+W  =
+
+T
+yt  xt
+t=1
+
+T
+xt  xt + IX
+t=1
+
+-1
+
+(3)
+
+Here  denotes tensor (outer) product, and  > 0 is a regularization parameter that ensures the invertibility of the estimated covariance.
+
+Before we state our main theorem we need to quantify the quality of S1 regression in a way that is independent of the S1 functional form. To do so, we place a bound on the S1 error, and assume that this bound converges to zero: given the definition below, for each fixed , limN ,N = 0.
+Definition 1 (S1 Regression Bound). For any  > 0 and N  N+, the S1 regression bound ,N > 0 is a number such that, with probability at least (1 - /2), for all 1  t  N :
+
+xt - xt X < ,N yt - yt Y < ,N
+
+In many applications, X , Y and Z will be finite dimensional real vector spaces: Rdx , Rdy and Rdz . However, for generality we state our results in terms of arbitrary reproducing kernel Hilbert spaces. In this case S2 uses kernel ridge regression, leading to methods such as HSE-PSRs. For this purpose, let xx and yy denote the (uncentered) covariance operators of x and y respectively:
+xx = E[x  x], yy = E[y  y]. And, let R(xx) denote the closure of the range of xx.
+With the above assumptions, Theorem 2 gives a generic error bound on S2 regression in terms of S1 regression. If X and Y are finite dimensional and xx has full rank, then using ordinary least squares (i.e., setting  = 0) will give the same bound, but with  in the first two terms replaced by the minimum eigenvalue of xx, and the last term dropped.
+
+5
+
+Theorem 2. Assume that x X , x Y < c <  almost surely. Assume W is a Hilbert-Schmidt
+operator, and let W  be as defined in (3). Then, with probability at least 1 - , for each xtest  R(xx) s.t. xtest X  1, the error W xtest - W xtest Y is bounded by
+
+
+
+O
+
+,N 
+
+1  
+
++
+
+
+
+1
+
++
+
+log(1/) N
+3 2
+
+  
+
++
+
+O
+
+log(1/) N
+
+11
+
+
+
++
+
+3 2
+
+error in S1 regression
+
+error from finite samples
+
+ + O
+error from regularization
+
+We defer the proof to the supplementary material. The supplementary material also provides explicit finite-sample bounds (including expressions for the constants hidden by O-notation), as well as concrete examples of S1 regression bounds ,N for practical regression models.
+Theorem 2 assumes that xtest is in R(xx). For dynamical systems, all valid states satisfy this property. However, with finite data, estimation errors may cause the estimated state qt (i.e., xtest) to have a non-zero component in R(xx). Lemma 3 bounds the effect of such errors: it states that, in a stable system, this component gets smaller as S1 regression performs better. The main limitation of Lemma 3 is the assumption that ffilter is L-Lipchitz, which essentially means that the model's estimated probability for ot is bounded below. There is no way to guarantee this property in practice; so, Lemma 3 provides suggestive evidence rather than a guarantee that our learned dynamical system will predict well.
+Lemma 3. For observations o1:T , let qt be the estimated state given o1:t-1. Let qt be the projection of qt onto R(xx). Assume ffilter is L-Lipchitz on pt when evaluated at ot, and ffilter(pt, ot)  R(xx) for any pt  R(yy). Given the assumptions of theorem 2 and assuming that qt X  R for all 1  t  T , the following holds for all 1  t  T with probability at least 1 - /2.
+
+t X = qt - qt X = O ,N 
+Since W  is bounded, the prediction error due to t diminishes at the same rate as
+
+t X.
+
+5 Experiments and Results
+We now demonstrate examples of tweaking the S1 regression to gain advantage. In the first experiment we show that nonlinear regression can be used to reduce the number of parameters needed in S1, thereby improving statistical performance for learning an HMM. In the second experiment we show that we can encode prior knowledge as regularization.
+
+5.1 Learning A Knowledge Tracing Model
+In this experiment we attempt to model and predict the performance of students learning from an interactive computer-based tutor. We use the Bayesian knowledge tracing (BKT) model [19], which is essentially a 2-state HMM: the state st represents whether a student has learned a knowledge component (KC), and the observation ot represents the success/failure of solving the tth question in a sequence of questions that cover this KC. Figure 3 summarizes the model. The events denoted by guessing, slipping, learning and forgetting typically have relatively low probabilities.
+5.1.1 Data Description
+We evaluate the model using the "Geometry Area (1996-97)" data available from DataShop [20]. This data was generated by students learning introductory geometry, and contains attempts by 59 students in 12 knowledge components. As is typical for BKT, we consider a student's attempt at a question to be correct iff the student entered the correct answer on the first try, without requesting any hints from the help system. Each training sequence consists of a sequence of first attempts for a student/KC pair. We discard sequences of length less than 5, resulting in a total of 325 sequences.
+
+6
+
+Correct Answer
+
+Skill Known
+
+Skill Known
+
+Incorrect Answer
+
+Skill Unknown
+
+Skill Unknown
+
+Figure 3: Transitions and observations in BKT. Each node represents a possible value of the state or observation. Solid arrows represent transitions while dashed arrows represent observations.
+
+5.1.2 Models and Evaluation
+Under the (reasonable) assumption that the two states have distinct observation probabilities, this model is 1-observable. Hence we define the predictive state to be the expected next observation, which results in the following statistics: t = ot and t = ot k ot+1, where ot is represented by a 2 dimensional indicator vector and k denotes the Kronecker product. Given these statistics, the extended state pt = E[t | o1:t-1] is a joint probability table of ot:t+1.
+We compare three models that differ by history features and S1 regression method:
+Spec-HMM: This baseline uses ht = ot-1 and linear S1 regression, making it equivalent to the spectral HMM method of [3], as detailed in the supplementary material.
+Feat-HMM: This baseline represents ht by an indicator vector of the joint assignment of the previous b observations (we set b to 4) and uses linear S1 regression. This is essentially a feature-based spectral HMM [12]. It thus incorporates more history information compared to Spec-HMM at the expense of increasing the number of S1 parameters by O(2b).
+LR-HMM: This model represents ht by a binary vector of length b encoding the previous b observations and uses logistic regression as the S1 model. Thus, it uses the same history information as Feat-HMM but reduces the number of parameters to O(b) at the expense of inductive bias.
+We evaluated the above models using 1000 random splits of the 325 sequences into 200 training and 125 testing. For each testing observation ot we compute the absolute error between actual and expected value (i.e. |ot=1 - P(ot = 1 | o1:t-1)|). We report the mean absolute error for each split. The results are displayed in Figure 4.6 We see that, while incorporating more history information increases accuracy (Feat-HMM vs. Spec-HMM), being able to incorporate the same information using a more compact model gives an additional gain in accuracy (LR-HMM vs. Feat-HMM). We also compared the LR-HMM method to an HMM trained using expectation maximization (EM). We found that the LR-HMM model is much faster to train than EM while being on par with it in terms of prediction error.7
+5.2 Modeling Independent Subsystems Using Lasso Regression
+Spectral algorithms for Kalman filters typically use the left singular vectors of the covariance between history and future features as a basis for the state space. However, this basis hides any sparsity that might be present in our original basis. In this experiment, we show that we can instead use lasso (without dimensionality reduction) as our S1 regression algorithm to discover sparsity. This is useful, for example, when the system consists of multiple independent subsystems, each of which affects a subset of the observation coordinates.
+To test this idea we generate a sequence of 30-dimensional observations from a Kalman filter. Observation dimensions 1 through 10 and 11 through 20 are generated from two independent subsystems of state dimension 5. Dimensions 21-30 are generated from white noise. Each subsystem's transition and observation matrices have random Gaussian coordinates, with the transition matrix scaled
+6The differences have similar sign but smaller magnitude if we use RMSE instead of MAE. 7We used MATLAB's built-in logistic regression and EM functions.
+7
+
+Feat-HMM LR-HMM LR-HMM LR-HMM
+
+0.34 0.32
+0.3 0.28 0.26
+0.26 0.3 0.34 Spec-HMM
+
+0.34 0.32
+0.3 0.28 0.26
+0.26 0.3 0.34 Spec-HMM
+
+0.34 0.32
+0.3 0.28 0.26
+0.26 0.3 0.34 Feat-HMM
+
+0.34 0.32
+0.3 0.28 0.26
+0.26
+
+0.3 0.34 EM
+
+Model
+
+Spec-HMM Feat-HMM LR-HMM EM
+
+Training time (relative to Spec-HMM)
+
+1
+
+1.02 2.219 14.323
+
+Figure 4: Experimental results: each graph compares the performance of two models (measured by mean absolute error) on 1000 train/test splits. The black line is x = y. Points below this line indicate that model y is better than model x. The table shows training time.
+
+Figure 5: Left singular vectors of (left) true linear predictor from ot-1 to ot (i.e. OT O+), (middle) covariance matrix between ot and ot-1 and (right) S1 Sparse regression weights. Each column corresponds to a singular vector (only absolute values are depicted). Singular vectors are ordered by their mean coordinate, interpreting absolute values as a probability distribution over coordinates.
+to have a maximum eigenvalue of 0.95. States and observations are perturbed by Gaussian noise with covariance of 0.01I and 1.0I respectively.
+We estimate the state space basis using 1000 examples (assuming 1-observability) and compare the singular vectors of the past to future regression matrix to those obtained from the Lasso regression matrix. The result is shown in figure 5. Clearly, using Lasso as stage 1 regression results in a basis that better matches the structure of the underlying system.
+6 Conclusion
+In this work we developed a general framework for dynamical system learning using supervised learning methods. The framework relies on two key principles: first, we extend the idea of predictive state to include extended state as well, allowing us to represent all of inference in terms of predictions of observable features. Second, we use past features as instruments in an instrumental regression, denoising state estimates that then serve as training examples to estimate system dynamics.
+We have shown that this framework encompasses and provides a unified view of some previous successful dynamical system learning algorithms. We have also demostrated that it can be used to extend existing algorithms to incorporate nonlinearity and regularizers, resulting in better state estimates. As future work, we would like to apply this framework to leverage additional techniques such as manifold embedding and transfer learning in stage 1 regression. We would also like to extend the framework to controlled processes.
+References
+[1] Leonard E. Baum, Ted Petrie, George Soules, and Norman Weiss. A maximization technique occurring in the statistical analysis of probabilistic functions of markov chains. The Annals of Mathematical Statistics, 41(1):pp. 164-171, 1970.
+[2] W. R. Gilks, S. Richardson, and D. J. Spiegelhalter. Markov Chain Monte Carlo in Practice. Chapman and Hall, London, 1996 (ISBN: 0-412-05551-1).
+8
+
+This book thoroughly summarizes the uses of MCMC in Bayesian analysis. It is a core book for Bayesian studies. [3] Daniel Hsu, Sham M. Kakade, and Tong Zhang. A spectral algorithm for learning hidden markov models. In COLT, 2009. [4] Judea Pearl. Causality: Models, Reasoning, and Inference. Cambridge University Press, New York, NY, USA, 2000. [5] J.H. Stock and M.W. Watson. Introduction to Econometrics. Addison-Wesley series in economics. Addison-Wesley, 2011. [6] Animashree Anandkumar, Rong Ge, Daniel Hsu, Sham M Kakade, and Matus Telgarsky. Tensor decompositions for learning latent variable models. The Journal of Machine Learning Research, 15(1):2773-2832, 2014. [7] Matthew Rosencrantz and Geoff Gordon. Learning low dimensional predictive representations. In ICML '04: Twenty-first international conference on Machine learning, pages 695- 702, 2004. [8] P. van Overschee and L.R. de Moor. Subspace identification for linear systems: theory, implementation, applications. Kluwer Academic Publishers, 1996. [9] Byron Boots, Arthur Gretton, and Geoffrey J. Gordon. Hilbert Space Embeddings of Predictive State Representations. In Proc. 29th Intl. Conf. on Uncertainty in Artificial Intelligence (UAI), 2013. [10] Kenji Fukumizu, Le Song, and Arthur Gretton. Kernel bayes' rule: Bayesian inference with positive definite kernels. Journal of Machine Learning Research, 14(1):3753-3783, 2013. [11] Byron Boots. Spectral Approaches to Learning Predictive Representations. PhD thesis, Carnegie Mellon University, December 2012. [12] Sajid Siddiqi, Byron Boots, and Geoffrey J. Gordon. Reduced-rank hidden Markov models. In Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics (AISTATS-2010), 2010. [13] Byron Boots, Sajid Siddiqi, and Geoffrey Gordon. Closing the learning planning loop with predictive state representations. In I. J. Robotic Research, volume 30, pages 954-956, 2011. [14] Byron Boots and Geoffrey Gordon. An online spectral learning algorithm for partially observable nonlinear dynamical systems. In Proceedings of the 25th National Conference on Artificial Intelligence (AAAI-2011), 2011. [15] Borja Balle, William Hamilton, and Joelle Pineau. Methods of moments for learning stochastic languages: Unified presentation and empirical comparison. In Tony Jebara and Eric P. Xing, editors, Proceedings of the 31st International Conference on Machine Learning (ICML-14), pages 1386-1394. JMLR Workshop and Conference Proceedings, 2014. [16] L. Song, B. Boots, S. M. Siddiqi, G. J. Gordon, and A. J. Smola. Hilbert space embeddings of hidden Markov models. In Proc. 27th Intl. Conf. on Machine Learning (ICML), 2010. [17] Byron Boots and Geoffrey Gordon. Two-manifold problems with applications to nonlinear system identification. In Proc. 29th Intl. Conf. on Machine Learning (ICML), 2012. [18] John Langford, Ruslan Salakhutdinov, and Tong Zhang. Learning nonlinear dynamic models. In Proceedings of the 26th Annual International Conference on Machine Learning, ICML 2009, Montreal, Quebec, Canada, June 14-18, 2009, pages 593-600, 2009. [19] Albert T. Corbett and John R. Anderson. Knowledge tracing: Modelling the acquisition of procedural knowledge. User Model. User-Adapt. Interact., 4(4):253-278, 1995. [20] Kenneth R. Koedinger, R. S. J. Baker, K. Cunningham, A. Skogsholm, B. Leber, and John Stamper. A data repository for the EDM community: The PSLC DataShop. Handbook of Educational Data Mining, pages 43-55, 2010.
+9
+

@@ -1,0 +1,729 @@
+Fast and Guaranteed Tensor Decomposition via Sketching
+
+Yining Wang, Hsiao-Yu Tung, Alex Smola Machine Learning Department
+Carnegie Mellon University, Pittsburgh, PA 15213 {yiningwa,htung}@cs.cmu.edu
+alex@smola.org
+
+Anima Anandkumar Department of EECS University of California Irvine
+Irvine, CA 92697 a.anandkumar@uci.edu
+
+Abstract
+Tensor CANDECOMP/PARAFAC (CP) decomposition has wide applications in statistical learning of latent variable models and in data mining. In this paper, we propose fast and randomized tensor CP decomposition algorithms based on sketching. We build on the idea of count sketches, but introduce many novel ideas which are unique to tensors. We develop novel methods for randomized computation of tensor contractions via FFTs, without explicitly forming the tensors. Such tensor contractions are encountered in decomposition methods such as tensor power iterations and alternating least squares. We also design novel colliding hashes for symmetric tensors to further save time in computing the sketches. We then combine these sketching ideas with existing whitening and tensor power iterative techniques to obtain the fastest algorithm on both sparse and dense tensors. The quality of approximation under our method does not depend on properties such as sparsity, uniformity of elements, etc. We apply the method for topic modeling and obtain competitive results. Keywords: Tensor CP decomposition, count sketch, randomized methods, spectral methods, topic modeling
+1 Introduction
+In many data-rich domains such as computer vision, neuroscience and social networks consisting of multi-modal and multi-relational data, tensors have emerged as a powerful paradigm for handling the data deluge. An important operation with tensor data is its decomposition, where the input tensor is decomposed into a succinct form. One of the popular decomposition methods is the CANDECOMP/PARAFAC (CP) decomposition, also known as canonical polyadic decomposition [12, 5], where the input tensor is decomposed into a succinct sum of rank-1 components. The CP decomposition has found numerous applications in data mining [4, 18, 20], computational neuroscience [10, 21], and recently, in statistical learning for latent variable models [1, 30, 28, 6]. For latent variable modeling, these methods yield consistent estimates under mild conditions such as non-degeneracy and require only polynomial sample and computational complexity [1, 30, 28, 6]. Given the importance of tensor methods for large-scale machine learning, there has been an increasing interest in scaling up tensor decomposition algorithms to handle gigantic real-world data tensors [27, 24, 8, 16, 14, 2, 29]. However, the previous works fall short in many ways, as described subsequently. In this paper, we design and analyze efficient randomized tensor methods using ideas from sketching [23]. The idea is to maintain a low-dimensional sketch of an input tensor and then perform implicit tensor decomposition using existing methods such as tensor power updates, alternating least squares or online tensor updates. We obtain the fastest decomposition methods for both sparse and dense tensors. Our framework can easily handle modern machine learning applications with billions of training instances, and at the same time, comes with attractive theoretical guarantees.
+1
+
+Our main contributions are as follows:
+Efficient tensor sketch construction: We propose efficient construction of tensor sketches when the input tensor is available in factored forms such as in the case of empirical moment tensors, where the factor components correspond to rank-1 tensors over individual data samples. We construct the tensor sketch via efficient FFT operations on the component vectors. Sketching each rank-1 component takes O(n + b log b) operations where n is the tensor dimension and b is the sketch length. This is much faster than the O(np) complexity for brute force computations of a pth-order tensor. Since empirical moment tensors are available in the factored form with N components, where N is the number of samples, it takes O((n + b log b)N ) operations to compute the sketch. Implicit tensor contraction computations: Almost all tensor manipulations can be expressed in terms of tensor contractions, which involves multilinear combinations of different tensor fibres [19]. For example, tensor decomposition methods such as tensor power iterations, alternating least squares (ALS), whitening and online tensor methods all involve tensor contractions. We propose a highly efficient method to directly compute the tensor contractions without forming the input tensor explicitly. In particular, given the sketch of a tensor, each tensor contraction can be computed in O(n + b log b) operations, regardless of order of the source and destination tensors. This significantly accelerates the brute-force implementation that requires O(np) complexity for pth-order tensor contraction. In addition, in many applications, the input tensor is not directly available and needs to be computed from samples, such as the case of empirical moment tensors for spectral learning of latent variable models. In such cases, our method results in huge savings by combining implicit tensor contraction computation with efficient tensor sketch construction. Novel colliding hashes for symmetric tensors: When the input tensor is symmetric, which is the case for empirical moment tensors that arise in spectral learning applications, we propose a novel colliding hash design by replacing the Boolean ring with the complex ring C to handle multiplicities. As a result, it makes the sketch building process much faster and avoids repetitive FFT operations. Though the computational complexity remains the same, the proposed colliding hash design results in significant speed-up in practice by reducing the actual number of computations. Theoretical and empirical guarantees: We show that the quality of the tensor sketch does not depend on sparseness, uniform entry distribution, or any other properties of the input tensor. On the other hand, previous works assume specific settings such as sparse tensors [24, 8, 16], or tensors having entries with similar magnitude [27]. Such assumptions are unrealistic, and in practice, we may have both dense and spiky tensors, for example, unordered word trigrams in natural language processing. We prove that our proposed randomized method for tensor decomposition does not lead to any significant degradation of accuracy. Experiments on synthetic and real-world datasets show highly competitive results. We demonstrate a 10x to 100x speed-up over exact methods for decomposing dense, high-dimensional tensors. For topic modeling, we show a significant reduction in computational time over existing spectral LDA implementations with small performance loss. In addition, our proposed algorithm outperforms collapsed Gibbs sampling when running time is constrained. We also show that if a Gibbs sampler is initialized with our output topics, it converges within several iterations and outperforms a randomly initialized Gibbs sampler run for much more iterations. Since our proposed method is efficient and avoids local optima, it can be used to accelerate the slow burn-in phase in Gibbs sampling. Related Works: There have been many works on deploying efficient tensor decomposition methods [27, 24, 8, 16, 14, 2, 29]. Most of these works except [27, 2] implement the alternating least squares (ALS) algorithm [12, 5]. However, this is extremely expensive since the ALS method is run in the input space, which requires O(n3) operations to execute one least squares step on an n-dimensional (dense) tensor. Thus, they are only suited for extremely sparse tensors. An alternative method is to first reduce the dimension of the input tensor through procedures such as whitening to O(k) dimension, where k is the tensor rank, and then carry out ALS in the dimensionreduced space on k x k x k tensor [13]. This results in significant reduction of computational complexity when the rank is small (k n). Nonetheless, in practice, such complexity is still prohibitively high as k could be several thousands in many settings. To make matters even worse, when the tensor corresponds to empirical moments computed from samples, such as in spectral learning of latent variable models, it is actually much slower to construct the reduced dimension
+2
+
+Table 1: Summary of notations. See also Appendix F.
+
+Variables a, b  Cn a, b  Cn a, b  Cn
+
+Operator a  b  Cn a  b  Cn a  b  Cnxn
+
+Meaning Element-wise product Convolution Tensor product
+
+Variables a  Cn A, B  Cnxm T  Cnxnxn
+
+Operator a3  Cnxnxn A B  Cn2xm T(1)  Cnxn2
+
+Meaning aaa Khatri-Rao product Mode expansion
+
+k x k x k tensor from training data than to decompose it, since the number of training samples is typically very large. Another alternative is to carry out online tensor decomposition, as opposed to batch operations in the above works. Such methods are extremely fast [14], but can suffer from high variance. The sketching ideas developed in this paper will improve our ability to handle larger sizes of mini-batches and therefore result in reduced variance in online tensor methods. Another alternative method is to consider a randomized sampling of the input tensor in each iteration of tensor decomposition [27, 2]. However, such methods can be expensive due to I/O calls and are sensitive to the sampling distribution. In particular, [27] employs uniform sampling, which is incapable of handling tensors with spiky elements. Though non-uniform sampling is adopted in [2], it requires an additional pass over the training data to compute the sampling distribution. In contrast, our sketch based method takes only one pass of the data.
+
+2 Preliminaries
+
+Tensor, tensor product and tensor decomposition A 3rd order tensor 1 T of dimension n has n3
+
+entries. Each entry can be represented as Tijk for i, j, k  {1, * * * , n}. For an n x n x n tensor T
+
+and a vector u  Rn, we define two forms of tensor products (contractions) as follows:
+
+
+
+n nn
+
+T(u, u, u) =
+
+Ti,j,kuiuj uk; T(I, u, u) = 
+
+T1,j,kuj uk, * * * ,
+
+Tn,j,kuj uk .
+
+i,j,k=1
+
+j,k=1
+
+j,k=1
+
+Note that T(u, u, u)  R and T(I, u, u)  Rn. For two complex tensors A, B of the same order and dimension, its inner product is defined as A, B := l AlBl, where l ranges over all tuples that index the tensors. The Frobenius norm of a tensor is simply A F = A, A .
+
+The rank-k CP decomposition of a 3rd-order n-dimensional tensor T  Rnxnxn in-
+
+volves scalars {i}ki=1 and n-dimensional vectors {ai, bi, ci}ki=1 such that the residual T -
+
+Rikij=k1=iaaiibj cbki.
+
+Adcdiiti2Foniasl
+
+minimized. Here R notations are defined
+
+= ab in Table 1 and
+
+c is a 3rd Appendix
+
+order F.
+
+tensor
+
+defined
+
+as
+
+Robust tensor power method The method was proposed in [1] and was shown to provably succeed if the input tensor is a noisy perturbation of the sum of k rank-1 tensors whose base vectors are orthogonal. Fix an input tensor T  Rnxnxn, The basic idea is to randomly generate L initial vectors and perform T power update steps: u = T(I, u, u)/ T(I, u, u) 2. The vector that results in the largest eigenvalue T(u, u, u) is then kept and subsequent eigenvectors can be obtained via deflation. If implemented naively, the algorithm takes O(kn3LT ) time to run 2, requiring O(n3) storage. In addition, in certain cases when a second-order moment matrix is available, the tensor power method can be carried out on a k x k x k whitened tensor [1], thus improving the time complexity by avoiding dependence on the ambient dimension n. Apart from the tensor power method, other algorithms such as Alternating Least Squares (ALS, [12, 5]) and Stochastic Gradient Descent (SGD, [14]) have also been applied to tensor CP decomposition.
+
+Tensor sketch Tensor sketch was proposed in [23] as a generalization of count sketch [7]. For
+
+a tensor T of dimension n1 x * * * x np, random hash functions h1, * * * , hp : [n]  [b] with
+
+Prhj [hj 1, * * * ,
+
+(i) p
+
+:
+
+= [n]
+
+t] 
+
+= 1/b {1},
+
+for the
+
+every sketch
+
+i sT :
+
+[n], j [b] 
+
+ [p], t  [b] and binary R of tensor T is defined as
+
+Rademacher
+
+variables
+
+sT(t) =
+
+1(i1) * * * p(ip)Ti1,*** ,ip ,
+
+H(i1,*** ,ip)=t
+
+(1)
+
+1Though we mainly focus on 3rd order tensors in this work, extension to higher order tensors is easy. 2L is usually set to be a linear function of k and T is logarithmic in n; see Theorem 5.1 in [1].
+
+3
+
+where H(i1, * * * , ip) = (h1(i1) + * * * + hp(ip)) mod b. The corresponding recovery rule is
+
+dTeip1e,*n**d,iepnt=, wh1i(cih1
+
+)** is
+
+* p(ip)sT(H(i1, * * * , ip)). achieved by independently
+
+For accurate recovery, H needs to be 2-wise inselecting h1, * * * , hp from a 2-wise independent
+
+hash family [26]. Finally, the estimation can be made more robust by the standard approach of
+
+taking B independent sketches of the same tensor and then report the median of the B estimates [7].
+
+3 Fast tensor decomposition via sketching
+In this section we first introduce an efficient procedure for computing sketches of factored or empirical moment tensors, which appear in a wide variety of applications such as parameter estimation of latent variable models. We then show how to run tensor power method directly on the sketch with reduced computational complexity. In addition, when an input tensor is symmetric (i.e., Tijk the same for all permutations of i, j, k) we propose a novel "colliding hash" design, which speeds up the sketch building process. Due to space limits we only consider the robust tensor power method in the main text. Methods and experiments for sketching based ALS are presented in Appendix C. To avoid confusions, we emphasize that n is used to denote the dimension of the tensor to be decomposed, which is not necessarily the same as the dimension of the original data tensor. Indeed, once whitening is applied n could be as small as the intrinsic dimension k of the original data tensor.
+
+3.1 Efficient sketching of empirical moment tensors
+
+Sketching a 3rd-order dense n-dimensional tensor via Eq. (1) takes O(n3) operations, which in
+
+general cannot be improved because the input size is (n3). However, in practice data tensors are
+
+usually structured. One notable example is empirical moment tensors, which arises naturally in
+
+parameter estimation problems of latent variable models. More specifically, an empirical moment
+
+tensor can be expressed as T = E[x3] data points and xi is the ith data point.
+
+= In
+
+1
+tNhis
+
+sNie=c1tixoni 3w,ewshheorwe
+
+N is that
+
+the total number of computing sketches
+
+training of such
+
+tensors can be made significantly more efficient than the brute-force implementations via Eq. (1).
+
+The main idea is to sketch low-rank components of T efficiently via FFT, a trick inspired by previous
+
+efforts on sketching based matrix multiplication and kernel learning [22, 23].
+
+We consider the more generalized case when an input tensor T can be written as a weighted sum
+
+of known rank-1 components: T = known n-dimensional vectors. The
+
+keNiy=1obasieurivatiovni
+
+ wi, where ai are scalars and ui, vi, wi are is that the sketch of each rank-1 component
+
+Ti = ui  vi  wi can be efficiently computed by FFT. In particular, sTi can be computed as
+
+sTi = s1,ui  s2,vi  s3,wi = F -1(F (s1,ui )  F (s2,vi )  F (s3,wi )),
+
+(2)
+
+where  denotes convolution and  stands for element-wise vector product. s1,u(t) =
+
+nothe1
+
+(i)=t 1(i)ui is the count sketch of u the Fast Fourier Transform (FFT) and
+
+and s2,v, s3,w are defined similarly. F and F -1 its inverse operator. By applying FFT, we reduce
+
+dethe
+
+convolution computation into element-wise product evaluation in the Fourier space. Therefore, sT can be computed using O(n + b log b) operations, where the O(b log b) term arises from FFT evalua-
+
+tions. Finally, because the sketching operator is linear (i.e., s( i aiTi) = i ais(Ti)), sT can be computed in O(N (n + b log b)), which is much cheaper than brute-force that takes O(N n3) time.
+
+3.2 Fast robust tensor power method
+
+We are now ready to present the fast robust tensor power method, the main algorithm of this paper. The computational bottleneck of the original robust tensor power method is the computation of two tensor products: T(I, u, u) and T(u, u, u). A naive implementation requires O(n3) operations. In this section, we show how to speed up computation of these products. We show that given the sketch of an input tensor T, one can approximately compute both T(I, u, u) and T(u, u, u) in O(b log b + n) steps, where b is the hash length.
+
+Before going into details, we explain the key idea behind our fast tensor product computation. For any two tensors A, B, its inner product A, B can be approximated by 4
+
+A, B  sA, sB .
+
+(3)
+
+3 (*) denotes the real part of a complex number. med(*) denotes the median. 4All approximations will be theoretically justified in Section 4 and Appendix E.2.
+
+4
+
+Algorithm 1 Fast robust tensor power method
+
+1: Input: noisy symmetric tensor T = T + E  Rnxnxn; target rank k; number of initializations L, number of iterations T , hash length b, number of independent sketches B.
+
+2: 3:
+
+Initialization: for  = 1 to L
+
+hdo(jm),
+
+j(m)
+
+for j
+
+ {1, 2, 3} and m  [B]; compute sketches s(Tm)
+
+ Cb.
+
+4: 5:
+
+Dforrawt =u(01
+
+) uniformly to T do
+
+at
+
+random
+
+from
+
+unit
+
+sphere.
+
+6: For each m  [B], j  {2, 3} compute the sketch of u(t-)1 using h(jm),j(m) via Eq. (1).
+
+7: Compute v(m)  T (I, u(t-)1, u(t-)1) as follows: first evaluate s(m) = F -1(F (s(Tm)) 
+
+F (s(2m,u))  F (s(3m,u))). Set [v(m)]i as [v(m)]i  1(i)[s(m)]h1(i) for every i  [n].
+
+8: Set vi  med( (v(i1)), * * * , (v(iB)))3. Update: u(t) = v/ v .
+
+9:
+
+Selection Compute (m)   = med((1), * * * , (B))
+
+T (u(T), u(T), u(T)) using s(Tm) and   = argmax  . Set  =
+
+for   [L] and m   and u = u(T).
+
+[B].
+
+Evaluate
+
+10: Deflation For each m  [B] compute sketch s(mT) for the rank-1 tensor T = u3.
+
+11: Output: the eigenvalue/eigenvector pair (, u) and sketches of the deflated tensor T - T.
+
+Table 2: Computational complexity of sketched and plain tensor power method. n is the tensor dimension; k is the intrinsic tensor rank; b is the sketch length. Per-sketch time complexity is shown.
+
+preprocessing: general tensors preprocessing: factored tensors
+with N components per tensor contraction time
+
+PLAIN -
+O(N n3) O(n3)
+
+SKETCH O(n3)
+O(N (n + b log b))
+O(n + b log b)
+
+PLAIN+WHITENING O(kn3)
+O(N (nk + k3))
+O(k3)
+
+SKETCH+WHITENING O(n3)
+O(N (nk + b log b))
+O(k + b log b)
+
+Eq. (3) immediately results in a fast approximation procedure of T(u, u, u) because T(u, u, u) = T, X where X = uuu is a rank one tensor, whose sketch can be built in O(n+b log b) time by Eq. (2). Consequently, the product can be approximately computed using O(n + b log b) operations if the tensor sketch of T is available. For tensor product of the form T(I, u, u). The ith coordinate in the result can be expressed as T, Yi where Yi = ei  u  u; ei = (0, * * * , 0, 1, 0, * * * , 0) is the ith indicator vector. We can then apply Eq. (3) to approximately compute T, Yi efficiently. However, this method is not completely satisfactory because it requires sketching n rank-1 tensors (Y1 through Yn), which results in O(n) FFT evaluations by Eq. (2). Below we present a proposition that allows us to use only O(1) FFTs to approximate T(I, u, u).
+
+Proposition 1. sT, s1,ei  s2,u  s3,u = F -1(F (sT)  F (s2,u)  F (s3,u)), s1,ei .
+
+Proposition 1 is proved in Appendix E.1. The main idea is to "shift" all terms not depending on i to
+
+the left side of the inner product and eliminate the inverse FFT operation on the right side so that sei
+
+contains only one nonzero entry. As a result, we can compute F -1(F (sT)  F (s2,u)  F (s3,u)) once and read off each entry of T(I, u, u) in constant time. In addition, the technique can be
+
+further extended to symmetric tensor sketches, with details deferred to Appendix B due to space
+
+limits. When operating on an n-dimensional tensor, The algorithm requires O(kLT (n + Bb log b))
+
+running time (excluding the time the O(kn3LT ) time and O(n3)
+
+sfpoarcbeuiclodminpglsexTi)tyanodveOr (tBheb)brmuteemfoorryc,ewtehnicshorsipgonwifiecramnteltyhiomdp. rHoveeres
+
+L, T are algorithm parameters for robust tensor power method. Previous analysis shows that T =
+
+O(log k) and L = poly(k), where poly(*) is some low order polynomial function. [1]
+
+Finally, Table 2 summarizes computational complexity of sketched and plain tensor power method.
+
+3.3 Colliding hash and symmetric tensor sketch For symmetric input tensors, it is possible to design a new style of tensor sketch that can be built more efficiently. The idea is to design hash functions that deliberately collide symmetric entries, i.e., (i, j, k), (j, i, k), etc. Consequently, we only need to consider entries Tijk with i  j  k when building tensor sketches. An intuitive idea is to use the same hash function and Rademacher random variable for each order, that is, h1(i) = h2(i) = h3(i) =: h(i) and 1(i) = 2(i) = 3(i) =: (i).
+
+5
+
+In this way, all permutations of (i, j, k) will collide with each other. However, such a design has an issue with repeated entries because (i) can only take 1 values. Consider (i, i, k) and (j, j, k) as an example: (i)2(k) = (j)2(k) with probability 1 even if i = j. On the other hand, we need E[(a)(b)] = 0 for any pair of distinct 3-tuples a and b.
+
+To address the above-mentioned issue, we extend the Rademacher random variables to the complex
+
+domain
+
+and
+
+consider
+
+all
+
+roots
+
+of
+
+zm
+
+=
+
+1,
+
+that
+
+is,
+
+
+
+=
+
+{j }jm=-01
+
+where
+
+j
+
+=
+
+ei
+
+2j m
+
+.
+
+Suppose
+
+(i)
+
+is
+
+a Rademacher random variable with Pr[(i) = i] = 1/m. By elementary algebra, E[(i)p] = 0
+
+whenever m is relative prime to p or m can be divided by p. Therefore, by setting m = 4 we avoid
+
+collisions of repeated entries in a 3rd order tensor. More specifically, The symmetric tensor sketch
+
+of a symmetric tensor T  Rnxnxn can be defined as
+
+sT(t) :=
+
+Ti,j,k  (i) (j ) (k),
+
+H (i,j,k)=t
+
+(4)
+
+where H (i, j, k) = (h(i) + h(j) + h(k)) mod b. To recover an entry, we use
+
+Ti,j,k = 1/ * (i) * (j) * (k) * sT(H(i, j, k)),
+
+(5)
+
+where  = 1 if i = j = k;  = 3 if i = j or j = k or i = k;  = 6 otherwise. For higher order
+
+tensors, the coefficients can be computed via the Young tableaux which characterizes symmetries
+
+under the permutation group. Compared to asymmetric tensor sketches, the hash function h needs
+
+to satisfy stronger independence conditions because we are using the same hash function for each
+
+order. In our case, h needs to be 6-wise independent to make H 2-wise independent. The fact is due
+
+to the following proposition, which is proved in Appendix E.1.
+
+Proposition 2. Fix p and q. For h : [n]  [b] define symmetric mapping H : [n]p  [b] as H (i1, * * * , ip) = h(i1) + * * * + h(ip). If h is (pq)-wise independent then H is q-wise independent.
+
+The symmetric tensor sketch described above can significantly speed up sketch building processes. For a general tensor with M nonzero entries, to build sT one only needs to consider roughly M/6 entries (those Tijk = 0 with i  j  k). For a rank-1 tensor u3, only one FFT is needed to build F(s); in contrast, to compute Eq. (2) one needs at least 3 FFT evaluations.
+
+Finally, in Appendix B we give details on how to seamlessly combine symmetric hashing and techniques in previous sections to efficiently construct and decompose a tensor.
+
+4 Error analysis
+In this section we provide theoretical analysis on approximation error of both tensor sketch and the fast sketched robust tensor power method. We mainly focus on symmetric tensor sketches, while extension to asymmetric settings is trivial. Due to space limits, all proofs are placed in the appendix.
+
+4.1 Tensor sketch concentration bounds
+
+Theorem 1 bounds the approximation error of symmetric tensor sketches when computing
+
+T(u, u, u) and T(I, u, u). Its proof is deferred to Appendix E.2.
+
+Theorem 1. Fix a symmetric real tensor T  Rnxnxn and a real vector u  Rn with u 2 = 1. Suppose 1,T (u)  R and 2,T (u)  Rn are estimation errors of T(u, u, u) and T(I, u, u)
+
+using B independent symmetric tensor sketches; that is, 1,T (u) = T(u, u, u) - T(u, u, u) and
+
+2,T (u) = T(I, u, u)-T(I, u, u). If B = (log(1/)) then with probability  1- the following
+
+error bounds hold:
+
+
+
+
+
+1,T (u) = O( T F / b); [2,T (u)]i = O( T F / b), i  {1, * * * , n}.
+
+(6)
+
+In addition, for any fixed w  Rn, w 2 = 1 with probability  1 -  we have
+
+w, 2,T (u)
+
+2 = O(
+
+T
+
+2 F
+
+/b).
+
+(7)
+
+4.2 Analysis of the fast tensor power method
+
+We present a theorem analyzing robust tensor power method with tensor sketch approximations. A more detailed theorem statement along with its proof can be found in Appendix E.3.
+
+Theorem 2. Suppose T = T + E  Rnxnxn where T =
+
+k i=1
+
+i
+
+vi 3
+
+with
+
+an
+
+orthonor-
+
+mal basis {vi}ki=1, 1 > * * * > k > 0 and E = . Let {(i, vi)}ki=1 be the eigen-
+
+6
+
+Table 3: Squared residual norm on top 10 recovered eigenvectors of 1000d tensors and running time (excluding
+
+I/O and sketch building time) for plain (exact) and sketched robust tensor power methods. Two vectors are
+
+considered mismatch (wrong) if
+
+v - v
+
+2 2
+
+>
+
+0.1.
+
+A
+
+extended
+
+version
+
+is
+
+shown
+
+as
+
+Table
+
+5
+
+in
+
+Appendix
+
+A.
+
+ = .01
+
+Residual norm
+
+log2(b): B = 20
+
+12 .40
+
+13 .19
+
+14 .10
+
+15 .09
+
+16 .08
+
+B = 30 .26 .10 .09 .08 .07
+
+B = 40 .17 .10 .08 .08 .07
+
+Exact .07
+
+No. of wrong vectors 12 13 14 15 16 86300 75200 74000 0
+
+Running time (min.) 12 13 14 15 16 .85 1.6 3.5 7.4 16.6 1.3 2.4 5.3 11.3 24.6 1.8 3.3 7.3 15.2 33.0 293.5
+
+Table 4: Negative log-likelihood and running time (min) on the large Wikipedia dataset for 200 and 300 topics.
+
+200
+
+k
+
+Spectral
+
+like. 7.49
+
+time 34
+
+log2 b 12
+
+iters -
+
+k
+
+like. 7.39
+
+time 56
+
+log2 b 13
+
+iters -
+
+300
+
+Gibbs 6.85 561 -
+
+30
+
+6.38 818 -
+
+30
+
+Hybrid 6.77 144 12
+
+5
+
+6.31 352 13 10
+
+value/eigenvector pairs obtained by Algorithm 1. Suppose = O(1/(1n)), T = (log(n/) + log(1/ ) maxi i/(i - i-1)) and L grows linearly with k. Assume the randomness of the tensor sketch is independent among tensor product evaluations. If B = (log(n/)) and b satisfies
+
+b =  max
+
+-2
+
+T
+
+2 F
+
+()2
+
+,
+
+-4n2 T r()221
+
+2 F
+
+(8)
+
+where () = mini(i - i-1) and r() = maxi,j>i(i/j), then with probability  1 -  there
+
+exists a permutation  over [k] such that
+
+v(i) - vi 2  , |(i) - i|  i /2, i  {1, * * * , k}
+
+(9)
+
+and T -
+
+k i=1
+
+ivi 3
+
+c
+
+for some constant c.
+
+Theorem 1 shows that the sketch length b can be set as o(n3) to provably approximately decompose a 3rd-order tensor with dimension n. Theorem 1 together with time complexity comparison in Table 2 shows that the sketching based fast tensor decomposition algorithm has better computational complexity over brute-force implementation. One potential drawback of our analysis is the assumption that sketches are independently built for each tensor product (contraction) evaluation. This is an artifact of our analysis and we conjecture that it can be removed by incorporating recent development of differentially private adaptive query framework [9].
+
+5 Experiments
+We demonstrate the effectiveness and efficiency of our proposed sketch based tensor power method on both synthetic tensors and real-world topic modeling problems. Experimental results involving the fast ALS method are presented in Appendix C.3. All methods are implemented in C++ and tested on a single machine with 8 Intel X5550@2.67Ghz CPUs and 32GB memory. For synthetic tensor decomposition we use only a single thread; for fast spectral LDA 8 to 16 threads are used.
+
+5.1 Synthetic tensors
+
+In Table 5 we compare our proposed algorithms with exact decomposition methods on synthetic
+
+tensors. Let n = 1000 be the dimension of the input tensor. We first generate a random orthonormal
+
+basis {vi}ni=1 and then set the input tensor T as T = eigenvalues i satisfy i = 1/i. The normalization step The Gaussian noise matrix E is symmetric with Eijk 
+
+normalize( Nma(0k,es /nT1.52F)
+
+ni==11bivefio3r)e
+
++ E, where the imposing noise.
+
+for i  j  k and noise-to-
+
+signal level . Due to time constraints, we only compare the recovery error and running time on the
+
+top 10 recovered eigenvectors of the full-rank input tensor T. Both L and T are set to 30. Table 3
+
+shows that our proposed algorithms achieve reasonable approximation error within a few minutes,
+
+which is much faster then exact methods. A complete version (Table 5) is deferred to Appendix A.
+
+5.2 Topic modeling We implement a fast spectral inference algorithm for Latent Dirichlet Allocation (LDA [3]) by combining tensor sketching with existing whitening technique for dimensionality reduction. Implemen-
+
+7
+
+Negative Log-likelihood
+
+k=50 k=100 8.4 k=200 Exact, k=50 Exact, k=100 8.2 Exact, k=200
+
+8
+Gibbs sampling, 100 iterations, 145 mins 7.8
+
+9 10 11 12 13 14 15 16 Log hash length
+
+Figure 1: Left: negative log-likelihood for fast and exact tensor power method on Wikipedia dataset. Right: negative log-likelihood for collapsed Gibbs sampling, fast LDA and Gibbs sampling using Fast LDA as initialization.
+
+tation details are provided in Appendix D. We compare our proposed fast spectral LDA algorithm with baseline spectral methods and collapsed Gibbs sampling (using GibbsLDA++ [25] implementation) on two real-world datasets: Wikipedia and Enron. Dataset details are presented in A Only the most frequent V words are kept and the vocabulary size V is set to 10000. For the robust tensor power method the parameters are set to L = 50 and T = 30. For ALS we iterate until convergence, or a maximum number of 1000 iterations is reached. 0 is set to 1.0 and B is set to 30.
+
+Obtained topic models   RV xK are evaluated on a held-out dataset consisting of 1000 documents
+
+randomly picked out from training datasets. For each testing document d, we fit a topic mixing vector
+
+ d  RK by where wd is
+
+solving the following optimization the empirical word distribution of
+
+problem:  d document d.
+
+=Thaergpmeri-ndocu1m=e1n,tlo0g-wlikde-lihood
+
+2, is
+
+then defined as Ld Ld over all testing
+
+d=ocun1md entnis=di1s
+
+ln p(wdi), reported.
+
+where
+
+p(wdi)
+
+=
+
+K k=1
+
+ k
+
+wdi ,k
+
+.
+
+Finally,
+
+the
+
+average
+
+Figure 1 left shows the held-out negative log-likelihood for fast spectral LDA under different hash lengths b. We can see that as b increases, the performance approaches the exact tensor power method because sketching approximation becomes more accurate. On the other hand, Table 6 shows that fast spectral LDA runs much faster than exact tensor decomposition methods while achieving comparable performance on both datasets.
+
+Figure 1 right compares the convergence of collapsed Gibbs sampling with different number of iterations and fast spectral LDA with different hash lengths on Wikipedia dataset. For collapsed Gibbs sampling, we set  = 50/K and  = 0.1 following [11]. As shown in the figure, fast spectral LDA achieves comparable held-out likelihood while running faster than collapsed Gibbs sampling. We further take the dictionary  output by fast spectral LDA and use it as initializations for collapsed Gibbs sampling (the word topic assignments z are obtained by 5-iteration Gibbs sampling, with the dictionary  fixed). The resulting Gibbs sampler converges much faster: with only 3 iterations it already performs much better than a randomly initialized Gibbs sampler run for 100 iterations, which takes 10x more running time.
+
+We also report performance of fast spectral LDA and collapsed Gibbs sampling on a larger dataset in Table 4. The dataset was built by crawling 1,085,768 random Wikipedia pages and a held-out evaluation set was built by randomly picking out 1000 documents from the dataset. Number of topics k is set to 200 or 300, and after getting topic dictionary  from fast spectral LDA we use 2iteration Gibbs sampling to obtain word topic assignments z. Table 4 shows that the hybrid method (i.e., collapsed Gibbs sampling initialized by spectral LDA) achieves the best likelihood performance in a much shorter time, compared to a randomly initialized Gibbs sampler.
+
+6 Conclusion
+In this work we proposed a sketching based approach to efficiently compute tensor CP decomposition with provable guarantees. We apply our proposed algorithm on learning latent topics of unlabeled document collections and achieve significant speed-up compared to vanilla spectral and collapsed Gibbs sampling methods. Some interesting future directions include further improving the sample complexity analysis and applying the framework to a broader class of graphical models.
+
+Acknowledgement: Anima Anandkumar is supported in part by the Microsoft Faculty Fellowship and the Sloan Foundation. Alex Smola is supported in part by a Google Faculty Research Grant.
+
+8
+
+References
+[1] A. Anandkumar, R. Ge, D. Hsu, S. Kakade, and M. Telgarsky. Tensor decompositions for learning latent variable models. Journal of Machine Learning Research, 15:2773-2832, 2014.
+[2] S. Bhojanapalli and S. Sanghavi. A new sampling technique for tensors. arXiv:1502.05023, 2015. [3] D. M. Blei, A. Y. Ng, and M. I. Jordan. Latent dirichlet allocation. Journal of machine Learning research,
+3:993-1022, 2003. [4] A. Carlson, J. Betteridge, B. Kisiel, B. Settles, E. R. Hruschka Jr, and T. M. Mitchell. Toward an archi-
+tecture for never-ending language learning. In AAAI, 2010. [5] J. D. Carroll and J.-J. Chang. Analysis of individual differences in multidimensional scaling via an n-way
+generalization of "eckart-young decomposition. Psychometrika, 35(3):283-319, 1970. [6] A. Chaganty and P. Liang. Estimating latent-variable graphical models using moments and likelihoods.
+In ICML, 2014. [7] M. Charikar, K. Chen, and M. Farach-Colton. Finding frequent items in data streams. Theoretical Com-
+puter Science, 312(1):3-15, 2004. [8] J. H. Choi and S. Vishwanathan. DFacTo: Distributed factorization of tensors. In NIPS, 2014. [9] C. Dwork, V. Feldman, M. Hardt, T. Pitassi, O. Reingold, and A. Roth. Preserving statistical validity in
+adaptive data analysis. In STOC, 2015. [10] A. S. Field and D. Graupe. Topographic component (parallel factor) analysis of multichannel evoked
+potentials: practical issues in trilinear spatiotemporal decomposition. Brain Topography, 3(4):407-423, 1991. [11] T. L. Griffiths and M. Steyvers. Finding scientific topics. Proceedings of the National Academy of Sciences, 101(suppl 1):5228-5235, 2004. [12] R. A. Harshman. Foundations of the PARAFAC procedure: Models and conditions for an explanatory multi-modal factor analysis. UCLA Working Papers in Phonetics, 16:1-84, 1970. [13] F. Huang, S. Matusevych, A. Anandkumar, N. Karampatziakis, and P. Mineiro. Distributed latent dirichlet allocation via tensor factorization. In NIPS Optimization Workshop, 2014. [14] F. Huang, U. N. Niranjan, M. U. Hakeem, and A. Anandkumar. Fast detection of overlapping communities via online tensor methods. arXiv:1309.0787, 2013. [15] A. Jain. Fundamentals of digital image processing, 1989. [16] U. Kang, E. Papalexakis, A. Harpale, and C. Faloutsos. Gigatensor: Scaling tensor analysis up by 100 times - algorithms and discoveries. In KDD, 2012. [17] B. Klimt and Y. Yang. Introducing the enron corpus. In CEAS, 2004. [18] T. Kolda and B. Bader. The tophits model for higher-order web link analysis. In Workshop on link analysis, counterterrorism and security, 2006. [19] T. Kolda and B. Bader. Tensor decompositions and applications. SIAM Review, 51(3):455-500, 2009. [20] T. G. Kolda and J. Sun. Scalable tensor decompositions for multi-aspect data mining. In ICDM, 2008. [21] M. Morup, L. K. Hansen, C. S. Herrmann, J. Parnas, and S. M. Arnfred. Parallel factor analysis as an exploratory tool for wavelet transformed event-related eeg. NeuroImage, 29(3):938-947, 2006. [22] R. Pagh. Compressed matrix multiplication. In ITCS, 2012. [23] N. Pham and R. Pagh. Fast and scalable polynomial kernels via explicit feature maps. In KDD, 2013. [24] A.-H. Phan, P. Tichavsky, and A. Cichocki. Fast alternating LS algorithms for high order CANDECOMP/PARAFAC tensor factorizations. IEEE Transactions on Signal Processing, 61(19):4834-4846, 2013. [25] X.-H. Phan and C.-T. Nguyen. GibbsLDA++: A C/C++ implementation of latent dirichlet allocation (lda), 2007. [26] M. Ptrascu and M. Thorup. The power of simple tabulation hashing. Journal of the ACM, 59(3):14, 2012. [27] C. Tsourakakis. MACH: Fast randomized tensor decompositions. In SDM, 2010. [28] H.-Y. Tung and A. Smola. Spectral methods for indian buffet process inference. In NIPS, 2014. [29] C. Wang, X. Liu, Y. Song, and J. Han. Scalable moment-based inference for latent dirichlet allocation. In ECML/PKDD, 2014. [30] Y. Wang and J. Zhu. Spectral methods for supervised topic models. In NIPS, 2014.
+9
+

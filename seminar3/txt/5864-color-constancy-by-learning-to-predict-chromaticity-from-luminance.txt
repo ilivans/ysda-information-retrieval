@@ -1,0 +1,392 @@
+Color Constancy by Learning to Predict Chromaticity from Luminance
+Ayan Chakrabarti Toyota Technological Institute at Chicago 6045 S. Kenwood Ave., Chicago, IL 60637
+ayanc@ttic.edu
+Abstract
+Color constancy is the recovery of true surface color from observed color, and requires estimating the chromaticity of scene illumination to correct for the bias it induces. In this paper, we show that the per-pixel color statistics of natural scenes--without any spatial or semantic context--can by themselves be a powerful cue for color constancy. Specifically, we describe an illuminant estimation method that is built around a "classifier" for identifying the true chromaticity of a pixel given its luminance (absolute brightness across color channels). During inference, each pixel's observed color restricts its true chromaticity to those values that can be explained by one of a candidate set of illuminants, and applying the classifier over these values yields a distribution over the corresponding illuminants. A global estimate for the scene illuminant is computed through a simple aggregation of these distributions across all pixels. We begin by simply defining the luminance-to-chromaticity classifier by computing empirical histograms over discretized chromaticity and luminance values from a training set of natural images. These histograms reflect a preference for hues corresponding to smooth reflectance functions, and for achromatic colors in brighter pixels. Despite its simplicity, the resulting estimation algorithm outperforms current state-of-the-art color constancy methods. Next, we propose a method to learn the luminanceto-chromaticity classifier "end-to-end". Using stochastic gradient descent, we set chromaticity-luminance likelihoods to minimize errors in the final scene illuminant estimates on a training set. This leads to further improvements in accuracy, most significantly in the tail of the error distribution.
+1 Introduction
+The spectral distribution of light reflected off a surface is a function of an intrinsic material property of the surface--its reflectance--and also of the spectral distribution of the light illuminating the surface. Consequently, the observed color of the same surface under different illuminants in different images will be different. To be able to reliably use color computationally for identifying materials and objects, researchers are interested in deriving an encoding of color from an observed image that is invariant to changing illumination. This task is known as color constancy, and requires resolving the ambiguity between illuminant and surface colors in an observed image. Since both of these quantities are unknown, much of color constancy research is focused on identifying models and statistical properties of natural scenes that are informative for color constancy. While pschophysical experiments have demonstrated that the human visual system is remarkably successful at achieving color constancy [1], it remains a challenging task computationally.
+Early color constancy algorithms were based on relatively simple models for pixel colors. For example, the gray world method [2] simply assumed that the average true intensities of different color channels across all pixels in an image would be equal, while the white-patch retinex method [3]
+1
+
+assumed that the true color of the brightest pixels in an image is white. Most modern color constancy methods, however, are based on more complex reasoning with higher-order image features. Many methods [4, 5, 6] use models for image derivatives instead of individual pixels. Others are based on recognizing and matching image segments to those in a training set to recover true color [7]. A recent method proposes the use of a multi-layer convolutional neural network (CNN) to regress from image patches to illuminant color. There are also many "combination-based" color constancy algorithms, that combine illuminant estimates from a number of simpler "unitary" algorithms [8, 9, 10, 11], sometimes using image features to give higher weight to the outputs of some subset of methods.
+In this paper, we demonstrate that by appropriately modeling and reasoning with the statistics of individual pixel colors, one can computationally recover illuminant color with high accuracy. We consider individual pixels in isolation, where the color constancy task reduces to discriminating between the possible choices of true color for the pixel that are feasible given the observed color and a candidate set of illuminants. Central to our method is a function that gives us the relative likelihoods of these true colors, and therefore a distribution over the corresponding candidate illuminants. Our global estimate for the scene illuminant is then computed by simply aggregating these distributions across all pixels in the image.
+We formulate the likelihood function as one that measures the conditional likelihood of true pixel chromaticity given observed luminance, in part to be agnostic to the scalar (i.e., color channelindependent) ambiguity in observed color intensities. Moreover, rather than committing to a parametric form, we quantize the space of possible chromaticity and luminance values, and define the function over this discrete domain. We begin by setting the conditional likelihoods purely empirically, based simply on the histograms of true color values over all pixels in all images across a training set. Even with this purely empirical approach, our estimation algorithm yields estimates with higher accuracy than current state-of-the-art methods. Then, we investigate learning the perpixel belief function by optimizing an objective based on the accuracy of the final global illuminant estimate. We carry out this optimization using stochastic gradient descent, and using a sub-sampling approach (similar to "dropout" [12]) to improve generalization beyond the training set. This further improves estimation accuracy, without adding to the computational cost of inference.
+
+2 Preliminaries
+
+Assuming Lambertian reflection, the spectral distribution of light reflected by a material is a product of the distribution of the incident light and the material's reflectance function. The color intensity vector v(n)  R3 recorded by a tri-chromatic sensor at each pixel n is then given by
+
+v(n) = (n, )(n, ) s(n) () d,
+
+(1)
+
+where (n, ) is the reflectance at n, (n, ) is the spectral distribution of the incident illumination, s(n) is a geometry-dependent shading factor, and ()  R3 denotes the spectral sensitivities of the color sensors. Color constancy is typically framed as the task of computing from v(n) the corresponding color intensities x(n)  R3 that would have been observed under some canonical illuminant ref (typically chosen to be ref() = 1). We will refer to x(n) as the "true color" at n.
+
+Since (1) involves a projection of the full incident light spectrum on to the three filters (), it is not generally possible to recover x(n) from v(n) even with knowledge of the illuminant (n, ). How-
+ever, a commonly adopted approximation (shown to be reasonable under certain assumptions [13]) is to relate the true and observed colors x(n) and v(n) by a simple per-channel adaptation:
+
+v(n) = m(n)  x(n),
+
+(2)
+
+where  refers to the element-wise Hadamard product, and m(n)  R3 depends on the illuminant (n, ) (for ref, m = [1, 1, 1]T ). With some abuse of terminology, we will refer to m(n) as the
+illuminant in the remainder of the paper. Moreover, we will focus on the single-illuminant case in
+this paper, and assume m(n) = m, n in an image. Our goal during inference will be to estimate this global illuminant m from the observed image v(n). The true color image x(n) can then simply be recovered as m-1  v(n), where m-1  R3 denotes the element-wise inverse of m.
+
+Note that color constancy algorithms seek to resolve the ambiguity between m and x(n) in (2) only up to a channel-independent scalar factor. This is because scalar ambiguities show up in m between
+
+2
+
+ and ref due to light attenuation, between x(n) and (n) due to the shading factor s(n), and in the observed image v(n) itself due to varying exposure settings. Therefore, the performance metric
+
+typically used is the angular error cos-1
+
+mT m m 2 m 2
+
+between the true and estimated illuminant
+
+vectors m and m .
+
+Database For training and evaluation, we use the database of 568 natural indoor and outdoor images captured under various illuminants by Gehler et al. [14]. We use the version from Shi and Funt [15] that contains linear images (without gamma correction) generated from the RAW camera data. The database contains images captured with two different cameras (86 images with a Canon 1D, and 482 with a Canon 5D). Each image contains a color checker chart placed in the image, with its position manually labeled. The colors of the gray squares in the chart are taken to be the value of the true illuminant m for each image, which can then be used to correct the image to get true colors at each pixel (of course, only up to scale). The chart is masked out during evaluation. We use k-fold cross-validation over this dataset in our experiments. Each fold contains images from both cameras corresponding to one of k roughly-equal partitions of each camera's image set (ordered by file name/order of capture). Estimates for images in each fold are based on training only with data from the remaining folds. We report results with three- and ten-fold cross-validation. These correspond to average training set sizes of 379 and 511 images respectively.
+
+3 Color Constancy with Pixel-wise Chromaticity Statistics
+
+A color vector x  R3 can be characterized in terms of (1) its luminance x 1, or absolute brightness across color channels; and (2) its chromaticity, which is a measure of the relative ratios between
+intensities in different channels. While there are different ways of encoding chromaticity, we will do so in terms of the unit vector x = x/ x 2 in the direction of x. Note that since intensities can not be negative, x is restricted to lie on the non-negative eighth of the unit sphere S2+. Remember from Sec. 2 that our goal is to resolve the ambiguity between the true colors x(n) and the illuminant m only up to scale. In other words, we need only estimate the illuminant chromaticity m and true chromaticities x(n) from the observed image v(n), which we can relate from (2) as
+
+x(n) =
+
+x(n) x(n)
+
+2
+
+=
+
+m -1  v(n) m -1  v(n)
+
+2
+
+=
+
+g(v(n), m ).
+
+(3)
+
+A key property of natural illuminant chromaticities is that they are known to take a fairly restricted set of values, close to a one-dimensional locus predicted by Planck's radiation law [16]. To be able to exploit this, we denote M = {m i}Mi=1 as the set of possible values for illuminant chromaticity m , and construct it from a training set. Specifically, we quantize1 the chromaticity vectors {m t}Tt=1 of the illuminants in the training set, and let M be the set of unique chromaticity values. Additionally, we define a "prior" bi = log(ni/T ) over this candidate set, based on the number ni of training illuminants that were quantized to m i.
+Given the observed color v(n) at a single pixel n, the ambiguity in m across the illuminant set M translates to a corresponding ambiguity in the true chromaticity x(n) over the set {g(v(n), m i)}i. Figure 1(a) illustrates this ambiguity for a few different observed colors v. We note that while there is significant angular deviation within the set of possible true chromaticity values for any observed color, values in each set lie close to a one dimensional locus in chromaticity space. This suggests that the illuminants in our training set are indeed a good fit to Planck's law2.
+The goal of our work is to investigate the extent to which we can resolve the above ambiguity in true chromaticity on a per-pixel basis, without having to reason about the pixel's spatial neighborhood or semantic context. Our approach is based on computing a likelihood distribution over the possible values of x(n), given the observed luminance v(n) 1. But as mentioned in Sec. 2, there is considerable ambiguity in the scale of observed color intensities. We address this partially by applying a simple per-image global normalization to the observed luminance to define
+1Quantization is over uniformly sized bins in S2+. See supplementary material for details. 2In fact, the chromaticities appear to lie on two curves, that are slightly separated from each other. This separation is likely due to differences in the sensor responses of the two cameras in the Gehler-Shi dataset.
+
+3
+
+(a) Ambiguity with Observed Color
+Set of possible true chromaticities for a specific observed color v.
+(b) from Empirical Statistics
+
+Green
+
+Legend
+-3.3
+
+Red + Green
+
+Green + Blue
+
+Red Blue + Red
+True Chromaticity
+
+Blue
+
+-15.1
+
+y  [0,0.2)
+
+y  [0.2,0.4)
+
+y  [0.8,1.0)
+
+y  [1.4,1.6)
+
+y  [1.8,2.0)
+
+y  [2.8,3.0)
+
+(c) from End-to-end Learning
+
+y  [3.4,3.6)
+
+y  [3.8,)
+
+y  [0,0.2)
+
+y  [0.2,0.4)
+
+y  [0.8,1.0)
+
+y  [1.4,1.6)
+
+y  [1.8,2.0)
+
+y  [2.8,3.0)
+
+y  [3.4,3.6)
+
+y  [3.8,)
+
+Figure 1: Color Constancy with Per-pixel Chromaticity-luminance distributions of natural scenes.
+(a) Ambiguity in true chromaticity given observed color: each set of points corresponds to the possible true chromaticity values (location in S2+, see legend) consistent with the pixel's observed chromaticity (color of the points) and different candidate illuminants m i. (b) Distributions over different values for true chromaticity of a pixel conditioned on its observed luminance, computed as empirical histograms over the training set. Values y are normalized per-image by the median luminance value over all pixels. (c) Corresponding distributions learned with end-to-end training to
+maximize accuracy of overall illuminant estimation.
+
+y(n) = v(n) 1/median{ v(n) 1}n . This very roughly compensates for variations across images due to exposure settings, illuminant brightness, etc. However, note that since the normalization is global, it does not compensate for variations due to shading.
+The central component of our inference method is a function L[x, y] that encodes the belief that a pixel with normalized observed luminance y has true chromaticity x. This function is defined over a discrete domain by quantizing both chromaticity and luminance values: we clip luminance values y to four (i.e., four times the median luminance of the image) and quantize them into twenty equal sized bins; and for chromaticity x, we use a much finger quantization with 214 equal-sized bins in S+2 (see supplementary material for details). In this section, we adopt a purely empirical approach
+4
+
+and define L[x, y] as L[x, y] = log (Nx,y/ x Nx,y) , where Nx,y is the number of pixels across all pixels in a set of images in a training set that have true chromaticity x and observed luminance y.
+
+We visualize these empirical versions of L[x, y] for a subset of the luminance quantization levels in Fig. 1(b). We find that in general, desaturated chromaticities with similar intensity values in all color channels are most common. This is consistent with findings of statistical analysis of natural spectra [17], which shows the "DC" component (flat across wavelength) to be the one with most variance. We also note that the concentration of the likelihood mass in these chromaticities increasing for higher values of luminance y. This phenomenon is also predicted by traditional intuitions in color science: materials are brightest when they reflect most of the incident light, which typically occurs when they have a flat reflectance function with all values of () close to one. Indeed, this is what forms the basis of the white-patch retinex method [3]. Amongst saturated colors, we find that hues which combine green with either red or blue occur more frequently than primary colors, with pure green and combinations of red and blue being the least common. This is consistent with findings that reflectance functions are usually smooth (PCA on pixel spectra in [17] revealed a Fourier-like basis). Both saturated green and red-blue combinations would require the reflectance to have either a sharp peak or crest, respectively, in the middle of the visible spectrum.
+
+We now describe a method that exploits the belief function L[x, y] for illuminant estimation. Given
+
+the observed color v(n) at a pixel n, we can obtain a distribution {L[g(v(n), m i), y(n)]}i over the set of possible true chromaticity values {g(v(n), m i)}i, which can also be interpreted as a distribution over the corresponding illuminants m i. We then simply aggregate these distributions across all pixels n in the image, and define the global probability of m i being the scene illuminant
+m as pi = exp(li)/ ( i exp(li )), where
+
+li
+
+=
+
+ N
+
+L[g(v(n), m i), y(n)] + bi,
+
+n
+
+(4)
+
+N is the total number of pixels in the image, and  and  are scalar parameters. The final illuminant chromaticity estimate m is then computed as
+
+m = arg min E [cos-1(mT m)]  arg max E[mT m] =
+
+m, m 2=1
+
+m, m 2=1
+
+i pimi i pimi
+
+.
+2
+
+(5)
+
+Note that (4) also incorporates the prior bi over illuminants. We set the parameters  and  using a grid search, to values that minimize mean illuminant estimation error over the training set. The primary computational cost of inference is in computing the values of {li}. We pre-compute values of g(x, m ) using (3) over the discrete domain of quantized chromaticity values for x and the candidate illuminant set M for m . Therefore, computing each li essentially only requires the addition of N numbers from a look-up table. We need to do this for all M = |M| illuminants, where summa-
+tions for different illuminants can be carried out in parallel. Our implementation takes roughly 0.3
+seconds for a 9 mega-pixel image, on a modern Intel 3.3GHz CPU with 6 cores, and is available at
+http://www.ttic.edu/chakrabarti/chromcc/.
+
+This empirical version of our approach bears some similarity to the Bayesian method of [14] that is based on priors for illuminants, and for the likelihood of different true reflectance values being present in a scene. However, the key difference is our modeling of true chromaticity conditioned on luminance that explicitly makes estimation agnostic to the absolute scale of intensity values. We also reason with all pixels, rather than the set of unique colors in the image.
+
+Experimental Results. Table 1 compares the performance of illuminant estimation with our method (see rows labeled "Empirical") to the current state-of-the-art, using different quantiles of angular error across the Gehler-Shi database [14, 15]. Results for other methods are from the survey by Li et al. [18]. (See the supplementary material for comparisons to some other recent methods).
+We show results with both three- and ten-fold cross-validation. We find that our errors with threefold cross-validation have lower mean, median, and tri-mean values than those of the best performing state-of-the-art method from [8], which combines illuminant estimates from twelve different "unitary" color-constancy method (many of which are also listed in Table 1) using support-vector regression. The improvement in error is larger with respect to the other combination methods [8, 9, 10, 11], as well as those based the statistics of image derivatives [4, 5, 6]. Moreover, since our method has more parameters than most previous algorithms (L[x, y] has 214 x 20  300k entries), it is likely
+
+5
+
+Table 1: Quantiles of Angular Error for Different Methods on the Gehler-Shi Database [14, 15]
+
+Method
+Bayesian [14] Gamut Mapping [20] Deriv. Gamut Mapping [4]
+Gray World [2] Gray Edge(1,1,6) [5] SV-Regression [21] Spatio-Spectral [6] Scene Geom. Comb. [9] Nearest-30% Comb. [10] Classifier-based Comb. [11] Neural Comb. (ELM) [8] SVR-based Comb. [8]
+
+Proposed
+
+(3-Fold)
+
+Empirical
+
+End-to-end Trained
+
+(10-Fold)
+
+Empirical
+
+End-to-end Trained
+
+Mean
+6.74 6.00 5.96 4.77 4.19 4.14 3.99 4.56 4.26 3.83 3.43 2.98
+
+Median
+5.14 3.98 3.83 3.63 3.28 3.23 3.24 3.15 2.95 2.75 2.37 1.97
+
+2.89 2.56 2.55 2.20
+
+1.89 1.67 1.58 1.37
+
+Tri-mean
+5.54 4.52 4.32 3.92 3.54 3.35 3.45 3.46 3.19 2.93 2.62 2.35
+
+25%-ile
+2.42 1.71 1.68 1.81 1.87 1.68 2.38 1.41 1.49 1.34 1.21 1.13
+
+75%-ile
+9.47 8.42 7.95 6.63 5.72 5.27 4.97 6.12 5.39 4.89 4.53 4.33
+
+2.15 1.89 1.83 1.53
+
+1.15 0.91 0.85 0.69
+
+3.68 3.30 3.30 2.68
+
+90%-ile 14.71 14.74 14.72 10.59 8.60 8.87 7.50 10.39 9.67 8.19 6.97 6.37
+6.24 5.56 5.74 4.89
+
+to benefit from more training data. We find this to indeed be the case, and observe a considerable decrease in error quantiles when we switch to ten-fold cross-validation.
+Figure. 2 shows estimation results with our method for a few sample images. For each image, we show the input image (indicating the ground truth color chart being masked out) and the output image with colors corrected by the global illuminant estimate. To visualize the quality of contributions from individual pixels, we also show a map of angular errors for illuminant estimates from individual pixels. These estimates are based on values of li computed by restricting the summation in (4) to individual pixels. We find that even these pixel-wise estimates are fairly accurate for a lot of pixels, even when it's true color is saturated (see cart in first row). Also, to evaluate the weight of these per-pixel distributions to the global li, we show a map of their variance on a per-pixel basis. As expected from Fig. 1(b), we note higher variances in relatively brighter pixels. The image in the last row represents one of the poorest estimates across the entire dataset (higher than 90%-ile). Note that much of the image is in shadow, and contain only a few distinct (and likely atypical) materials.
+
+4 Learning L[x, y] End-to-end
+
+While the empirical approach in the previous section would be optimal if pixel chromaticities in a typical image were infact i.i.d., that is clearly not the case. Therefore, in this section we propose an alternate approach method to setting the beliefs in L[x, y], that optimizes for the accuracy of the final global illuminant estimate. However, unlike previous color constancy methods that explicitly model statistical co-dependencies between pixels--for example, by modeling spatial derivatives [4, 5, 6], or learning functions on whole-image histograms [21]--we retain the overall parametric "form" by which we compute the illuminant in (4). Therefore, even though L[x, y] itself is learned through knowledge of co-occurence of chromaticities in natural images, estimation of the illuminant during inference is still achieved through a simple aggregation of per-pixel distributions.
+Specifically, we set the entries of L[x, y] to minimize a cost function C over a set of training images:
+
+T
+C(L) = Ct(L),
+t=1
+
+Ct = cos-1(m Ti m t) pti,
+i
+
+(6)
+
+6
+
+Global Estimate
+
+Per-Pixel Estimate Error Belief Variance
+
+End-to-end Empirical
+
+Input+Mask
+
+Error = 0.56
+
+Ground Truth
+
+Error = 0.24
+
+End-to-end Empirical
+
+Input+Mask
+
+Error = 4.32
+
+Ground Truth
+
+Error = 3.15
+
+End-to-end Empirical
+
+Input+Mask
+
+Error = 16.22
+
+Ground Truth
+
+Error = 10.31
+
+Figure 2: Estimation Results on Sample Images. Along with output images corrected with the global illuminant estimate from our methods, we also visualize illuminant information extracted at a local level. We show a map of the angular error of pixel-wise illuminant estimates (i.e., computed with li based on distributions from only a single pixel). We also show a map of the variance Var({li}i) of these beliefs, to gauge the weight of their contributions to the global illuminant estimate.
+where m t is the true illuminant chromaticity of the tth training image, and pti is computed from the observed colors vt(n) using (4). We augment the training data available to us by "re-lighting" each image with different illuminants from the training set. We use the original image set and six re-lit copies for training, and use a seventh copy for validation.
+We use stochastic gradient descent to minimize (6). We initialize L to empirical values as described in the previous section (for convenience, we multiply the empirical values by , and then set  = 1 for computing li), and then consider individual images from the training set at each iteration. We make multiple passes through the training set, and at each iteration, we randomly sub-sample the pixels from each training image. Specifically, we only retain 1/128 of the total pixels in the image by randomly sub-sampling 16 x 16 patches at a time. This approach, which can be interpreted as being similar to "dropout" [12], prevents over-fitting and improves generalization.
+7
+
+Derivatives of the cost function Ct with respect to the current values of beliefs L[x, y] are given by
+
+Ct L[x, y]
+
+=
+
+1 N
+
+i
+
+ g(vt(n), m i) = x  yt(n) = y
+n
+
+x
+
+Ct lit
+
+,
+
+(7)
+
+where
+
+Ct lit
+
+= pti
+
+cos-1(m Ti m t) - Ct
+
+.
+
+(8)
+
+We use momentum to update the values of L[x, y] at each iteration based on these derivative as
+
+L[x, y] = L[x, y] - L[x, y],
+
+L[x,
+
+y]
+
+=
+
+r
+
+
+
+Ct L[x,
+
+y]
+
++
+
+L [x,
+
+y],
+
+(9)
+
+where L [x, y] is the previous update value, r is the learning rate, and  is the momentum factor. In our experiments, we set  = 0.9, run stochastic gradient descent for 20 epochs with r = 100, and
+
+another 10 epochs with r = 10. We retain the values of L from each epoch, and our final output is
+
+the version that yields the lowest mean illuminant estimation error on the validation set.
+
+We show the belief values learned in this manner in Fig. 1(c). Notice that although they retain the
+overall biases towards desaturated colors and combined green-red and green-blue hues, they are less
+"smooth" than their empirical counterparts in Fig. 1(b)--in many instances, there are sharp changes in the values L[x, y] for small changes in chromaticity. While harder to interpret, we hypothesize that these variations result from shifting beliefs of specific (x, y) pairs to their neighbors, when they correspond to incorrect choices within the ambiguous set of specific observed colors.
+
+Experimental Results. We also report errors when using these end-to-end trained versions of the belief function L in Table 1, and find that they lead to an appreciable reduction in error in comparison to their empirical counterparts. Indeed, the errors with end-to-end training using three-fold crossvalidation begin to approach those of the empirical version with ten-fold cross-validation, which has access to much more training data. Also note that the most significant improvements (for both three- and ten-fold cross-validation) are in "outlier" performance, i.e., in the 75 and 90%-ile error values. Color constancy methods perform worst on images that are dominated by a small number of materials with ambiguous chromaticity, and our results indicate that end-to-end training increases the reliability of our estimation method in these cases.
+We also include results for the end-to-end case for the example images in Figure. 2. For all three images, there is an improvement in the global estimation error. More interestingly, we see that the per-pixel error and variance maps now have more high-frequency variation, since L now reacts more sharply to slight chromaticity changes from pixel to pixel. Moreover, we see that a larger fraction of pixels generate fairly accurate estimates by themselves (blue shirt in row 2). There is also a higher disparity in belief variance, including within regions that visually look homogeneous in the input, indicating that the global estimate is now more heavily influenced by a smaller fraction of pixels.
+
+5 Conclusion and Future Work
+In this paper, we introduced a new color constancy method that is based on a conditional likelihood function for the true chromaticity of a pixel, given its luminance. We proposed two approaches to learning this function. The first was based purely on empirical pixel statistics, while the second was based on maximizing accuracy of the final illuminant estimate. Both versions were found to outperform state-of-the-art color constancy methods, including those that employed more complex features and semantic reasoning. While we assumed a single global illuminant in this paper, the underlying per-pixel reasoning can likely be extended to the multiple-illuminant case, especially since, as we saw in Fig. 2, our method was often able to extract reasonable illuminant estimates from individual pixels. Another useful direction for future research is to investigate the benefits of using likelihood functions that are conditioned on lightness--estimated using an intrinsic image decomposition method--instead of normalized luminance. This would factor out the spatially-varying scalar ambiguity caused by shading, which could lead to more informative distributions.
+Acknowledgments
+We thank the authors of [18] for providing estimation results of other methods for comparison. The author was supported by a gift from Adobe.
+
+8
+
+References [1] D.H. Brainard and A Radonjic. Color constancy. In The new visual neurosciences, 2014. [2] G. Buchsbaum. A spatial processor model for object colour perception. J. Franklin Inst, 1980. [3] E.H. Land. The retinex theory of color vision. Scientific American, 1971. [4] A. Gijsenij, T. Gevers, and J. van de Weijer. Generalized gamut mapping using image derivative structures
+for color constancy. IJCV, 2010. [5] J. van de Weijer, T. Gevers, and A. Gijsenij. Edge-Based Color Constancy. IEEE Trans. Image Proc.,
+2007. [6] A. Chakrabarti, K. Hirakawa, and T. Zickler. Color Constancy with Spatio-spectral Statistics. PAMI,
+2012. [7] H. R. V. Joze and M. S. Drew. Exemplar-based color constancy and multiple illumination. PAMI, 2014. [8] B. Li, W. Xiong, and D. Xu. A supervised combination strategy for illumination chromaticity estimation.
+ACM Trans. Appl. Percept., 2010. [9] R. Lu, A. Gijsenij, T. Gevers, V. Nedovic, and D. Xu. Color constancy using 3D scene geometry. In
+ICCV, 2009. [10] S. Bianco, F. Gasparini, and R. Schettini. Consensus-based framework for illuminant chromaticity esti-
+mation. J. Electron. Imag., 2008. [11] S. Bianco, G. Ciocca, C. Cusano, and R. Schettini. Automatic color constancy algorithm selection and
+combination. Pattern recognition, 2010. [12] N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, and R. Salakhutdinov. Dropout: A simple way to
+prevent neural networks from overfitting. JMLR, 2014. [13] H. Chong, S. Gortler, and T. Zickler. The von Kries hypothesis and a basis for color constancy. In Proc.
+ICCV, 2007. [14] P.V. Gehler, C. Rother, A. Blake, T. Minka, and T. Sharp. Bayesian Color Constancy Revisited. In CVPR,
+2008. [15] L. Shi and B. Funt. Re-processed version of the gehler color constancy dataset of 568 images. Accessed
+from http://www.cs.sfu.ca/~colour/data/. [16] D.B. Judd, D.L. MacAdam, G. Wyszecki, H.W. Budde, H.R. Condit, S.T. Henderson, and J.L. Simonds.
+Spectral distribution of typical daylight as a function of correlated color temperature. JOSA, 1964. [17] A. Chakrabarti and T. Zickler. Statistics of Real-World Hyperspectral Images. In Proc. CVPR, 2011. [18] B. Li, W. Xiong, W. Hu, and B. Funt. Evaluating combinational illumination estimation methods on
+real-world images. IEEE Trans. Imag. Proc., 2014. Data at http://www.escience.cn/people/ BingLi/Data_TIP14.html. [19] S. Bianco, C. Cusano, and R. Schettini. Color constancy using cnns. arXiv:1504.04548[cs.CV], 2015. [20] D. Forsyth. A novel algorithm for color constancy. IJCV, 1990. [21] W. Xiong and B. Funt. Estimating illumination chromaticity via support vector regression. J. Imag. Sci. Technol., 2006. [22] A. Gijsenij, T. Gevers, and J. van de Weijer. Computational color constancy: Survey and experiments. IEEE Trans. Image Proc., 2011. Data at http://www.colorconstancy.com/.
+9
+

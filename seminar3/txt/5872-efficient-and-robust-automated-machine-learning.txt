@@ -1,0 +1,546 @@
+Efficient and Robust Automated Machine Learning
+
+Matthias Feurer
+
+Aaron Klein
+
+Katharina Eggensperger
+
+Jost Tobias Springenberg
+
+Manuel Blum
+
+Frank Hutter
+
+Department of Computer Science
+
+University of Freiburg, Germany
+
+{feurerm,kleinaa,eggenspk,springj,mblum,fh}@cs.uni-freiburg.de
+
+Abstract
+The success of machine learning in a broad range of applications has led to an ever-growing demand for machine learning systems that can be used off the shelf by non-experts. To be effective in practice, such systems need to automatically choose a good algorithm and feature preprocessing steps for a new dataset at hand, and also set their respective hyperparameters. Recent work has started to tackle this automated machine learning (AutoML) problem with the help of efficient Bayesian optimization methods. In this work we introduce a robust new AutoML system based on scikit-learn (using 15 classifiers, 14 feature preprocessing methods, and 4 data preprocessing methods, giving rise to a structured hypothesis space with 110 hyperparameters). This system, which we dub auto-sklearn, improves on existing AutoML methods by automatically taking into account past performance on similar datasets, and by constructing ensembles from the models evaluated during the optimization. Our system won the first phase of the ongoing ChaLearn AutoML challenge, and our comprehensive analysis on over 100 diverse datasets shows that it substantially outperforms the previous state of the art in AutoML. We also demonstrate the performance gains due to each of our contributions and derive insights into the effectiveness of the individual components of auto-sklearn.
+
+1 Introduction
+
+Machine learning has recently made great strides in many application areas, fueling a growing demand for machine learning systems that can be used effectively by novices in machine learning. Correspondingly, a growing number of commercial enterprises aim to satisfy this demand (e.g., BigML.com, Wise.io, SkyTree.com, RapidMiner.com, Dato.com, Prediction.io, DataRobot.com, Microsoft's Azure Machine Learning, Google's Prediction API, and Amazon Machine Learning). At its core, every effective machine learning service needs to solve the fundamental problems of deciding which machine learning algorithm to use on a given dataset, whether and how to preprocess its features, and how to set all hyperparameters. This is the problem we address in this work.
+We define AutoML as the problem of automatically (without human input) producing test set predictions for a new dataset within a fixed computational budget. More formally, we study the following AutoML problem:
+
+Definition 1 (AutoML). For i = 1, . . . , n + m, let xi  Rd denote a feature vector and yi  Y
+
+the corresponding target value. Given a training dataset Dtrain = {(x1, y1), . . . , (xn, yn)} and
+
+the feature vectors xn+1, . . . , xn+m of a test dataset Dtest = {(xn+1, yn+1), . . . , (xn+m, yn+m)}
+
+drawn from the same underlying data distribution, as well as a resource budget b and a loss metric
+
+L(*, loss
+
+*), of
+
+the AutoML problem a solution yn+1, . . . ,
+
+is to (automatically) yn+m to the AutoML
+
+produce problem
+
+tiessgt isveetnpbreydmi1ctionmjs=y1nL+(1y,n.+. .j
+
+, ,
+
+yn+m. yn+j ).
+
+The
+
+1
+
+In practice, the budget b would comprise computational resources, such as CPU and/or wallclock time and memory usage. This problem definition reflects the setting of the ongoing ChaLearn AutoML challenge [1]. The AutoML system we describe here won the first phase of that challenge.
+Our approach to the AutoML problem is motivated by Auto-WEKA [2], which combines the machine learning framework WEKA [3] with a Bayesian optimization [4] method for selecting a good instantiation of WEKA for a given dataset. Section 2 describes this previous approach in more detail.
+The contribution of this paper is to extend this approach in various ways that considerably improve its efficiency and robustness, based on principles that apply to a wide range of machine learning frameworks (such as those used by the machine learning service providers mentioned above). First, following successful previous work for low dimensional optimization problems [5, 6, 7], we reason across datasets to identify instantiations of machine learning frameworks that perform well on a new dataset and warmstart Bayesian optimization with them (Section 3.1). Second, we automatically construct ensembles of the models considered by Bayesian optimization (Section 3.2). Third, we carefully design a highly parameterized machine learning framework from high-performing classifiers and preprocessors implemented in the popular machine learning framework scikit-learn [8] (Section 4). Finally, we perform an extensive empirical analysis using a diverse collection of datasets to demonstrate that the resulting auto-sklearn system outperforms previous state-of-the-art AutoML methods (Section 5), to show that each of our contributions leads to substantial performance improvements (Section 6), and to gain insights into the performance of the individual classifiers and preprocessors used in auto-sklearn (Section 7).
+
+2 AutoML as a CASH problem
+
+We first briefly review existing mechanisms for automated machine learning and its formalization as a Combined Algorithm Selection and Hyperparameter optimization (CASH) problem. Two important problems in AutoML are that (1) no single machine learning method performs best on all datasets and (2) some machine learning methods (e.g., non-linear SVMs) crucially rely on hyperparameter optimization. The latter problem has been successfully attacked using Bayesian optimization [4], which nowadays forms a core component of an AutoML system. The former problem is intertwined with the latter since the rankings of algorithms depend on whether their hyperparameters are tuned properly. Fortunately, the two problems can efficiently be tackled as a single, structured, joint optimization problem:
+Definition 2 (CASH). Let A = {A(1), . . . , A(R)} be a set of algorithms, and let the hyperparameters of each algorithm A(j) have domain (j). Further, let Dtrain = {(x1, y1), . . . , (xn, yn)} be a training set which is split into K cross-validation folds {Dv(1a)lid, . . . , Dv(Kal)id} and {Dt(r1a)in, . . . , Dt(rKa)in} such that Dt(ri)ain = Dtrain\Dv(ia)lid for i = 1, . . . , K. Finally, let L(A(j), Dt(ri)ain, Dv(ia)lid) denote the loss that algorithm A(j) achieves on Dv(ia)lid when trained on Dt(ri)ain with hyperparameters . Then, the Combined Algorithm Selection and Hyperparameter optimization (CASH) problem is to find the joint algorithm and hyperparameter setting that minimizes this loss:
+
+A ,
+
+
+
+argmin
+A(j ) A,(j )
+
+1 K
+
+K
+L(A(j), Dt(ri)ain, Dv(ia)lid).
+i=1
+
+(1)
+
+This CASH problem was first tackled by Thornton et al. [2] in the Auto-WEKA system using tree-based Bayesian optimization methods [9, 10]. In a nutshell, Bayesian optimization [4] fits a probabilistic model to capture the relationship between hyperparameter settings and their measured performance; it then uses this model to select the most promising hyperparameter setting (trading off exploration of new parts of the space vs. exploitation in known good regions), evaluates that hyperparameter setting, updates the model with the result, and iterates. While Bayesian optimization based on Gaussian process models (e.g., Snoek et al. [11]) performs best in low-dimensional problems with numerical hyperparameters, tree-based models have been shown to be more successful in highdimensional, structured, and partly discrete problems [12] - such as the CASH problem - and are also used in the AutoML framework hyperopt-sklearn [13]. Among the tree-based Bayesian optimization methods, Thornton et al. [2] found the random-forest-based SMAC [9] to outperform the tree Parzen estimator TPE [10], and we therefore use SMAC to solve the CASH problem in this paper. Next to its
+
+2
+
+{Xtrain, Ytrain, Xtest, b, L}
+
+metalearning
+
+Bayesian optimizer
+
+data preprocessor
+
+feature preprocessor
+
+classifier
+
+ML framework
+
+AutoML system
+build ensemble
+
+Ytest
+
+Figure 1: Our, improved, AutoML pipeline. We add two components to Bayesian hyperparameter optimization of an ML framework: meta-learning for initializing the Bayesian optimizer and automated ensemble construction from configurations evaluated during optimization.
+
+use of random forests [14], SMAC's main distinguishing feature is that it allows fast cross-validation by evaluating one fold at a time and discarding poorly-performing hyperparameter settings early.
+
+3 New methods for increasing efficiency and robustness of AutoML
+
+We now discuss our two improvements to the basic CASH formulation of AutoML. First, we include a meta-learning step in the AutoML pipeline to warmstart the Bayesian optimization procedure, which results in a considerable boost in the efficiency of the system. Second, we include an automated ensemble construction step, allowing us to use all classifiers that were found by Bayesian optimization.
+Figure 1 summarizes the overall workflow of an AutoML system including both of our improvements. We note that we expect their effectiveness to be greater for flexible ML frameworks that offer many degrees of freedom (e.g., many algorithms, hyperparameters, and preprocessing methods).
+3.1 Meta-learning for finding good instantiations of machine learning frameworks
+Domain experts derive knowledge from previous tasks: They learn about the performance of machine learning algorithms. The area of meta-learning [15] mimics this strategy by reasoning about the performance of learning algorithms across datasets. In this work, we apply meta-learning to select instantiations of our given machine learning framework that are likely to perform well on a new dataset. More specifically, for a large number of datasets, we collect both performance data and a set of meta-features, i.e., characteristics of the dataset that can be computed efficiently and that help us determine which algorithm to use on a new dataset.
+This meta-learning approach is complementary to Bayesian optimization for optimizing an ML framework. Meta-learning can quickly suggest some instantiations of the ML framework that are likely to perform quite well, but it is unable to provide fine-grained information on performance. In contrast, Bayesian optimization is slow to start for hyperparameter spaces as large as those of entire ML frameworks, but can fine-tune performance over time. We exploit this complementarity by selecting k configurations based on meta-learning and use their result to seed Bayesian optimization. This approach of warmstarting optimization by meta-learning has already been successfully applied before [5, 6, 7], but never to an optimization problem as complex as that of searching the space of instantiations of a full-fledged ML framework. Likewise, learning across datasets has also been applied in collaborative Bayesian optimization methods [16, 17]; while these approaches are promising, they are so far limited to very few meta-features and cannot yet cope with the highdimensional partially discrete configuration spaces faced in AutoML.
+More precisely, our meta-learning approach works as follows. In an offline phase, for each machine learning dataset in a dataset repository (in our case 140 datasets from the OpenML [18] repository), we evaluated a set of meta-features (described below) and used Bayesian optimization to determine and store an instantiation of the given ML framework with strong empirical performance for that dataset. (In detail, we ran SMAC [9] for 24 hours with 10-fold cross-validation on two thirds of the data and stored the resulting ML framework instantiation which exhibited best performance on the remaining third). Then, given a new dataset D, we compute its meta-features, rank all datasets by their L1 distance to D in meta-feature space and select the stored ML framework instantiations for the k = 25 nearest datasets for evaluation before starting Bayesian optimization with their results.
+To characterize datasets, we implemented a total of 38 meta-features from the literature, including simple, information-theoretic and statistical meta-features [19, 20], such as statistics about the number of data points, features, and the number of classes, or data skewness, and the entropy of the targets. All meta-features are listed in Table 1 of the supplementary material. Notably, we had to exclude the
+
+3
+
+prominent and effective category of landmarking meta-features [21] (which measure the performance of simple base learners), because they were computationally too expensive to be helpful in the online evaluation phase. We note that this meta-learning approach draws its power from the availability of a repository of datasets; due to recent initiatives, such as OpenML [18], we expect the number of available datasets to grow ever larger over time, increasing the importance of meta-learning.
+
+3.2 Automated ensemble construction of models evaluated during optimization
+While Bayesian hyperparameter optimization is data-efficient in finding the best-performing hyperparameter setting, we note that it is a very wasteful procedure when the goal is simply to make good predictions: all the models it trains during the course of the search are lost, usually including some that perform almost as well as the best. Rather than discarding these models, we propose to store them and to use an efficient post-processing method (which can be run in a second process on-the-fly) to construct an ensemble out of them. This automatic ensemble construction avoids to commit itself to a single hyperparameter setting and is thus more robust (and less prone to overfitting) than using the point estimate that standard hyperparameter optimization yields. To our best knowledge, we are the first to make this simple observation, which can be applied to improve any Bayesian hyperparameter optimization method.
+It is well known that ensembles often outperform individual models [22, 23], and that effective ensembles can be created from a library of models [24, 25]. Ensembles perform particularly well if the models they are based on (1) are individually strong and (2) make uncorrelated errors [14]. Since this is much more likely when the individual models are different in nature, ensemble building is particularly well suited for combining strong instantiations of a flexible ML framework.
+However, simply building a uniformly weighted ensemble of the models found by Bayesian optimization does not work well. Rather, we found it crucial to adjust these weights using the predictions of all individual models on a hold-out set. We experimented with different approaches to optimize these weights: stacking [26], gradient-free numerical optimization, and the method ensemble selection [24]. While we found both numerical optimization and stacking to overfit to the validation set and to be computationally costly, ensemble selection was fast and robust. We therefore used this technique in all experiments - building an ensemble of size 50 out of the 200 best models. In a nutshell, ensemble selection (introduced by Caruana et al. [24]) is a greedy procedure that starts from an empty ensemble and then iteratively adds the model that maximizes ensemble validation performance (with uniform weight, but allowing for repetitions). Procedure 1 in the supplementary material describes it in detail.
+
+4 A practical automated machine learning system
+
+To design a robust AutoML system, as our underlying ML framework we chose
+
+feature
+
+preprocessing
+
+preprocessor
+
+estimator
+
+classifier
+
+scikit-learn [8], one of the best known and most widely used machine learning
+
+PCA None * * * fast ICA
+
+RF * * * AdaBoost kNN
+
+libraries. It offers a wide range of well established and efficiently-implemented ML algorithms and is easy to use for both ex-
+
+rescaling
+
+data preprocessor
+one hot enc.
+
+learning rate # estimators max. depth
+imputation balancing
+
+perts and beginners. Due to its relationship min/max * * * standard * * * mean * * * median weighting None to scikit-learn, we dub our resulting Au-
+
+toML system auto-sklearn.
+
+Figure 2: Structured configuration space. Squared boxes
+
+Figure 2 depicts auto-sklearn's overall components. It comprises 15 classification algorithms, 14 preprocessing methods, and 4 data preprocessing methods. We parameterized each of them which resulted in a space of 110 hyperparameters. Most of them are
+
+denote parent hyperparameters whereas boxes with rounded edges are leaf hyperparameters. Grey colored boxes mark active hyperparameters which form an example configuration and machine learning pipeline. Each pipeline comprises one feature preprocessor, classifier and up to three data preprocessor methods plus respective hyperparameters.
+
+conditional hyperparameters that are only active if their respective component is selected. We note
+
+that SMAC [9] can handle this conditionality natively.
+
+All 15 classification algorithms in auto-sklearn are depicted in Table 1a (see Section A in the supplementary material for a detailed explanation). They fall into different categories, such as
+
+4
+
+name
+
+#
+
+AdaBoost (AB)
+
+4
+
+Bernoulli naive Bayes 2
+
+decision tree (DT)
+
+4
+
+extreml. rand. trees
+
+5
+
+Gaussian naive Bayes -
+
+gradient boosting (GB) 6
+
+kNN 3
+
+LDA
+
+4
+
+linear SVM
+
+4
+
+kernel SVM
+
+7
+
+multinomial naive Bayes 2
+
+passive aggressive
+
+3
+
+QDA
+
+2
+
+random forest (RF)
+
+5
+
+Linear Class. (SGD) 10
+
+cat (cond)
+1 (-) 1 (-) 1 (-) 2 (-)
+2 (-) 1 (-) 2 (-) 2 (-) 1 (-) 1 (-) 2 (-) 4 (-)
+
+cont (cond)
+3 (-) 1 (-) 3 (-) 3 (-)
+6 (-) 1 (-) 3 (1) 2 (-) 5 (2) 1 (-) 2 (-) 2 (-) 3 (-) 6 (3)
+
+(a) classification algorithms
+
+name
+
+#
+
+extreml. rand. trees prepr. 5
+
+fast ICA
+
+4
+
+feature agglomeration 4
+
+kernel PCA
+
+5
+
+rand. kitchen sinks
+
+2
+
+linear SVM prepr.
+
+3
+
+no preprocessing
+
+-
+
+nystroem sampler
+
+5
+
+PCA 2
+
+polynomial
+
+3
+
+random trees embed.
+
+4
+
+select percentile
+
+2
+
+select rates
+
+3
+
+one-hot encoding imputation balancing rescaling
+
+2 1 1 1
+
+cat (cond)
+2 (-) 3 (-) 3 (-) 1 (-)
+1 (-)
+1 (-) 1 (-) 2 (-)
+1 (-) 2 (-)
+1 (-) 1 (-) 1 (-) 1 (-)
+
+cont (cond)
+3 (-) 1 (1) 1 (-) 4 (3) 2 (-) 2 (-)
+4 (3) 1 (-) 1 (-) 4 (-) 1 (-) 1 (-)
+1 (1) -
+
+(b) preprocessing methods
+
+Table 1: Number of hyperparameters for each possible classifier (left) and feature preprocessing method (right) for a binary classification dataset in dense representation. Tables for sparse binary classification and sparse/dense multiclass classification datasets can be found in the Section E of the supplementary material, Tables 2a, 3a, 4a, 2b, 3b and 4b. We distinguish between categorical (cat) hyperparameters with discrete values and continuous (cont) numerical hyperparameters. Numbers in brackets are conditional hyperparameters, which are only relevant when another parameter has a certain value.
+
+general linear models (2 algorithms), support vector machines (2), discriminant analysis (2), nearest neighbors (1), naive Bayes (3), decision trees (1) and ensembles (4). In contrast to Auto-WEKA [2], we focused our configuration space on base classifiers and excluded meta-models and ensembles that are themselves parameterized by one or more base classifiers. While such ensembles increased AutoWEKA's number of hyperparameters by almost a factor of five (to 786), auto-sklearn "only" features 110 hyperparameters. We instead construct complex ensembles using our post-hoc method from Section 3.2. Compared to Auto-WEKA, this is much more data-efficient: in Auto-WEKA, evaluating the performance of an ensemble with 5 components requires the construction and evaluation of 5 models; in contrast, in auto-sklearn, ensembles come largely for free, and it is possible to mix and match models evaluated at arbitrary times during the optimization.
+The preprocessing methods in auto-sklearn are depicted in Table 1b (we refer to Section A of the supplementary material for a detailed discussion). They comprise data preprocessors (which change the feature values and are always used when they apply) and feature preprocessors (which change the actual set of features, and only one of which [or none] is used). Data preprocessing includes rescaling of the inputs, imputation of missing values, one-hot encoding and balancing of the target classes. The 14 possible feature preprocessing methods can be categorized into feature selection (2), kernel approximation (2), matrix decomposition (4), embeddings (1), feature clustering (1), polynomial feature expansion (1), sparse representation transformation (1), and methods that use a classifier for feature selection (2).
+As with every robust real-world system, we had to handle many more important details in auto-sklearn; we describe these in Section B of the supplementary material.
+
+5 Comparing auto-sklearn to Auto-WEKA and hyperopt-sklearn
+As a baseline experiment, we compared the performance of vanilla auto-sklearn (without our improvements) to Auto-WEKA [2] and hyperopt-sklearn [13], reproducing the experimental setup with 21 datasets of the paper introducing Auto-WEKA. We describe this setup in detail in Section G in the supplementary material.
+Table 2 shows that auto-sklearn performed statistically significantly better than Auto-WEKA in 6/21 cases, tied it in 12 cases, and lost against it in 3. For the three datasets where Auto-WEKA performed best, we found that in more than 50% of its runs the best classifier it chose is not implemented in scikit-learn (trees with a pruning component). So far, hyperopt-sklearn is more of a proof-of-concept - inviting the user to adapt the configuration space to her own needs - than a fully AutoML system. The current version crashes when presented with sparse data and missing values. It also crashes on
+
+5
+
+Abalone Amazon Car Cifar-10 Cifar-10 Small Convex Dexter Dorothea German Credit Gisette KDD09 Appetency KR-vs-KP Madelon MNIST Basic MRBI Secom Semeion Shuttle Waveform Wine Quality Yeast
+
+AS 73.50 16.00 0.39 51.70 54.81 17.53 5.56 5.51 27.00 1.62 1.74 0.42 12.44 2.84 46.92 7.87 5.24 0.01 14.93 33.76 40.67 AW 73.50 30.00 0.00 56.95 56.20 21.80 8.33 6.38 28.33 2.29 1.74 0.31 18.21 2.84 60.34 8.09 5.24 0.01 14.13 33.36 37.75 HS 76.21 16.22 0.39 - 57.95 19.18 - - 27.67 2.29 - 0.42 14.74 2.82 55.79 - 5.87 0.05 14.07 34.72 38.45
+Table 2: Test set classification error of Auto-WEKA (AW), vanilla auto-sklearn (AS) and hyperopt-sklearn (HS) as in the original evaluation of Auto-WEKA [2]. The results are median percent error across 100 000 bootstrap samples (out of 10 runs) simulating 4 parallel runs. Bold numbers indicate the best result. Underlined results are not statistically significantly different from the best according to a bootstrap test with p = 0.05.
+
+3.0
+
+average rank
+
+2.8
+vanilla auto-sklearn
+2.6 auto-sklearn + ensemble
+auto-sklearn + meta-learning
+2.4 auto-sklearn + meta-learning + ensemble
+
+2.2
+
+2.0
+
+1.8
+
+500
+
+1000
+
+1500
+
+2000
+
+2500
+
+3000
+
+3500
+
+time [sec]
+
+Figure 3: Average rank of all four auto-sklearn variants (ranked by balanced test error rate (BER)) across 140 datasets. Note that ranks are a relative measure of performance (i.e. the rank of all methods has to add up to 10) and hence an improvement in BER of one method can result in a decreased rank of another. The same plot on a log-scale is included in the supplementary to show the time overhead of meta-feature and ensemble computation.
+
+Cifar-10 due to a memory limit which we set for all optimizers to enable a fair comparison. On the 16 datasets on which it ran, it statistically tied the best optimizer in 9 cases and lost against it in 7.
+
+6 Evaluation of the proposed AutoML improvements
+
+In order to evaluate the robustness and general applicability of our proposed AutoML system on a broad range of datasets, we gathered 140 binary and multiclass classification datasets from the OpenML repository [18], only selecting datasets with at least 1000 data points to allow robust performance evaluations. These datasets cover a diverse range of applications, such as text classification, digit and letter recognition, gene sequence and RNA classification, advertisement, particle classification for telescope data, and cancer detection in tissue samples. We list all datasets in Table 7 and 8 in the supplementary material and provide their unique OpenML identifiers for reproducibility. Since the class distribution in many of these datasets is quite imbalanced we evaluated all AutoML methods using a measure called balanced classification error rate (BER). We define balanced error rate as the average of the proportion of wrong classifications in each class. In comparison to standard classification error (the average overall error), this measure (the average of the class-wise error) assigns equal weight to all classes. We note that balanced error or accuracy measures are often used in machine learning competitions (e.g. the AutoML challenge [1] uses balanced accuracy).
+We performed 10 runs of auto-sklearn both with and without meta-learning and with and without ensemble prediction on each of the datasets. To study their performance under rigid time constraints, and also due to computational resource constraints, we limited the CPU time for each run to 1 hour; we also limited the runtime for a single model to a tenth of this (6 minutes). To not evaluate performance on data sets already used for meta-learning, we performed a leave-one-dataset-out validation: when evaluating on dataset D, we only used meta-information from the 139 other datasets.
+Figure 3 shows the average ranks over time of the four auto-sklearn versions we tested. We observe that both of our new methods yielded substantial improvements over vanilla auto-sklearn. The most striking result is that meta-learning yielded drastic improvements starting with the first configuration it selected and lasting until the end of the experiment. We note that the improvement was most
+
+6
+
+OpenML dataset ID auto-sklearn AdaBoost Bernoulli naive Bayes decision tree extreml. rand. trees Gaussian naive Bayes gradient boosting kNN LDA linear SVM kernel SVM multinomial naive Bayes passive aggresive QDA random forest Linear Class. (SGD)
+
+38 46 179 184 554 772 917 1049 1111 1120 1128 293 389
+
+2.15 3.76 16.99 10.32 1.55 46.85 10.22 12.93 23.70 13.81 4.21 2.86 19.65
+
+2.68 4.65 17.03 10.52 2.42 49.68 9.11 12.53 23.16 13.54 4.89 4.07 22.98
+
+50.22 -
+19.27 -
+47.90 25.83 15.50 28.40 18.81
+4.71 24.30
+-
+
+2.15 5.62 18.31 17.46 12.00 47.75 11.00 19.31 24.40 17.45 9.30 5.03 33.14
+
+18.06 4.74
+17.09 11.10
+2.91 45.62 10.22 17.18 24.47 13.86
+3.89 3.59 19.38
+
+11.22 7.88
+21.77 64.74 10.52 48.83 33.94 26.23 29.59 21.50
+4.77 32.44 29.18
+
+1.77 3.49 17.00 10.42 3.86 48.15 10.11 13.38 22.93 13.61 4.58 24.48 19.20
+
+50.00 7.57
+22.23 31.10
+2.68 48.00 11.11 23.80 50.30 17.23
+4.59 4.86 30.87
+
+8.55 8.67 18.93 35.44 3.34 46.74 34.22 25.12 24.11 15.48 4.58 24.40 19.68
+
+16.29 8.31
+17.30 15.76
+2.23 48.38 18.67 17.28 23.99 14.94
+4.83 14.16 17.95
+
+17.89 5.36
+17.57 12.52 1.50 48.66 6.78 21.44 23.56 14.17 4.59 100.00 22.04
+
+46.99 7.55
+18.97 27.13 10.37 47.21 25.50 26.40 27.67 18.33 4.46 24.20 20.04
+
+50.00 9.23
+22.29 20.01 100.00 48.75 20.67 29.25 43.79 16.37
+5.65 21.34 20.14
+
+8.78 7.57 19.06 47.18 2.75 47.67 30.44 21.38 25.86 15.62 5.59 28.68 39.57
+
+2.34 4.20 17.24 10.98 3.08 47.71 10.83 13.75 28.06 13.70 3.83 2.57 20.66
+
+15.82 7.31 17.01 12.76 2.50 47.93 18.33 19.92 23.36 14.66 4.33 15.54 17.99
+
+Table 3: Median balanced test error rate (BER) of optimizing auto-sklearn subspaces for each classification method (and all preprocessors), as well as the whole configuration space of auto-sklearn, on 13 datasets. All optimization runs were allowed to run for 24 hours except for auto-sklearn which ran for 48 hours. Bold numbers indicate the best result; underlined results are not statistically significantly different from the best according to a bootstrap test using the same setup as for Table 2.
+
+OpenML dataset ID auto-sklearn densifier extreml. rand. trees prepr. fast ICA feature agglomeration kernel PCA rand. kitchen sinks linear SVM prepr. no preproc. nystroem sampler PCA polynomial random trees embed. select percentile classification select rates truncatedSVD
+
+38 46 179 184 554 772 917 1049 1111 1120 1128 293 389
+
+2.15 3.76 16.99 10.32 1.55 46.85 10.22 12.93 23.70 13.81 4.21 2.86 19.65
+
+24.40 20.63
+
+4.03 4.98 17.83 55.78 1.56 47.90 8.33 20.36 23.36 16.29 4.90 3.41 21.40
+
+7.27 7.95 17.24 19.96 2.52 48.65 16.06 19.92 24.69 14.22 4.96
+-
+
+2.24 4.40 16.92 11.31 1.65 48.62 10.33 13.14 23.73 13.73 4.76
+-
+
+5.84 8.74 100.00 36.52 100.00 47.59 20.94 19.57 100.00 14.57 4.21 100.00 17.50
+
+8.57 8.41 17.34 28.05 100.00 47.68 35.44 20.06 25.25 14.82 5.08 19.30 19.66
+
+2.28 4.25 16.84 9.92 2.21 47.72 8.67 13.28 23.43 14.02 4.52 3.01 19.89
+
+2.28 4.52 16.97 11.43 1.60 48.34 9.44 15.84 22.27 13.85 4.59 2.66 20.87
+
+7.70 8.48 17.30 25.53 2.21 48.06 37.83 18.96 23.95 14.66 4.08 20.94 18.46
+
+7.23 8.40 17.64 21.15 1.65 47.30 22.33 17.22 23.25 14.23 4.59
+-
+
+2.90 4.21 16.94 10.54 100.00 48.00 9.11 12.95 26.94 13.22 50.00
+-
+
+18.50 7.51
+17.05 12.68
+3.48 47.84 17.67 18.52 26.68 15.03 9.23 8.05 44.83
+
+2.20 4.17 17.09 45.03 1.46 47.56 10.00 11.94 23.53 13.65 4.33 2.86 20.17
+
+2.28 4.68 16.86 10.47 1.70 48.43 10.44 14.38 23.33 13.67 4.08 2.74 19.18
+
+4.05 21.58
+
+Table 4: Like Table 3, but instead optimizing subspaces for each preprocessing method (and all classifiers).
+
+pronounced in the beginning and that over time, vanilla auto-sklearn also found good solutions without meta-learning, letting it catch up on some datasets (thus improving its overall rank).
+Moreover, both of our methods complement each other: our automated ensemble construction improved both vanilla auto-sklearn and auto-sklearn with meta-learning. Interestingly, the ensemble's influence on the performance started earlier for the meta-learning version. We believe that this is because meta-learning produces better machine learning models earlier, which can be directly combined into a strong ensemble; but when run longer, vanilla auto-sklearn without meta-learning also benefits from automated ensemble construction.
+
+7 Detailed analysis of auto-sklearn components
+We now study auto-sklearn's individual classifiers and preprocessors, compared to jointly optimizing all methods, in order to obtain insights into their peak performance and robustness. Ideally, we would have liked to study all combinations of a single classifier and a single preprocessor in isolation, but with 15 classifiers and 14 preprocessors this was infeasible; rather, when studying the performance of a single classifier, we still optimized over all preprocessors, and vice versa. To obtain a more detailed analysis, we focused on a subset of datasets but extended the configuration budget for optimizing all methods from one hour to one day and to two days for auto-sklearn. Specifically, we clustered our 140 datasets with g-means [27] based on the dataset meta-features and used one dataset from each of the resulting 13 clusters (see Table 6 in the supplementary material for the list of datasets). We note that, in total, these extensive experiments required 10.7 CPU years.
+Table 3 compares the results of the various classification methods against auto-sklearn. Overall, as expected, random forests, extremely randomized trees, AdaBoost, and gradient boosting, showed the
+
+7
+
+10 auto-sklearn gradient boosting kernel SVM
+8 random forest
+
+50 auto-sklearn gradient boosting
+45 kernel SVM random forest
+40
+
+Balanced Error Rate Balanced Error Rate
+
+6 35 30
+4 25
+
+2
+1001 102 103 104 time [sec]
+
+20 15 101
+
+102 103 time [sec]
+
+104
+
+(a) MNIST (OpenML dataset ID 554)
+
+(b) Promise pc4 (OpenML dataset ID 1049)
+
+Figure 4: Performance of a subset of classifiers compared to auto-sklearn over time. We show median test error rate and the fifth and 95th percentile over time for optimizing three classifiers with all preprocessing methods separately with optimizing the joint space. A plot with all classifiers can be found in Figure 4 in the supplementary material. Whereas auto-sklearn is inferior in the beginning it achieves in the end a performance close to the best method on this dataset.
+
+most robust performance, and SVMs showed strong peak performance for some datasets. Besides a variety of strong classifiers, there are also several models which could not compete: The decision tree, passive aggressive, kNN, Gaussian NB, LDA and QDA were statistically significantly inferior to the best classifier on most datasets. Finally, the table indicates that no single method was the best choice for all datasets. As shown in the table and also visualized for two example datasets in Figure 4, optimizing the joint configuration space of auto-sklearn led to the most robust performance. A plot of ranks over time (Figure 2 and 3 in the supplementary material) quantifies this across all 13 datasets, showing that auto-sklearn starts with reasonable but not optimal performance and effectively searches its more general configuration space to converge to the best overall performance over time.
+Table 4 compares the results of the various preprocessors against auto-sklearn. As for the comparison of classifiers above, auto-sklearn showed the most robust performance: It performed best on three of the datasets and was not statistically significantly worse than the best preprocessor on another 8 of 13.
+
+8 Discussion and Conclusion
+
+We demonstrated that our new auto-sklearn system performs favorably against the previous state of the art in AutoML, and that our meta-learning and ensemble improvements for AutoML yield further efficiency and robustness. This finding is backed by the fact that auto-sklearn won the auto-track in the first phase of ChaLearn's ongoing AutoML challenge. In this paper, we did not evaluate the use of auto-sklearn for interactive machine learning with an expert in the loop and weeks of CPU power, but we note that that mode has also led to a third place in the human track of the same challenge. As such, we believe that auto-sklearn is a promising system for use by both machine learning novices and experts. The source code of auto-sklearn is available under an open source license at https://github.com/automl/auto-sklearn.
+Our system also has some shortcomings, which we would like to remove in future work. As one example, we have not yet tackled regression or semi-supervised problems. Most importantly, though, the focus on scikit-learn implied a focus on small to medium-sized datasets, and an obvious direction for future work will be to apply our methods to modern deep learning systems that yield state-ofthe-art performance on large datasets; we expect that in that domain especially automated ensemble construction will lead to tangible performance improvements over Bayesian optimization.
+
+Acknowledgments
+
+This work was supported by the German Research Foundation (DFG), under Priority Programme Autonomous Learning (SPP 1527, grant HU 1900/3-1), under Emmy Noether grant HU 1900/2-1, and under the BrainLinksBrainTools Cluster of Excellence (grant number EXC 1086).
+
+8
+
+References
+[1] I. Guyon, K. Bennett, G. Cawley, H. Escalante, S. Escalera, T. Ho, N.Macia, B. Ray, M. Saeed, A. Statnikov, and E. Viegas. Design of the 2015 ChaLearn AutoML Challenge. In Proc. of IJCNN'15, 2015.
+[2] C. Thornton, F. Hutter, H. Hoos, and K. Leyton-Brown. Auto-WEKA: combined selection and hyperparameter optimization of classification algorithms. In Proc. of KDD'13, pages 847-855, 2013.
+[3] M. Hall, E. Frank, G. Holmes, B. Pfahringer, P. Reutemann, and I. Witten. The WEKA data mining software: An update. SIGKDD, 11(1):10-18, 2009.
+[4] E. Brochu, V. Cora, and N. de Freitas. A tutorial on Bayesian optimization of expensive cost functions, with application to active user modeling and hierarchical reinforcement learning. CoRR, abs/1012.2599, 2010.
+[5] M. Feurer, J. Springenberg, and F. Hutter. Initializing Bayesian hyperparameter optimization via metalearning. In Proc. of AAAI'15, pages 1128-1135, 2015.
+[6] Reif M, F. Shafait, and A. Dengel. Meta-learning for evolutionary parameter optimization of classifiers. Machine Learning, 87:357-380, 2012.
+[7] T. Gomes, R. Prudencio, C. Soares, A. Rossi, and A. Carvalho. Combining meta-learning and search techniques to select parameters for support vector machines. Neurocomputing, 75(1):3-13, 2012.
+[8] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel, P. Prettenhofer, R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cournapeau, M. Brucher, M. Perrot, and E. Duchesnay. Scikit-learn: Machine learning in Python. JMLR, 12:2825-2830, 2011.
+[9] F. Hutter, H. Hoos, and K. Leyton-Brown. Sequential model-based optimization for general algorithm configuration. In Proc. of LION'11, pages 507-523, 2011.
+[10] J. Bergstra, R. Bardenet, Y. Bengio, and B. Kegl. Algorithms for hyper-parameter optimization. In Proc. of NIPS'11, pages 2546-2554, 2011.
+[11] J. Snoek, H. Larochelle, and R. P. Adams. Practical Bayesian optimization of machine learning algorithms. In Proc. of NIPS'12, pages 2960-2968, 2012.
+[12] K. Eggensperger, M. Feurer, F. Hutter, J. Bergstra, J. Snoek, H. Hoos, and K. Leyton-Brown. Towards an empirical foundation for assessing Bayesian optimization of hyperparameters. In Proc. of NIPS BayesOpt Workshop, 2013.
+[13] B. Komer, J. Bergstra, and C. Eliasmith. Hyperopt-sklearn: Automatic hyperparameter configuration for scikit-learn. In ICML workshop on AutoML, 2014.
+[14] L. Breiman. Random forests. MLJ, 45:5-32, 2001.
+[15] P. Brazdil, C. Giraud-Carrier, C. Soares, and R. Vilalta. Metalearning: Applications to Data Mining. Springer, 2009.
+[16] R. Bardenet, M. Brendel, B. Kegl, and M. Sebag. Collaborative hyperparameter tuning. In Proc. of ICML'13, pages 199-207, 2014.
+[17] D. Yogatama and G. Mann. Efficient transfer learning method for automatic hyperparameter tuning. In Proc. of AISTATS'14, pages 1077-1085, 2014.
+[18] J. Vanschoren, J. van Rijn, B. Bischl, and L. Torgo. OpenML: Networked science in machine learning. SIGKDD Explorations, 15(2):49-60, 2013.
+[19] D. Michie, D. Spiegelhalter, C. Taylor, and J. Campbell. Machine Learning, Neural and Statistical Classification. Ellis Horwood, 1994.
+[20] A. Kalousis. Algorithm Selection via Meta-Learning. PhD thesis, University of Geneve, 2002.
+[21] B. Pfahringer, H. Bensusan, and C. Giraud-Carrier. Meta-learning by landmarking various learning algorithms. In Proc. of (ICML'00), pages 743-750, 2000.
+[22] I. Guyon, A. Saffari, G. Dror, and G. Cawley. Model selection: Beyond the Bayesian/Frequentist divide. JMLR, 11:61-87, 2010.
+[23] A. Lacoste, M. Marchand, F. Laviolette, and H. Larochelle. Agnostic Bayesian learning of ensembles. In Proc. of ICML'14, pages 611-619, 2014.
+[24] R. Caruana, A. Niculescu-Mizil, G. Crew, and A. Ksikes. Ensemble selection from libraries of models. In Proc. of ICML'04, page 18, 2004.
+[25] R. Caruana, A. Munson, and A. Niculescu-Mizil. Getting the most out of ensemble selection. In Proc. of ICDM'06, pages 828-833, 2006.
+[26] D. Wolpert. Stacked generalization. Neural Networks, 5:241-259, 1992.
+[27] G. Hamerly and C. Elkan. Learning the k in k-means. In Proc. of NIPS'04, pages 281-288, 2004.
+9
+

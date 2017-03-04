@@ -1,0 +1,510 @@
+Asynchronous Parallel Stochastic Gradient for Nonconvex Optimization
+
+Xiangru Lian, Yijun Huang, Yuncheng Li, and Ji Liu
+Department of Computer Science, University of Rochester {lianxiangru,huangyj0,raingomm,ji.liu.uwisc}@gmail.com
+
+Abstract
+Asynchronous parallel implementations of stochastic gradient (SG) have been broadly used in solving deep neural network and received many successes in practice recently. However, existing theories cannot explain their convergence and speedup properties, mainly due to the nonconvexity of most deep learning formulations and the asynchronous parallel mechanism. To fill the gaps in theory and provide theoretical supports, this paper studies two asynchronous parallel implementations of SG: one is over a computer network and the other is on a shared memory system. We establish an ergodic convergence rate O(1/ K) for both algorithms and prove that the linear speedup is achievable if the number of workers is bounded by K (K is the total number of iterations). Our results generalize and improve existing analysis for convex minimization.
+
+1 Introduction
+
+The asynchronous parallel optimization recently received many successes and broad attention in machine learning and optimization [Niu et al., 2011, Li et al., 2013, 2014b, Yun et al., 2013, Fercoq and Richtarik, 2013, Zhang and Kwok, 2014, Marecek et al., 2014, Tappenden et al., 2015, Hong, 2014]. It is mainly due to that the asynchronous parallelism largely reduces the system overhead comparing to the synchronous parallelism. The key idea of the asynchronous parallelism is to allow all workers work independently and have no need of synchronization or coordination. The asynchronous parallelism has been successfully applied to speedup many state-of-the-art optimization algorithms including stochastic gradient [Niu et al., 2011, Agarwal and Duchi, 2011, Zhang et al., 2014, Feyzmahdavian et al., 2015, Paine et al., 2013, Mania et al., 2015], stochastic coordinate descent [Avron et al., 2014, Liu et al., 2014a, Sridhar et al., 2013], dual stochastic coordinate ascent [Tran et al., 2015], and randomized Kaczmarz algorithm [Liu et al., 2014b].
+
+In this paper, we are particularly interested in the asynchronous parallel stochastic gradient algorithm (ASYSG) for nonconvex optimization mainly due to its recent successes and popularity in deep neural network [Dean et al., 2012, Paine et al., 2013, Zhang et al., 2014, Li et al., 2014a] and matrix completion [Niu et al., 2011, Petroni and Querzoni, 2014, Yun et al., 2013]. While some research efforts have been made to study the convergence and speedup properties of ASYSG for convex optimization, people still know very little about its properties in nonconvex optimization. Existing theories cannot explain its convergence and excellent speedup property in practice, mainly due to the nonconvexity of most deep learning formulations and the asynchronous parallel mechanism. People even have no idea if its convergence is certified for nonconvex optimization, although it has been used widely in solving deep neural network and implemented on different platforms such as computer network and shared memory (for example, multicore and multiGPU) system.
+
+To fill these gaps in theory, this paper tries to make the first attempt to study ASYSG for the following nonconvex optimization problem
+
+min
+xRn
+
+f (x) := E[F (x; )]
+
+(1)
+
+1
+
+where    is a random variable and f (x) is a smooth (but not necessarily convex) function. The most common specification is that  is an index set of all training samples  = {1, 2, * * * , N } and F (x; ) is the loss function with respect to the training sample indexed by .
+We consider two popular asynchronous parallel implementations of SG: one is for the computer network originally proposed in [Agarwal and Duchi, 2011] and the other one is for the shared memory (including multicore/multiGPU) system originally proposed in [Niu et al., 2011]. Note that due to the architecture diversity, it leads to two different algorithms. The key difference lies on that the computer network can naturally (also efficiently) ensure the atomicity of reading and writing the whole vector of x, while the shared memory system is unable to do that efficiently and usually only ensures efficiency for atomic reading and writing on a single coordinate of parameter x. The implementation on computer cluster is described by the "consistent asynchronous parallel SG" algorithm (ASYSG-CON), because the value of parameter x used for stochastic gradient evaluation is consistent - an existing value of parameter x at some time point. Contrarily, we use the "inconsistent asynchronous parallel SG" algorithm (ASYSG-INCON) to describe the implementation on the shared memory platform, because the value of parameter x used is inconconsistent, that is, it might not be the real state of x at any time point.
+This paper studies the theoretical convergence and speedup properties for both algorithms. We establish an asymptotic convergence rate of O(1/ KM ) for ASYSG-CON where K is the total iteration number and M is the size of minibatch. The linear speedup1 is proved to be achievable while the number of workers is bounded by O( K). For ASYSG-INCON, we establish an asymptotic convergence and speedup properties similar to ASYSG-CON. The intuition of the linear speedup of asynchronous parallelism for SG can be explained in the following: Recall that the serial SG essentially uses the "stochastic" gradient to surrogate the accurate gradient. ASYSG brings additional deviation from the accurate gradient due to using "stale" (or delayed) information. If the additional deviation is relatively minor to the deviation caused by the "stochastic" in SG, the total iteration complexity (or convergence rate) of ASYSG would be comparable to the serial SG, which implies a nearly linear speedup. This is the key reason why ASYSG works.
+The main contributions of this paper are highlighted as follows:
+* Our result for ASYSG-CON generalizes and improves earlier analysis of ASYSG-CON for convex optimization in [Agarwal and Duchi, 2011]. Particularly, we improve the upper bound of the maximal number of workers to ensure the linear speedup from O(K1/4M -3/4) to O(K1/2M -1/2) by a factor K1/4M 1/4;
+* The proposed ASYSG-INCON algorithm provides a more accurate description than HOGWILD! [Niu et al., 2011] for the lock-free implementation of ASYSG on the shared memory system. Although our result does not strictly dominate the result for HOGWILD! due to different problem settings, our result can be applied to more scenarios (e.g., nonconvex optimization);
+* Our analysis provides theoretical (convergence and speedup) guarantees for many recent successes of ASYSG in deep learning. To the best of our knowledge, this is the first work that offers such theoretical support.
+Notation x denotes the global optimal solution to (1). x 0 denotes the 0 norm of vector x, that is, the number of nonzeros in x; ei  Rn denotes the ith natural unit basis vector. We use Ek, (*) to denote the expectation with respect to a set of variables {k,1, * * * , k,M }. E(*) means taking the expectation in terms of all random variables. G(x; ) is used to denote F (x; ) for short. We use if (x) and (G(x; ))i to denote the ith element of f (x) and G(x; ) respectively.
+Assumption Throughout this paper, we make the following assumption for the objective function. All of them are quite common in the analysis of stochastic gradient algorithms.
+Assumption 1. We assume that the following holds:
+* (Unbiased Gradient): The stochastic gradient G(x; ) is unbiased, that is to say,
+
+f (x) = E[G(x; )]
+
+(2)
+
+1The speedup for T workers is defined as the ratio between the total work load using one worker and the average work load using T workers to obtain a solution at the same precision. "The linear speedup is achieved" means that the speedup with T workers greater than cT for any values of T (c  (0, 1] is a constant independent to T ).
+
+2
+
+* (Bounded Variance): The variance of stochastic gradient is bounded: E( G(x; ) - f (x) 2)  2, x.
+* (Lipschitzian Gradient): The gradient function f (*) is Lipschitzian, that is to say,
+
+(3)
+
+f (x) - f (y)  L x - y x, y.
+
+(4)
+
+Under the Lipschitzian gradient assumption, we can define two more constants Ls and Lmax. Let s be any positive integer. Define Ls to be the minimal constant satisfying the following inequality:
+
+f (x) - f x + iS iei  Ls
+
+iei ,
+
+iS
+
+Define Lmax as the minimum constant that satisfies:
+
+|if (x) - if (x + ei)| Lmax||,
+
+It can be seen that Lmax  Ls  L.
+
+S  {1, 2, ..., n} and |S| s i  {1, 2, ..., n}.
+
+(5) (6)
+
+2 Related Work
+This section mainly reviews asynchronous parallel gradient algorithms, and asynchronous parallel stochastic gradient algorithms and refer readers to the long version of this paper2 for review of stochastic gradient algorithms and synchronous parallel stochastic gradient algorithms.
+The asynchronous parallel algorithms received broad attention in optimization recently, although pioneer studies started from 1980s [Bertsekas and Tsitsiklis, 1989]. Due to the rapid development of hardware resources, the asynchronous parallelism recently received many successes when applied to parallel stochastic gradient [Niu et al., 2011, Agarwal and Duchi, 2011, Zhang et al., 2014, Feyzmahdavian et al., 2015, Paine et al., 2013], stochastic coordinate descent [Avron et al., 2014, Liu et al., 2014a], dual stochastic coordinate ascent [Tran et al., 2015], randomized Kaczmarz algorithm [Liu et al., 2014b], and ADMM [Zhang and Kwok, 2014]. Liu et al. [2014a] and Liu and Wright [2014] studied the asynchronous parallel stochastic coordinate descent algorithm with consistent read and inconsistent read respectively and prove the linear speedup is achievable if T  O(n1/2) for smooth convex functions and T  O(n1/4) for functions with "smooth convex loss + nonsmooth convex separable regularization". Avron et al. [2014] studied this asynchronous parallel stochastic coordinate descent algorithm in solving Ax = b where A is a symmetric positive definite matrix, and showed that the linear speedup is achievable if T  O(n) for consistent read and T  O(n1/2) for inconsistent read. Tran et al. [2015] studied a semi-asynchronous parallel version of Stochastic Dual Coordinate Ascent algorithm which periodically enforces primal-dual synchronization in a separate thread.
+We review the asynchronous parallel stochastic gradient algorithms in the last. Agarwal and Duchi [2011] analyzed the ASYSG-CON algorithm (on computer cluster) for convex smooth optimization and proved a convergence rate of O(1/ M K + M T 2/K) which implies that linear speedup is achieved when T is bounded by O(K1/4/M 3/4). In comparison, our analysis for the more general nonconvex smooth optimization improves the upper bound by a factor K1/4M 1/4. A very recent work [Feyzmahdavian et al., 2015] extended the analysis in Agarwal and Duchi [2011] to minimize functions in the form "smooth convex loss + nonsmooth convex regularization" and obtained similar results. Niu et al. [2011] proposed a lock free asynchronous parallel implementation of SG on the shared memory system and described this implementation as HOGWILD! algorithm. They proved a sublinear convergence rate O(1/K) for strongly convex smooth objectives. Another recent work Mania et al. [2015] analyzed asynchronous stochastic optimization algorithms for convex functions by viewing it as a serial algorithm with the input perturbed by bounded noise and proved the convergences rates no worse than using traditional point of view for several algorithms.
+
+3 Asynchronous parallel stochastic gradient for computer network
+This section considers the asynchronous parallel implementation of SG on computer network proposed by Agarwal and Duchi [2011]. It has been successfully applied to the distributed neural network [Dean et al., 2012] and the parameter server [Li et al., 2014a] to solve deep neural network.
+2http://arxiv.org/abs/1506.08272
+
+3
+
+3.1 Algorithm Description: ASYSG-CON
+The "star" in the star-shaped network is a master machine3 which maintains the parameter x. Other machines in the computer network serve as workers which only communicate with the master. All workers exchange information with the master independently and simultaneously, basically repeating the following steps:
+
+Algorithm 1 ASYSG-CON
+
+Require: x0, K, {k}k=0,***,K-1
+
+Ensure: xK 1: for k = 0, * * * , K - 1 do
+
+2: Randomly select M training samples in-
+
+dexed by k,1, k,2, ...k,M ;
+
+3:
+
+xk+1 = xk - k
+
+M m=1
+
+G(xk-k,m
+
+,
+
+k,m);
+
+4: end for
+
+* (Select): randomly select a subset of training samples S  ;
+* (Pull): pull parameter x from the master;
+* (Compute): compute the stochastic gradient g  S G(x; ); * (Push): push g to the master.
+
+The master basically repeats the following steps:
+
+* (Aggregate): aggregate a certain amount of stochastic gradients "g" from workers; * (Sum): summarize all "g"s into a vector ; * (Update): update parameter x by x  x - .
+
+While the master is aggregating stochastic gradients from workers, it does not care about the sources of the collected stochastic gradients. As long as the total amount achieves the predefined quantity, the master will compute  and perform the update on x. The "update" step is performed as an atomic operation - workers cannot read the value of x during this step, which can be efficiently implemented in the network (especially in the parameter server [Li et al., 2014a]). The key difference between this asynchronous parallel implementation of SG and the serial (or synchronous parallel) SG algorithm lies on that in the "update" step, some stochastic gradients "g" in "" might be computed from some early value of x instead of the current one, while in the serial SG, all g's are guaranteed to use the current value of x.
+
+The asynchronous parallel implementation substantially reduces the system overhead and overcomes the possible large network delay, but the cost is to use the old value of "x" in the stochastic gradient evaluation. We will show in Section 3.2 that the negative affect of this cost will vanish asymptotically.
+
+To mathematically characterize this asynchronous parallel implementation, we monitor parameter x in the master. We use the subscript k to indicate the kth iteration on the master. For example, xk denotes the value of parameter x after k updates, so on and so forth. We introduce a variable k,m to denote how many delays for x used in evaluating the mth stochastic gradient at the kth iteration. This asynchronous parallel implementation of SG on the "star-shaped" network is summarized by the ASYSG-CON algorithm, see Algorithm 1. The suffix "CON" is short for "consistent read". "Consistent read" means that the value of x used to compute the stochastic gradient is a real state of x no matter at which time point. "Consistent read" is ensured by the atomicity of the "update" step. When the atomicity fails, it leads to "inconsistent read" which will be discussed in Section 4. It is worth noting that on some "non-star" structures the asynchronous implementation can also be described as ASYSG-CON in Algorithm 1, for example, the cyclic delayed architecture and the locally averaged delayed architecture [Agarwal and Duchi, 2011, Figure 2] .
+
+3.2 Analysis for ASYSG-CON
+
+To analyze Algorithm 1, besides Assumption 1 we make the following additional assumptions.
+Assumption 2. We assume that the following holds:
+* (Independence): All random variables in {k,m}k=0,1,***,K;m=1,***,M in Algorithm 1 are independent to each other;
+* (Bounded Age): All delay variables k,m's are bounded: maxk,m k,m  T .
+
+The independence assumption strictly holds if all workers select samples with replacement. Although it might not be satisfied strictly in practice, it is a common assumption made for the analysis
+3There could be more than one machines in some networks, but all of them serves the same purpose and can be treated as a single machine.
+
+4
+
+purpose. The bounded delay assumption is much more important. As pointed out before, the asynchronous implementation may use some old value of parameter x to evaluate the stochastic gradient. Intuitively, the age (or "oldness") should not be too large to ensure the convergence. Therefore, it is a natural and reasonable idea to assume an upper bound for ages. This assumption is commonly used in the analysis for asynchronous algorithms, for example, [Niu et al., 2011, Avron et al., 2014, Liu and Wright, 2014, Liu et al., 2014a, Feyzmahdavian et al., 2015, Liu et al., 2014b]. It is worth noting that the upper bound T is roughly proportional to the number of workers.
+
+Under Assumptions 1 and 2, we have the following convergence rate for nonconvex optimization.
+
+Theorem 1. Assume that Assumptions 1 and 2 hold and the steplength sequence {k}k=1,***,K in Algorithm 1 satisfies
+
+LM k + 2L2M 2T k
+
+T =1
+
+k+
+
+
+
+1
+
+for all k = 1, 2, ....
+
+(7)
+
+We have the following ergodic convergence rate for the iteration of Algorithm 1
+
+1
+
+K k=1
+
+k
+
+K k=1
+
+k
+
+E(
+
+f (xk)
+
+2) 
+
+2(f (x1)-f (x))+
+
+(K
+k=1
+
+k2M L+2L2M 2k
+
+M
+
+K k=1
+
+k
+
+k-1
+) .j=k-T
+
+j2
+
+2
+
+where E(*) denotes taking expectation in terms of all random variables in Algorithm 1.
+
+(8)
+
+To evaluate the convergence rate, the commonly used metrics in convex optimization are not eligi-
+
+ble, for example, f (xk) - f  and xk - x 2. For nonsmooth optimization, we use the ergodic convergence as the metric, that is, the weighted average of the 2 norm of all gradients f (xk) 2,
+
+which is used in the analysis for nonconvex optimization [Ghadimi and Lan, 2013]. Although the
+
+metric used in nonconvex optimization is not exactly comparable to f (xk) - f  or xk - x 2 used
+
+in the analysis for convex optimization, it is not totally unreasonable to think that they are roughly
+
+in the same order. The ergodic convergence directly indicates the following convergence: If ran-
+
+domly select an index K from {1, 2, * * * , K} with probability {k/
+
+K k=1
+
+k
+
+},
+
+then
+
+E(
+
+f (xK )
+
+2)
+
+is bounded by the right hand side of (8) and all bounds we will show in the following.
+
+Taking a close look at Theorem 1, we can properly choose the steplength k as a constant value and obtain the following convergence rate:
+
+Corollary 2. Assume that Assumptions 1 and 2 hold. Set the steplength k to be a constant 
+
+ := f (x1) - f (x)/(M LK2).
+
+(9)
+
+If the delay parameter T is bounded by
+
+K  4M L(f (x1) - f (x))(T + 1)2/2,
+
+(10)
+
+then the output of Algorithm 1 satisfies the following ergodic convergence rate
+
+mink{1,***,K} E(
+
+f (xk)
+
+2) 
+
+1 K
+
+K k=1
+
+E(
+
+f (xk)
+
+2)  4
+
+(f (x1) - f (x))L/(M K).
+
+(11)
+
+This corollary basically claims that when the total iteration number K is greater than O(T 2), the convergence rate achieves O(1/ M K). Since this rate does not depend on the delay parameter T after sufficient number of iterations, the negative effect of using old values of x for stochastic gradient evaluation vanishes asymptoticly. In other words, if the total number of workers is bounded
+by O( K/M ), the linear speedup is achieved. 
+Note that our convergence rate O(1/ M K) is consistent with the serial SG (with M = 1) for convex optimization [Nemirovski et al., 2009], the synchronous parallel (or mini-batch) SG for convex optimization [Dekel et al., 2012], and nonconvex smooth optimization [Ghadimi and Lan, 2013]. Therefore, an important observation is that as long as the number of workers (which is
+proportional to T ) is bounded by O( K/M ), the iteration complexity to achieve the same accuracy level will be roughly the same. In other words, the average work load for each worker is reduced by the factor T comparing to the serial SG. Therefore, the linear speedup is achievable if T 
+O( K/M ). Since our convergence rate meets several special cases, it is tight.
+
+Next we compare with the analysis of ASYSG-CON for convex smooth optimization in Agarwal and Duchi [2011, Corollary 2]. They proved an asymptotic convergence rate O(1/ M K), which is consistent with ours. But their results require T  O(K1/4M -3/4) to guarantee linear speedup. Our result improves it by a factor O(K1/4M 1/4).
+
+5
+
+4 Asynchronous parallel stochastic gradient for shared memory architecture
+
+This section considers a widely used lock-free asynchronous implementation of SG on the shared memory system proposed in Niu et al. [2011]. Its advantages have been witnessed in solving SVM, graph cuts [Niu et al., 2011], linear equations [Liu et al., 2014b], and matrix completion [Petroni and Querzoni, 2014]. While the computer network always involves multiple machines, the shared memory platform usually only includes a single machine with multiple cores / GPUs sharing the same memory.
+
+4.1 Algorithm Description: ASYSG-INCON
+
+For the shared memory platform, one can exactly follow ASYSG-CON on the computer network using software locks, which is expensive4. Therefore, in practice the lock free asynchronous parallel implementation of SG is preferred. This section considers the same implementation as Niu et al. [2011], but provides a more precise algorithm description ASYSG-INCON than HOGWILD! proposed in Niu et al. [2011].
+
+Algorithm 2 ASYSG-INCON
+Require: x0, K,  Ensure: xK 1: for k = 0, * * * , K - 1 do
+2: Randomly select M training samples indexed by
+k,1, k,2, ...k,M ; 3: Randomly select ik  {1, 2, ..., n} with uniform
+distribution;
+M
+4: (xk+1)ik = (xk)ik -  (G(xk,m; k,m))ik ;
+m=1
+5: end for
+
+In this lock free implementation, the shared memory stores the parameter "x" and allows all workers reading and modifying parameter x simultaneously without using locks. All workers repeat the following steps independently, concurrently, and simultaneously:
+
+* (Read): read the parameter from the shared memory to the local memory without software locks
+(we use x to denote its value); * (Compute): sample a training data  and use x to compute the stochastic gradient G(x; ) locally; * (Update): update parameter x in the shared memory without software locks x  x - G(x; ).
+
+Since we do not use locks in both "read" and "update" steps, it means that multiple workers may manipulate the shared memory simultaneously. It causes the "inconsistent read" at the "read" step, that is, the value of x read from the shared memory might not be any state of x in the shared memory at any time point. For example, at time 0, the original value of x in the shared memory is a two dimensional vector [a, b]; at time 1, worker W is running the "read" step and first reads a from the shared memory; at time 2, worker W updates the first component of x in the shared memory from a to a ; at time 2, worker W updates the second component of x in the shared memory from b to b ; at time 3, worker W reads the value of the second component of x in the shared memory as b . In this case, worker W eventually obtains the value of x as [a, b ], which is not a real state of x in the shared memory at any time point. Recall that in ASYSG-CON the parameter value obtained by any worker is guaranteed to be some real value of parameter x at some time point.
+
+To precisely characterize this implementation and especially represent x, we monitor the value of
+
+parameter x in the shared memory. We define one iteration as a modification on any single com-
+
+ponent of x in the shared memory since the update on a single component can be considered to be
+
+atomic on GPUs and DSPs [Niu et al., 2011]. We use xk to denote the value of parameter x in the shared memory after k iterations and xk to denote the value read from the shared memory and used for computing stochastic gradient at the kth iteration. xk can be represented by xk with a few earlier updates missing
+
+xk = xk - jJ(k)(xj+1 - xj )
+
+(12)
+
+where J(k)  {k - 1, k, * * * , 0} is a subset of index numbers of previous iterations. This way is also used in analyzing asynchronous parallel coordinate descent algorithms in [Avron et al., 2014, Liu and Wright, 2014]. The kth update happened in the shared memory can be described as
+
+(xk+1)ik = (xk)ik - (G(xk; k))ik
+4The time consumed by locks is roughly equal to the time of 104 floating-point computation. The additional cost for using locks is the waiting time during which multiple worker access the same memory address.
+
+6
+
+where k denotes the index of the selected data and ik denotes the index of the component being updated at kth iteration. In the original analysis for the HOGWILD! implementation [Niu et al.,
+2011], xk is assumed to be some earlier state of x in the shared memory (that is, the consistent read) for simpler analysis, although it is not true in practice.
+
+One more complication is to apply the mini-batch strategy like before. Since the "update" step
+
+needs physical modification in the shared memory, it is usually much more time consuming than
+
+both "read" and "compute" steps are. If many workers run the "update" step simultaneously, the
+
+memory contention will seriously harm the performance. To reduce the risk of memory contention,
+
+a common trick is to ask each worker to gather multiple (say M ) stochastic gradients and write the
+
+shared memory only once. That is, in each cycle, run both "update" and "compute" steps for M
+
+times before you run the "update" step. Thus, the mini-batch updates happen in the shared memory
+
+can be written as
+
+(xk+1)ik = (xk)ik - 
+
+M m=1
+
+(G(xk,m
+
+;
+
+k,m
+
+))ik
+
+(13)
+
+where ik denotes the coordinate index updated at the kth iteration, and G(xk,m; k,m) is the mth stochastic gradient computed from the data sample indexed by k,m and the parameter value denoted by xk,m at the kth iteration. xk,m can be expressed by:
+
+xk,m = xk - jJ(k,m)(xj+1 - xj )
+
+(14)
+
+where J(k, m)  {k - 1, k, * * * , 0} is a subset of index numbers of previous iterations. The algorithm is summarized in Algorithm 2 from the view of the shared memory.
+
+4.2 Analysis for ASYSG-INCON
+
+To analyze the ASYSG-INCON, we need to make a few assumptions similar to Niu et al. [2011], Liu et al. [2014b], Avron et al. [2014], Liu and Wright [2014].
+Assumption 3. We assume that the following holds for Algorithm 2:
+* (Independence): All groups of variables {ik, {k,m}Mm=1} at different iterations from k = 1 to K are independent to each other.
+* (Bounded Age): Let T be the global bound for delay: J(k, m)  {k - 1, ...k - T }, k, m, so |J(k, m)| T .
+
+The independence assumption might not be true in practice, but it is probably the best assumption one can make in order to analyze the asynchronous parallel SG algorithm. This assumption was also used in the analysis for HOGWILD! [Niu et al., 2011] and asynchronous randomized Kaczmarz algorithm [Liu et al., 2014b]. The bounded delay assumption basically restricts the age of all missing components in xk,m (m, k). The upper bound "T " here serves a similar purpose as in Assumption 2. Thus we abuse this notation in this section. The value of T is proportional to the number of workers and does not depend on the size of mini-batch M . The bounded age assumption is used in the analysis for asynchronous stochastic coordinate descent with "inconsistent read" [Avron et al., 2014, Liu and Wright, 2014]. Under Assumptions 1 and 3, we have the following results:
+
+Theorem 3. Assume that Assumptions 1 and 3 hold and the constant steplength  satisfies
+
+2M
+
+2
+
+T
+
+L2T
+
+ (n
+
++
+
+T
+
+-
+
+1)2/n3/2
+
++
+
+2M Lmax
+
+
+
+1.
+
+(15)
+
+We have the following ergodic convergence rate for Algorithm 2
+
+1 K
+
+K
+t=1 E
+
+f (xt) 2
+
+
+
+2n KM
+
+
+
+(f
+
+(x1
+
+)
+
+-
+
+f
+
+(x))
+
++
+
+L2T
+
+TM 2n
+
+
+
+2
+
+2
+
++ Lmax2.
+
+(16)
+
+Taking a close look at Theorem 3, we can choose the steplength  properly and obtain the following error bound:
+Corollary 4. Assume that Assumptions 1 and 3 hold. Set the steplength to be a constant 
+
+ := 2(f (x1) - f (x))n/( KLT M ).
+If the total iterations K is greater than K  16(f (x1) - f (x))LT M n3/2 + 4T 2 /(n2),
+
+(17) (18)
+
+then the output of Algorithm 2 satisfies the following ergodic convergence rate
+
+1 K
+
+K k=1
+
+E(
+
+f (xk)
+
+2) 
+
+72 (f (x1) - f (x)) LT n/(KM ).
+
+(19)
+
+7
+
+ This corollary indicates the asymptotic convergence rate achieves O(1/ M K) when the total iteration number K exceeds a threshold in the order of O(T 2) (if n is considered as a constant). We can see that this rate and the threshold are consistent with the result in Corollary 2 for ASYSG-CON. One may argue that why there is an additional factor n in the numerator of (19). That is due to the way we count iterations - one iteration is defined as updating a single component of x. If we take into account this factor in the comparison to ASYSG-CON, the convergence rates for ASYSG-CON and ASYSG-INCON are essentially consistent. This comparison implies that the "inconsistent read" would not make a big difference from the "consistent read".
+Next we compare our result with the analysis of HOGWILD! by [Niu et al., 2011]. In principle, our analysis and their analysis consider the same implementation of asynchronous parallel SG, but differ in the following aspects: 1) our analysis considers the smooth nonconvex optimization which includes the smooth strongly convex optimization considered in their analysis; 2) our analysis considers the "inconsistent read" model which meets the practice while their analysis assumes the impractical "consistent read" model. Although the two results are not absolutely comparable, it is still interesting to see the difference. Niu et al. [2011] proved that the linear speedup is achievable if the maximal number of nonzeros in stochastic gradients is bounded by O(1) and the number of workers is bounded by O(n1/4). Our analysis does not need this prerequisite and guarantees the linear speedup as long as the number of workers is bounded by O( K). Although it is hard to say that our result strictly dominates HOGWILD! in Niu et al. [2011], our asymptotic result is eligible for more scenarios.
+5 Experiments
+The successes of ASYSG-CON and ASYSG-INCON and their advantages over synchronous parallel algorithms have been widely witnessed in many applications such as deep neural network [Dean et al., 2012, Paine et al., 2013, Zhang et al., 2014, Li et al., 2014a], matrix completion [Niu et al., 2011, Petroni and Querzoni, 2014, Yun et al., 2013], SVM [Niu et al., 2011], and linear equations [Liu et al., 2014b]. We refer readers to these literatures for more comphrehensive comparison and empirical studies. This section mainly provides the empirical study to validate the speedup properties for completeness. Due to the space limit, please find it in Supplemental Materials.
+6 Conclusion
+This paper studied two popular asynchronous parallel implementations for SG on computer cluster and shared memory system respectively. Two algorithms (ASYSG-CON and ASYSG-INCON) are used to describe two implementations. An asymptotic sublinear convergence rate is proven for both algorithms on nonconvex smooth optimization. This rate is consistent with the result of SG for convex optimization. The linear speedup is proven to achievable when the number of workers is bounded by K, which improves the earlier analysis of ASYSG-CON for convex optimization in [Agarwal and Duchi, 2011]. The proposed ASYSG-INCON algorithm provides a more precise description for lock free implementation on shared memory system than HOGWILD! [Niu et al., 2011]. Our result for ASYSG-INCON can be applied to more scenarios.
+Acknowledgements
+This project is supported by the NSF grant CNS-1548078, the NEC fellowship, and the startup funding at University of Rochester. We thank Professor Daniel Gildea and Professor Sandhya Dwarkadas at University of Rochester, Professor Stephen J. Wright at University of Wisconsin-Madison, and anonymous (meta-)reviewers for their constructive comments and helpful advices.
+References
+A. Agarwal and J. C. Duchi. Distributed delayed stochastic optimization. NIPS, 2011. H. Avron, A. Druinsky, and A. Gupta. Revisiting asynchronous linear solvers: Provable convergence rate
+through randomization. IPDPS, 2014. D. P. Bertsekas and J. N. Tsitsiklis. Parallel and distributed computation: numerical methods, volume 23.
+Prentice hall Englewood Cliffs, NJ, 1989.
+8
+
+J. Dean, G. Corrado, R. Monga, K. Chen, M. Devin, M. Mao, A. Senior, P. Tucker, K. Yang, Q. V. Le, et al. Large scale distributed deep networks. NIPS, 2012.
+O. Dekel, R. Gilad-Bachrach, O. Shamir, and L. Xiao. Optimal distributed online prediction using mini-batches. Journal of Machine Learning Research, 13(1):165-202, 2012.
+O. Fercoq and P. Richtarik. Accelerated, parallel and proximal coordinate descent. arXiv preprint arXiv:1312.5799, 2013.
+H. R. Feyzmahdavian, A. Aytekin, and M. Johansson. An asynchronous mini-batch algorithm for regularized stochastic optimization. ArXiv e-prints, May 18 2015.
+S. Ghadimi and G. Lan. Stochastic first-and zeroth-order methods for nonconvex stochastic programming. SIAM Journal on Optimization, 23(4):2341-2368, 2013.
+M. Hong. A distributed, asynchronous and incremental algorithm for nonconvex optimization: An ADMM based approach. arXiv preprint arXiv:1412.6058, 2014.
+Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Girshick, S. Guadarrama, and T. Darrell. Caffe: Convolutional architecture for fast feature embedding. arXiv preprint arXiv:1408.5093, 2014.
+A. Krizhevsky and G. Hinton. Learning multiple layers of features from tiny images. Computer Science Department, University of Toronto, Tech. Rep, 1(4):7, 2009.
+A. Krizhevsky, I. Sutskever, and G. E. Hinton. Imagenet classification with deep convolutional neural networks. NIPS, pages 1097-1105, 2012.
+M. Li, L. Zhou, Z. Yang, A. Li, F. Xia, D. G. Andersen, and A. Smola. Parameter server for distributed machine learning. Big Learning NIPS Workshop, 2013.
+M. Li, D. G. Andersen, J. W. Park, A. J. Smola, A. Ahmed, V. Josifovski, J. Long, E. J. Shekita, and B.-Y. Su. Scaling distributed machine learning with the parameter server. OSDI, 2014a.
+M. Li, D. G. Andersen, A. J. Smola, and K. Yu. Communication efficient distributed machine learning with the parameter server. NIPS, 2014b.
+J. Liu and S. J. Wright. Asynchronous stochastic coordinate descent: Parallelism and convergence properties. arXiv preprint arXiv:1403.3862, 2014.
+J. Liu, S. J. Wright, C. Re, V. Bittorf, and S. Sridhar. An asynchronous parallel stochastic coordinate descent algorithm. ICML, 2014a.
+J. Liu, S. J. Wright, and S. Sridhar. An asynchronous parallel randomized kaczmarz algorithm. arXiv preprint arXiv:1401.4780, 2014b.
+H. Mania, X. Pan, D. Papailiopoulos, B. Recht, K. Ramchandran, and M. I. Jordan. Perturbed iterate analysis for asynchronous stochastic optimization. arXiv preprint arXiv:1507.06970, 2015.
+J. Marecek, P. Richtarik, and M. Takac. Distributed block coordinate descent for minimizing partially separable functions. arXiv preprint arXiv:1406.0238, 2014.
+A. Nemirovski, A. Juditsky, G. Lan, and A. Shapiro. Robust stochastic approximation approach to stochastic programming. SIAM Journal on Optimization, 19(4):1574-1609, 2009.
+F. Niu, B. Recht, C. Re, and S. Wright. Hogwild: A lock-free approach to parallelizing stochastic gradient descent. NIPS, 2011.
+T. Paine, H. Jin, J. Yang, Z. Lin, and T. Huang. Gpu asynchronous stochastic gradient descent to speed up neural network training. NIPS, 2013.
+F. Petroni and L. Querzoni. Gasgd: stochastic gradient descent for distributed asynchronous matrix completion via graph partitioning. ACM Conference on Recommender systems, 2014.
+S. Sridhar, S. Wright, C. Re, J. Liu, V. Bittorf, and C. Zhang. An approximate, efficient LP solver for lp rounding. NIPS, 2013.
+R. Tappenden, M. Takac, and P. Richtarik. On the complexity of parallel coordinate descent. arXiv preprint arXiv:1503.03033, 2015.
+K. Tran, S. Hosseini, L. Xiao, T. Finley, and M. Bilenko. Scaling up stochastic dual coordinate ascent. ICML, 2015.
+H. Yun, H.-F. Yu, C.-J. Hsieh, S. Vishwanathan, and I. Dhillon. Nomad: Non-locking, stochastic multi-machine algorithm for asynchronous and decentralized matrix completion. arXiv preprint arXiv:1312.0193, 2013.
+R. Zhang and J. Kwok. Asynchronous distributed ADMM for consensus optimization. ICML, 2014.
+S. Zhang, A. Choromanska, and Y. LeCun. Deep learning with elastic averaging SGD. CoRR, abs/1412.6651, 2014.
+9
+

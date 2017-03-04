@@ -1,0 +1,686 @@
+Probabilistic Variational Bounds for Graphical Models
+
+Qiang Liu Computer Science Dartmouth College qliu@cs.dartmouth.edu
+
+John Fisher III CSAIL MIT
+fisher@csail.mit.edu
+
+Alexander Ihler Computer Science Univ. of California, Irvine ihler@ics.uci.edu
+
+Abstract
+Variational algorithms such as tree-reweighted belief propagation can provide deterministic bounds on the partition function, but are often loose and difficult to use in an "any-time" fashion, expending more computation for tighter bounds. On the other hand, Monte Carlo estimators such as importance sampling have excellent any-time behavior, but depend critically on the proposal distribution. We propose a simple Monte Carlo based inference method that augments convex variational bounds by adding importance sampling (IS). We argue that convex variational methods naturally provide good IS proposals that "cover" the target probability, and reinterpret the variational optimization as designing a proposal to minimize an upper bound on the variance of our IS estimator. This both provides an accurate estimator and enables construction of any-time probabilistic bounds that improve quickly and directly on state-of-the-art variational bounds, and provide certificates of accuracy given enough samples relative to the error in the initial bound.
+1 Introduction
+Graphical models such as Bayesian networks, Markov random fields and deep generative models provide a powerful framework for reasoning about complex dependency structures over many variables [see e.g., 14, 13]. A fundamental task is to calculate the partition function, or normalization constant. This task is #P-complete in the worst case, but in many practical cases it is possible to find good deterministic or Monte Carlo approximations. The most useful approximations should give not only accurate estimates, but some form of confidence interval, so that for easy problems one has a certificate of accuracy, while harder problems are identified as such. Broadly speaking, approximations fall into two classes: variational optimization, and Monte Carlo sampling.
+Variational inference [29] provides a spectrum of deterministic estimates and upper and lower bounds on the partition function; these include loopy belief propagation (BP), which is often quite accurate; its convex variants, such as tree reweighted BP (TRW-BP), which give upper bounds on the partition function; and mean field type methods that give lower bounds. Unfortunately, these methods often lack useful accuracy assessments; although in principle a pair of upper and lower bounds (such as TRW-BP and mean field) taken together give an interval containing the true solution, the gap is often too large to be practically useful. Also, improving these bounds typically means using larger regions, which quickly runs into memory constraints.
+Monte Carlo methods, often based on some form of importance sampling (IS), can also be used to estimate the partition function [e.g., 15]. In principle, IS provides unbiased estimates, with the potential for a probabilistic bound: a bound which holds with some user-selected probability 1 - . Sampling estimates can also easily trade time for increased accuracy, without using more memory. Unfortunately, choosing the proposal distribution in IS is often both crucial and difficult; if poorly chosen, not only is the estimator high-variance, but the samples' empirical variance estimate is also misleading, resulting in both poor accuracy and poor confidence estimates; see e.g., [35, 1].
+1
+
+We propose a simple algorithm that combines the advantages of variational and Monte Carlo methods. Our result is based on an observation that convex variational methods, including TRW-BP and its generalizations, naturally provide good importance sampling proposals that "cover" the probability of the target distribution; the simplest example is a mixture of spanning trees constructed by TRW-BP. We show that the importance weights of this proposal are uniformly bounded by the convex upper bound itself, which admits a bound on the variance of the estimator, and more importantly, allows the use of exponential concentration inequalities such as the empirical Bernstein inequality to provide explicit confidence intervals. Our method provides several important advantages:
+First, the upper bounds resulting from our sampling approach improve directly on the initial variational upper bound. This allows our bound to start at a state-of-the-art value, and be quickly and easily improved in an any-time, memory efficient way. Additionally, using a two-sided concentration bound provides a "certificate of accuracy" which improves over time at an easily analyzed rate. Our upper bound is significantly better than existing probabilistic upper bounds, while our corresponding lower bound is typically worse with few samples but eventually outperforms state-of-the-art probabilistic bounds [11].
+Our approach also results in improved estimates of the partition function. As in previous work [32, 34, 31], applying importance sampling serves as a "bias correction" to variational approximations. Here, we interpret the variational bound optimization as equivalent to minimizing an upper bound on the IS estimator's variance. Empirically, this translates into estimates that can be significantly more accurate than IS using other variational proposals, such as mean field or belief propagation.
+Related Work. Importance sampling and related approaches have been widely explored in the Bayesian network literature, in which the partition function corresponds to the probability of observed evidence; see e.g., [8, 26, 33, 11] and references therein. Dagum and Luby [4] derive a sample size to ensure a probabilistic bound with given relative accuracy; however, they use the normalized Bayes net distribution as a proposal, leading to prohibitively large numbers of samples when the partition function is small, and making it inapplicable to Markov random fields. Cheng [2] refines this result, including a user-specified bound on the importance weights, but leaves the choice of proposal unspecified.
+Some connections between IS and variational methods are also explored in Yuan and Druzdzel [32, 34], Wexler and Geiger [31], Gogate and Dechter [11], in which proposals are constructed based on loopy BP or mean field methods. While straightforward in principle, we are not aware of any prior work which uses variational upper bounds to construct a proposal, or more importantly, analyzes their properties. An alternative probabilistic upper bound can be constructed using "perturb and MAP" methods [23, 12] combined with recent concentration results [22]; however, in our experiments the resulting bounds were quite loose. Although not directly related to our work, there are also methods that connect variational inference with MCMC [e.g., 25, 6].
+Our work is orthogonal to the line of research on adaptive importance sampling, which refines the proposal as more samples are drawn [e.g., 21, 3]; we focus on developing a good fixed proposal based on variational ideas, and leave adaptive improvement as a possible future direction.
+Outline. We introduce background on graphical models in Section 2. Our main result is presented in Section 3, where we construct a tree reweighted IS proposal, discuss its properties, and propose our probabilistic bounds based on it. We give a simple extension of our method to higher order cliques based on the weighted mini-bucket framework in Section 4. We then show experimental comparisons in Section 5 and conclude with Section 6.
+
+2 Background
+
+2.1 Undirected Probabilistic Graphical Models
+
+Let x = [x1, . . . , xp] be a discrete random vector taking values in X d=ef X1 x * * * x Xp; a probabilistic graphical model on x, in an over-complete exponential family form, is
+
+f (x; )
+
+p(x; ) =
+
+, with f (x; ) = exp
+
+Z ()
+
+(x) , Z() = f (x; ), (1)
+
+I
+
+xX
+
+2
+
+where I = {} is a set of subsets of variable indices, and  : X  R are functions of x; we denote by  = {(x) :   I, x  X} the vector formed by the elements of (*), called the natural parameters. Our goal is to calculate the partition function Z() that normalizes the distribution; we often drop the dependence on  and write p(x) = f (x)/Z for convenience.
+The factorization of p(x; ) can be represented by an undirected graph G = (V, EG), called its Markov graph, where each vertex k  V is associated with a variable xk, and nodes k, l  V are connected (i.e., (kl)  EG) iff there exists some   I that contains both k and l; then, I is a set of cliques of G. A simple special case of (1) is the pairwise model, in which I = V  E:
+
+f (x; ) = exp
+
+k(xk) +
+
+kl(xk, xl) .
+
+iV (kl)EG
+
+(2)
+
+2.2 Monte Carlo Estimation via Importance Sampling
+
+Importance sampling (IS) is at the core of many Monte Carlo methods for estimating the partition
+function. The idea is to take a tractable, normalized distribution q(x), called the proposal, and estimate Z using samples {xi}ni=1  q(x):
+
+Z = 1 n w(xi), n
+i=1
+
+with
+
+w(xi)
+
+=
+
+f (xi) q(xi) ,
+
+where w(x) is called the importance weight. It is easy to show that Z is an unbiased estimator of Z,
+
+in
+
+that
+
+EZ
+
+=
+
+Z,
+
+if
+
+q(x)
+
+>
+
+0
+
+whenever
+
+p(x)
+
+>
+
+0,
+
+and
+
+has
+
+a
+
+MSE
+
+of
+
+E(Z
+
+-
+
+Z )2
+
+=
+
+1 n
+
+var(w(x)).
+
+Unfortunately, the IS estimator often has very high variance if the choice of proposal distribution is very different from the target, especially when the proposal is more peaked or has thinner tails than the target. In these cases, there exist configurations x such that q(x) p(x), giving importance weights w(x) = f (x)/q(x) with extremely large values, but very small probabilities. Due to the low probability of seeing these large weights, a "typical" run of IS often underestimates Z in practice, that is, Z  Z with high probability, despite being unbiased.
+
+Similarly, the empirical variance of {w(xi)} can also severely underestimate the true variance var(w(x)), and so fail to capture the true uncertainty of the estimator. For this reason, concentration inequalities that make use of the empirical variance (see Section 3) also require that w, or its variance, be bounded. It is thus desirable to construct proposals that are similar to, and less peaked than, the target distribution p(x). The key observation of this work is to show that tree reweighted BP and its generalizations provide a easy way to construct such good proposals.
+
+2.3 Tree Reweighted Belief Propagation
+
+Next we describe the tree reweighted (TRW) upper bound on the partition function, restricting to pairwise models (2) for notational ease. In Section 4 we give an extension that includes both more general factor graphs, and more general convex upper bounds.
+
+Let T = {T } be a set of spanning trees T = (V, ET ) of G that covers G: T ET = EG. We assign a set of nonnegative weights {T : T  T } on T such that T T = 1. Let T = {T : T  T } be a set of natural parameters that satisfies T T T = , and each T respects the structure of T (so that kTl(xk, xl)  0 for (kl)  ET ). Define
+
+pT (x)
+
+d=ef
+
+p(x; T )
+
+=
+
+f (x; T ) Z(T ) ,
+
+with
+
+f (x; T ) = exp
+
+kT (xk) +
+
+kTl(xk, xl) ;
+
+kV
+
+(kl)ET
+
+then pT (x) is a tree structured graphical model with Markov graph T . Wainwright et al. [30] use the fact that log Z() is a convex function of  to propose to upper bound log Z() by
+
+log Ztrw(T ) = T log Z(T )  log Z( T T ) = log Z(),
+
+T T
+
+T T
+
+3
+
+via Jensen's inequality. Wainwright et al. [30] find the tightest bound via a convex optimization:
+
+log
+
+Ztrw ()
+
+=
+
+min
+T
+
+log Ztrw(T ),
+
+s.t.
+
+T T =  .
+T
+
+(3)
+
+Wainwright et al. [30] solve this optimization by a tree reweighted belief propagation (TRW-BP)
+algorithm, and note that the optimality condition of (3) is equivalent to enforcing a marginal consistency condition on the trees - a T optimizes (3) if and only if there exists a set of common singleton and pairwise "pseudo-marginals" {bk(xk), bkl(xk, xl)}, corresponding to the fixed point of TRW-BP in Wainwright et al. [30], such that
+
+b(xk, xl) = pT (xk, xl), (kl)  T, and b(xk) = pT (xk), k  V,
+
+where pT (xk) and pT (xk, xl) are the marginals of pT (x). Thus, after running TRW-BP, we can calculate pT (x) via
+
+pT (x)
+
+=
+
+p(x
+
+;
+
+T )
+
+=
+
+kV
+
+bk (xk )
+klET
+
+bkl(xk, xl) . bk (xk )bl (xl )
+
+(4)
+
+Because TRW provides a convex upper bound, it is often well-suited to the inner loop of learning algorithms [e.g., 28]. However, it is often far less accurate than its non-convex counterpart, loopy BP; in some sense, this can be viewed as the cost of being a bound. In the next section, we show that our importance sampling procedure can "de-bias" the TRW bound, to produce an estimator that significantly outperforms loopy BP; in addition, due to the nice properties of our TRW-based proposal, we can use an empirical Bernstein inequality to construct a non-asymptotic confidence interval for our estimator, turning the deterministic TRW bound into a much tighter probabilistic bound.
+
+3 Tree Reweighted Importance Sampling
+
+We propose to use the collection of trees pT (x) and weights T in TRW to form an importance sampling proposal,
+
+q(x; T ) = T pT (x),
+
+(5)
+
+T T
+
+which defines an estimator Z
+
+=
+
+1 n
+
+n i=1
+
+w(xi)
+
+with
+
+xi
+
+drawn
+
+i.i.d.
+
+from
+
+q(x;
+
+T
+
+).
+
+Our
+
+observation
+
+is that this proposal is good due to the special convex construction of TRW. To see this, we note that
+
+the reparameterization constraint T T T =  can be rewritten as
+
+f (x; ) = Ztrw(T )
+
+pT (x) T ,
+
+T
+
+(6)
+
+that is, f (x; ) is the {T }-weighted geometric mean of pT (x) up to a constant Ztrw; on the other hand, q(x; T ), by its definition, is the arithmetic mean of pT (x), and hence will always be larger
+than the geometric mean by the AM-GM inequality, guaranteeing good coverage of the target's probability. To be specific, we have q(x; T ) is always no smaller than f (x; )/Ztrw(T ), and hence the importance weight w(x) is always upper bounded by Ztrw(T ). Note that (5)-(6) immediately implies that q(x; T ) > 0 whenever f (x; ) > 0. We summarize our result as follows.
+
+Proposition 3.1. i) If T T T = , T  0, T T = 1, then the importance weight w(x) = f (x; )/q(x; T ), with q(x; T ) defined in (5), satisfies
+
+w(x)  Ztrw(T ), x  X ,
+
+(7)
+
+that is, the importance weights of (5) are always bounded by the TRW upper bound; this reinterprets the TRW optimization (3) as finding the mixture proposal in (5) that has the smallest upper bound on the importance weights.
+
+ii)
+
+As
+
+a
+
+result,
+
+we
+
+have
+
+max{var(w(x)), var(w(x))}
+
+
+
+1 4
+
+Zt2rw
+
+for
+
+x
+
+
+
+q(x; T
+
+),
+
+where
+
+var(w(x))
+
+is
+
+the
+
+empirical
+
+variance
+
+of
+
+the
+
+weights.
+
+This
+
+implies
+
+that
+
+E(Z
+
+-
+
+Z )2
+
+
+
+1 4n
+
+Zt2rw
+
+.
+
+4
+
+Proof. i) Directly apply AM-GM inequality on (5) and (6). ii) Note that E(w(x)) = Z and hence
+
+var(w(x))
+
+=
+
+E(w(x)2)
+
+- E(w(x))2
+
+
+
+Ztrw Z
+
+- Z2
+
+
+
+1 4
+
+Zt2rw
+
+.
+
+Note that the TRW reparameterization (6) is key to establishing our results. Its advantage is two-fold: First, it provides a simple upper bound on w(x); for an arbitrary q(*), establishing such an upper
+bound may require a difficult combinatorial optimization over x. Second, it enables that bound to be optimized over q(*), resulting in a good proposal.
+
+Empirical Bernstein Confidence Bound. The upper bound of w(x) in Proposition 3.1 allows us to use exponential concentration inequalities and construct tight finite-sample confidence bounds. Based on the empirical Bernstein inequality in Maurer and Pontil [19], we have
+
+Corollary 3.2 (Maurer and Pontil [19]). Let Z be the IS estimator resulting from q(x) in (5). Define
+
+=
+
+2var(w(x)) log(2/) n
+
++
+
+7Ztrw (T 3(n
+
+) log(2/) - 1)
+
+,
+
+(8)
+
+where var(w(x) is the empirical variance of the weights, then Z+ = Z +  and Z- = Z -  are upper and lower bounds of Z with at least probability (1 - ), respectively, that is, Pr(Z  Z+)  1 -  and Pr(Z-  Z)  1 - .
+
+The quantity  is quite intuitive, with the first term proportional to the empirical standard deviation and decaying at the classic 1/ n rate. The second term captures the possibility that the empiri-
+cal variance is inaccurate; it depends on the boundedness of w(x) and decays at rate 1/n. Since var(w) < Zt2rw, the second term typically dominates for small n, and the first term for large n.
+
+When  is large, the lower bound Z -  may be negative; this is most common when n is small and Ztrw is much larger than Z. In this case, we may replace Z- with any deterministic lower bound, or with Z, which is a (1 - ) probabilistic bound by the Markov inequality; see Gogate and Dechter
+[11] for more Markov inequality based lower bounds. However, once n is large enough, we expect Z- should be much tighter than using Markov's inequality, since Z- also leverages boundedness and variance information.1 On the other hand, the Bernstein upper bound Z+ readily gives a good upper bound, and is usually much tighter than Ztrw even with a relatively small n.
+
+For example, if Z Ztrw (e.g., the TRW bound is not tight), our upper bound Z+ improves rapidly
+
+on
+
+Ztrw
+
+at
+
+rate
+
+1/n
+
+and
+
+passes
+
+Ztrw
+
+when
+
+n
+
+
+
+7 3
+
+log(2/)
+
++1
+
+(for
+
+example,
+
+for
+
+
+
+=
+
+0.025
+
+used
+
+in our experiments, we have Z+  Ztrw by n = 12). Meanwhile, one can show that the lower
+
+bound must be non-trivial (Z- > 0) if n > 6(Ztrw/Z) log(2/) + 1. During sampling, we can
+
+roughly estimate the point at which it will become non-trivial, by finding n such that Z  . More
+
+rigorously, one can apply a stopping criterion [e.g., 5, 20] on n to guarantee a relative error with
+
+probability at least 1 - , using the bound on w(x); roughly, the expected number of samples will
+
+depend on Ztrw/Z, the relative accuracy of the variational bound.
+
+4 Weighted Mini-bucket Importance Sampling
+
+We have so far presented our results for tree reweighted BP on pairwise models, which approximates the model using combinations of trees. In this section, we give an extension of our results to general higher order models, and approximations based on combinations of low-treewidth graphs. Our extension is based on the weighted mini-bucket framework [7, 17, 16], but extensions based on other higher order generalizations of TRW, such as Globerson and Jaakkola [9], are also possible. We only sketch the main idea in this section.
+We start by rewriting the distribution using the chain rule along some order o = [x1, . . . , xp],
+
+f (x) = Z p(xk|xpa(k)).
+k
+
+(9)
+
+1The Markov lower bounds by Gogate and Dechter [11] have the undesirable property that they may not become tighter with increasing n, and may even decrease.
+
+5
+
+where pa(k), called the induced parent set of k, is the set of variables adjacent to xk when it is eliminated along order o. The largest parent size  := maxkV |pa(k)| is called the induced width of G along order o, and the computational complexity of exact variable elimination along order o is
+O(exp()), which is intractable when  is large.
+
+Weighted mini-bucket is an approximation method that avoids the O(exp()) complexity by splitting each pa(k) into several smaller "mini-buckets" pa (k), such that  pa (k) = pa(k), where the size of the pa (k) is controlled by a predefined number ibound  |pa (k)|, so that the ibound
+trades off the computational complexity with approximation quality. We associate each pa (k) with
+a nonnegative weight k , such that k = 1. The weighted mini-bucket algorithm in Liu [16] then frames a convex optimization to output an upper bound Zwmb  Z together with a set of "pseudo-" conditional distributions bk (xk|xpa (k)), such that
+
+f (x) = Zwmb
+k
+
+bk (xk|xpa (k))k ,
+
+(10)
+
+which, intuitively speaking, can be treated as approximating each conditional distribution p(xk|xpa(k)) with a geometric mean of the bk (xk|xpa (k)); while we omit the details of weighted mini-bucket [17, 16] for space, what is most important for our purpose is the representation (10).
+
+Similarly to with TRW, we define a proposal distribution by replacing the geometric mean with an arithmetic mean:
+
+q(x) =
+k
+
+k bk (xk|xpa (k)).
+
+(11)
+
+We can again use the AM-GM inequality to obtain a bound on w(x), that w(x)  Zwmb.
+
+Proposition 4.1. Let w(x) = f (x)/q(x), where f (x) and q(x) satisfy (10) and (11), with k = 1, k  0, k, . Then,
+
+w(x)  Zwmb, x  X .
+
+Proof. Use the AM-GM inequality, bk (xk|xpa (k))k  k bk (xk|xpa (k)), for each k.
+Note that the form of q(x) makes it convenient to sample by sequentially drawing each variable xk from the mixture k bk (xk|xpa (k)) along the reverse order [xp, . . . , x1]. The proposal q(x) also can be viewed as a mixture of a large number of models with induced width controlled by ibound; this can be seen by expanding the form in (11),
+
+q(x) =
+
+ 1*** p q 1*** p (x), where  1*** p = k k , q 1*** p (x) = bk k (xk|xpa (k)).
+
+1*** p
+
+kk
+
+5 Experiments
+
+We demonstrate our algorithm using synthetic Ising models, and real-world models from recent UAI inference challenges. We show that our TRW proposal can provide better estimates than other proposals constructed from mean field or loopy BP, particularly when it underestimates the partition function; in this case, the proposal may be too peaked and fail to approach the true value even for extremely large sample sizes n. Using the empirical Bernstein inequality, our TRW proposal also provides strong probabilistic upper and lower bounds. When the model is relatively easy or n is large, our upper and lower bounds are close, demonstrating the estimate has high confidence.
+
+5.1 MRFs on 10 x 10 Grids
+We illustrate our method using pairwise Markov random fields (2) on a 10 x 10 grid. We start with a simple Ising model with k(xk) = sxk and kl(xk, xl) = pxkxl, xk  {-1, 1}, where s represents the external field and p the correlation. We fix s = 0.01 and vary p from -1.5 (strong negative correlation) to 1.5 (strong positive correlation). Different p lead to different inference hardness: inference is easy when the correlation is either very strong (|p| large) or very weak (|p| small), but difficult for an intermediate range of values, corresponding to a phase transition.
+
+6
+
+log Z - log Z
+
+0
+
+-1
+
+-2
+
+IS(TRW) IS(MF)
+
+IS(LBP)
+
+-3 Loopy BP
+
+-1 0 1
+Pairwise Strength p (a) Fixed n = 104
+
+10
+
+TRW/MF IS(TRW)
+
+BIne0tre.nr1vsatelin
+
+5 0
+0
+
+-5 -0.1
+
+-1 0 1
+
+-1 0 1
+
+Pairwise Strength p Pairwise Strength p (b) Fixed n = 104 (c) Fixed n = 107
+
+10 TRW 5 0 LBP
+MF
+-5 IS(TRW)
+Markov (TRW)
+101 103 105 107
+Sample Size n (d) Fixed p = -0.5
+
+Figure 1: Experiments on 10 x 10 Ising models with interaction strength p ranging from strong negative (-1.5) to strong positive (1.5).
+
+We first run the standard variational algorithms, including loopy BP (LBP), tree reweighted BP (TRW), and mean field (MF). We then calculate importance sampling estimators based on each of the three algorithms. The TRW trees are chosen by adding random spanning trees until their union covers the grid; we assign uniform probability T to each tree. The LBP proposal follows Gogate [10], constructing a (randomly selected) tree structured proposal based on the LBP pseudomarginals. The MF proposal is q(x) = kV qk(xk), where the qk(xk) are the mean field beliefs.
+Figure 1(a) shows the result of the IS estimates based on a relatively small number of importance samples (n = 104). In this case the TRW proposal outperforms both the MF and LBP proposals; all the methods degrade when p  .5, corresponding to inherently more difficult inference. However, the TRW proposal converges to the correct values when the correlation is strong (e.g., |p| > 1), while the MF and LBP proposals underestimate the true value, indicating that the MF and LBP proposals are too peaked, and miss a significant amount of probability mass of the target.
+
+Examining the deterministic estimates, we note that the LBP approximation, which can be shown to be a lower bound on these models [27, 24], is also significantly worse than IS with the TRW proposal, and slightly worse than IS based on the LBP proposal. The TRW and MF bounds, of course, are far less accurate compared to either LBP or the IS methods, and are shown separately in Figure 1(b). This suggests it is often beneficial to follow the variational procedure with an importance sampling process, and use the corresponding IS estimators instead of the variational approximations to estimate the partition function.
+
+Figure 1(b) compares the 95% confidence interval of the IS based on the TRW proposal (filled with
+red), with the interval formed by the TRW upper bound and the MF lower bound (filled with green).
+We can see that the Bernstein upper bound is much tighter than the TRW upper bound, although at the cost of turning a deterministic bound into a (1 - ) probabilistic bound. On the other hand, the Bernstein interval fails to report a meaningful lower bound when the model is difficult (p  0.5), because n = 104 is small relative to the difficulty of the model. As shown in Figure 1(c), our method
+eventually produces both tight upper and lower bounds as sample size increases.
+
+Figure 1(d) shows the Bernstein bound as we increase n on a fixed model with p = -0.5, which is relatively difficult according to Figure 1. Of the methods, our IS estimator becomes the most accurate by around n = 103 samples. We also show the Markov lower bound Zmarkov = Z as suggested by Gogate [10]; it provides non-negative lower bounds for all sample sizes, but does not converge to the true value even with n  + (in fact, it converges to Z).
+
+In addition to the simple Ising model, we also tested grid models with normally distributed parameters: k(xk)  N (0, s2) and kl(xk, xl)  N (0, p2). Figure 2 shows the results when s = 0.01 and we vary p. In this case, LBP tends to overestimate the partition function, and IS
+with the LBP proposal performs quite well (similarly to
+our TRW IS); but with the previous example, this illus-
+trates that it is hard to know whether BP will result in a
+high- or low-variance proposal. On this model, mean field
+IS is significantly worse and is not shown in the figure.
+
+log Z - log Z
+
+IS(TRW) Bernstein Loopy BP 0.I2S (BP)
+0.1
+0
+-0.1 0.5 1 1.5 2
+Pairwise Strength p Figure 2: MRF with mixed interactions.
+
+7
+
+log Z - log Z
+
+5
+
+WMB
+
+5
+
+WMB
+
+0 0IS(WMB)
+
+IS(WMB)
+
+-5 -5Markov (WMB)
+
+Markov (WMB)
+
+101 102 103 104 105 Sample Size (n)
+(a) BN 6, ibound = 1
+
+101 102 103 104 105 106 Sample Size (n)
+(b) BN 11, ibound = 1
+
+Figure 3: The Bernstein interval on (a) BN 6 and (b) BN 11 using ibound = 1 and different sample sizes n. These problems are relatively easy for variational approximations; we illustrate that our method gives tight bounds despite using no more memory than the original model.
+
+21
+
+log Z - log Z
+
+00
+
+GBP
+
+GBP
+
+IS(WMB)
+-2 101 102 103 104 105 106 Sample Size (n)
+
+IS(WMB)
+-1 101 102 103 104 105 106 Sample Size (n)
+
+(a) ibound = 8
+
+(b) ibound = 15
+
+Figure 4: Results on a harder instance, pedigree20, at ibound = 8, 15 and different n.
+
+5.2 UAI Instances
+We test the weighted mini-bucket (WMB) version of our algorithm on instances from past UAI approximate inference challenges. For space reasons, we only report a few instances for illustration.
+BN Instances. Figure 3 shows two Bayes net instances, BN 6 (true log Z = -58.41) and BN 11 (true log Z = -39.37). These examples are very easy for loopy BP, which estimates log Z nearly exactly, but of course gives no accuracy guarantees. For comparison, we run our WMB IS estimator using ibound = 1, e.g., cliques equal to the original factors. We find that we get tight confidence intervals by around 104-105 samples. For comparison, the method of Dagum and Luby [4], using the normalized distribution as a proposal, would require samples proportional to 1/Z: approximately 1025 and 1017, respectively.
+Pedigree Instances. We next show results for our method on pedigree20, (log Z = -68.22, induced width  = 21). and various ibounds; Figure 4 shows the results for ibound 8 and 15. For comparision, we also evaluate GBP, defined on a junction graph with cliques found in the same way as WMB [18], and complexity controlled by the same ibound. Again, LBP and GBP generally give accurate estimates; the absolute error of LBP (not shown) is about 0.7, reducing to 0.4 and 0.2 at ibound = 8 and 15, respectively. The initial WMB bounds overestimate by 6.3 and 2.4 at ibound = 8 and 15, and are much less accurate. However, our method surpasses GBP's accuracy with a modest number of samples: for example, with ibound = 15 (Figure 4b), our IS estimator is more accurate than GBP with fewer than 100 samples, and our 95% Bernstein confidence interval passes GBP at roughly 1000 samples.
+6 Conclusion
+We propose a simple approximate inference method that augments convex variational bounds by adding importance sampling. Our formulation allows us to frame the variational optimization as designing a proposal that minimizes an upper bound on our estimator's variance, providing guarantees on the goodness of the resulting proposal. More importantly, this enables the construction of anytime probabilistic bounds that improve quickly and directly on state-of-the-art variational bounds, and provide certificates of accuracy given enough samples, relative to the error in the initial bound. One potential future direction is whether one can adaptively improve the proposal during sampling.
+Acknowledgement This work is supported in part by VITALITE, under the ARO MURI program (Award number W911NF-11-1-0391); NSF grants IIS-1065618 and IIS-1254071; and by the United States Air Force under Contract No. FA8750-14-C-0011 under the DARPA PPAML program.
+
+8
+
+References
+[1] T. Bengtsson, P. Bickel, and B. Li. Curse-of-dimensionality revisited: Collapse of the particle filter in very large scale systems. In Probability and statistics: Essays in honor of David A. Freedman, pages 316-334. Institute of Mathematical Statistics, 2008.
+[2] J. Cheng. Sampling algorithms for estimating the mean of bounded random variables. Computational Statistics, 16(1):1-23, 2001.
+[3] J. Cheng and M. Druzdzel. AIS-BN: An adaptive importance sampling algorithm for evidential reasoning in large Bayesian networks. Journal of Artificial Intelligence Research, 2000.
+[4] P. Dagum and M. Luby. An optimal approximation algorithm for Bayesian inference. Artificial Intelligence, 93(1):1-27, 1997.
+[5] P. Dagum, R. Karp, M. Luby, and S. Ross. An optimal algorithm for Monte Carlo estimation. SIAM Journal on Computing, 29:1484-1496, 2000.
+[6] N. De Freitas, P. Hojen-Sorensen, M. Jordan, and S. Russell. Variational MCMC. In UAI, 2001. [7] R. Dechter and I. Rish. Mini-buckets: A general scheme for bounded inference. Journal of the ACM, 50
+(2):107-153, 2003. [8] R. Fung and K. Chang. Weighing and integrating evidence for stochastic simulation in Bayesian networks.
+In UAI, 1990. [9] A. Globerson and T. Jaakkola. Approximate inference using conditional entropy decompositions. In UAI,
+pages 130-138, 2007. [10] V. Gogate. Sampling Algorithms for Probabilistic Graphical Models with Determinism. PhD thesis, UC
+Irvine, 2009. [11] V. Gogate and R. Dechter. Sampling-based lower bounds for counting queries. Intelligenza Artificiale, 5
+(2):171-188, 2011. [12] T. Hazan and T. Jaakkola. On the partition function and random maximum a-posteriori perturbations. In
+ICML, 2012. [13] D. Koller and N. Friedman. Probabilistic graphical models: principles and techniques. MIT press, 2009. [14] S. Lauritzen. Graphical models. Oxford University Press, 1996. [15] J. Liu. Monte Carlo strategies in scientific computing. Springer Science & Business Media, 2008. [16] Q. Liu. Reasoning and Decisions in Probabilistic Graphical Models-A Unified Framework. PhD thesis,
+UC Irvine, 2014. [17] Q. Liu and A. Ihler. Bounding the partition function using Holder's inequality. In ICML, 2011. [18] R. Mateescu, K. Kask, V. Gogate, and R. Dechter. Join-graph propagation algorithms. JAIR, 37(1):
+279-328, 2010. [19] A. Maurer and M. Pontil. Empirical Bernstein bounds and sample-variance penalization. In COLT, pages
+115-124, 2009. [20] V. Mnih, C. Szepesvari, and J.-Y. Audibert. Empirical Bernstein stopping. In ICML, 2008. [21] M.-S. Oh and J. Berger. Adaptive importance sampling in Monte Carlo integration. J. Stat. Comput.
+Simul., 41(3-4):143-168, 1992. [22] F. Orabona, T. Hazan, A. Sarwate, and T. Jaakkola. On measure concentration of random maximum
+a-posteriori perturbations. In ICML, 2014. [23] G. Papandreou and A. Yuille. Perturb-and-map random fields: Using discrete optimization to learn and
+sample from energy models. In ICCV, 2011. [24] N. Ruozzi. The bethe partition function of log-supermodular graphical models. In NIPS, 2012. [25] T. Salimans, D. Kingma, and M. Welling. Markov chain Monte Carlo and variational inference: Bridging
+the gap. In ICML, 2015. [26] R. Shachter and M. Peot. Simulation approaches to general probabilistic inference on belief networks. In
+UAI, 1990. [27] E. Sudderth, M. Wainwright, and A. Willsky. Loop series and bethe variational bounds in attractive
+graphical models. In NIPS, pages 1425-1432, 2007. [28] M. Wainwright. Estimating the wrong graphical model: Benefits in the computation-limited setting.
+JMLR, 7:1829-1859, 2006. [29] M. Wainwright and M. Jordan. Graphical models, exponential families, and variational inference. Foun-
+dations and Trends in Machine Learning, 1(1-2):1-305, 2008. [30] M. Wainwright, T. Jaakkola, and A. Willsky. A new class of upper bounds on the log partition function.
+IEEE Trans. Information Theory, 51(7):2313-2335, 2005. [31] Y. Wexler and D. Geiger. Importance sampling via variational optimization. In UAI, 2007. [32] C. Yuan and M. Druzdzel. An importance sampling algorithm based on evidence pre-propagation. In
+UAI, pages 624-631, 2002. [33] C. Yuan and M. Druzdzel. Importance sampling algorithms for Bayesian networks: Principles and per-
+formance. Mathematical and Computer Modeling, 43(9):1189-1207, 2006. [34] C. Yuan and M. Druzdzel. Generalized evidence pre-propagated importance sampling for hybrid Bayesian
+networks. In AAAI, volume 7, pages 1296-1302, 2007. [35] C. Yuan and M. Druzdzel. Theoretical analysis and practical insights on importance sampling in Bayesian
+networks. International Journal of Approximate Reasoning, 46(2):320-333, 2007.
+9
+

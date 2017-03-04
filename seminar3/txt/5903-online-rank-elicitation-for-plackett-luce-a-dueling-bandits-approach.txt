@@ -1,0 +1,795 @@
+Online Rank Elicitation for Plackett-Luce: A Dueling Bandits Approach
+
+Balazs Szorenyi Technion, Haifa, Israel / MTA-SZTE Research Group on Artificial Intelligence, Hungary szorenyibalazs@gmail.com
+
+Robert Busa-Fekete, Adil Paul, Eyke Hu llermeier Department of Computer Science University of Paderborn Paderborn, Germany
+{busarobi,adil.paul,eyke}@upb.de
+
+Abstract
+
+We study the problem of online rank elicitation, assuming that rankings of a set of alternatives obey the Plackett-Luce distribution. Following the setting of the dueling bandits problem, the learner is allowed to query pairwise comparisons between alternatives, i.e., to sample pairwise marginals of the distribution in an online fashion. Using this information, the learner seeks to reliably predict the most probable ranking (or top-alternative). Our approach is based on constructing a surrogate probability distribution over rankings based on a sorting procedure, for which the pairwise marginals provably coincide with the marginals of the PlackettLuce distribution. In addition to a formal performance and complexity analysis, we present first experimental studies.
+1 Introduction
+Several variants of learning-to-rank problems have recently been studied in an online setting, with preferences over alternatives given in the form of stochastic pairwise comparisons [6]. Typically, the learner is allowed to select (presumably most informative) alternatives in an active way--making a connection to multi-armed bandits, where single alternatives are chosen instead of pairs, this is also referred to as the dueling bandits problem [28]. Methods for online ranking can mainly be distinguished with regard to the assumptions they make about the probabilities pi,j that, in a direct comparison between two alternatives i and j, the former is preferred over the latter. If these probabilities are not constrained at all, a complexity that grows quadratically in the number M of alternatives is essentially unavoidable [27, 8, 9]. Yet, by exploiting (stochastic) transitivity properties, which are quite natural in a ranking context, it is possible to devise algorithms with better performance guaranties, typically of the order M log M [29, 28, 7]. The idea of exploiting transitivity in preference-based online learning establishes a natural connection to sorting algorithms. Naively, for example, one could simply apply an efficient sorting algorithm such as MergeSort as an active sampling scheme, thereby producing a random order of the alternatives. What can we say about the optimality of such an order? The problem is that the probability distribution (on rankings) induced by the sorting algorithm may not be well attuned with the original preference relation (i.e., the probabilities pi,j). In this paper, we will therefore combine a sorting algorithm, namely QuickSort [15], and a stochastic preference model that harmonize well with each other--in a technical sense to be detailed later on. This harmony was first presented in [1], and our main contribution is to show how it can be exploited for online rank elicitation. More specifically, we assume that pairwise comparisons obey the marginals of a Plackett-Luce model [24, 19], a widely used parametric distribution over rankings (cf. Section 5). Despite the quadratic worst case complexity of QuickSort, we succeed in developing its budgeted version (presented in Section 6) with a complexity of O(M log M ). While only returning partial orderings, this version allows us to devise PAC-style algorithms that find, respectively, a close-to-optimal item (Section 7) and a close-to-optimal ranking of all items (Section 8), both with high probability.
+
+1
+
+2 Related Work
+
+Several studies have recently focused on preference-based versions of the multi-armed bandit setup, also known as dueling bandits [28, 6, 30], where the online learner is only able to compare arms in a pairwise manner. The outcome of the pairwise comparisons essentially informs the learner about pairwise preferences, i.e., whether or not an option is preferred to another one. A first group of papers, including [28, 29], assumes the probability distributions of pairwise comparisons to possess certain regularity property, such as strong stochastic transitivity. A second group does not make assumptions of that kind; instead, a target ("ground-truth") ranking is derived from the pairwise preferences, for example using the Copeland, Borda count and Random Walk procedures [9, 8, 27]. Our work is obviously closer to the first group of methods. In particular, the study presented in this paper is related to [7] which investigates a similar setup for the Mallows model.
+
+There are several approaches to estimating the parameters of the Plackett-Luce (PL) model, including standard statistical methods such as likelihood estimation [17] and Bayesian parameter estimation [14]. Pairwise marginals are also used in [26], in connection with the method-of-moments approach; nevertheless, the authors assume that full rankings are observed from a PL model.
+
+Algorithms for noisy sorting [2, 3, 12] assume a total order over the items, and that the comparisons are representative of that order (if i precedes j, then the probability of option i being preferred to j is bigger than some > 1/2). In [25], the data is assumed to consist of pairwise comparisons generated by a Bradley-Terry model, however, comparisons are not chosen actively but according to some fixed probability distribution.
+
+Pure exploration algorithms for the stochastic multi-armed bandit problem sample the arms a certain number of times (not necessarily known in advance), and then output a recommendation, such as the best arm or the m best arms [4, 11, 5, 13]. While our algorithms can be viewed as pure exploration strategies, too, we do not assume that numerical feedback can be generated for individual options; instead, our feedback is qualitative and refers to pairs of options.
+
+3 Notation
+
+A set of alternatives/options/items to be ranked is denoted by I. To keep the presentation simple, we assume that items are identified by natural numbers, so I = [M ] = {1, . . . , M }. A ranking is a bijection r on I, which can also be represented as a vector r = (r1, . . . , rM ) = (r(1), . . . , r(M )), where rj = r(j) is the rank of the jth item. The set of rankings can be identified with the symmetric group SM of order M . Each ranking r naturally defines an associated ordering o = (o1, . . . , oM ) 2 SM of the items, namely the inverse o = r 1 defined by or(j) = j for all j 2 [M ].
+
+For a permutation r, we write r(i, j) for the permutation in which ri and rj, the ranks of items i and j, are replaced with each other. We denote by L(ri = j) = {r 2 SM | ri = j} the subset of permutations for which the rank of item i is j, and by L(rj > ri) = {r 2 SM | rj > ri} those for which the rank of j is higher than the rank of i, that is, item i is preferred to j, written i j. We write i r j to indicate that i is preferred to j with respect to ranking r.
+
+We assume SM to be equipped with a probability distribution P : SM ! [0, 1]; thus, for each ranking r, we denote by P(r) the probability to observe this ranking. Moreover, for each pair of
+
+items i and j, we denote by
+
+X
+
+pi,j = P(i j) =
+
+P(r)
+
+(1)
+
+r2L(rj >ri)
+
+the probability that i is preferred to j (in a ranking randomly drawn according to P). These pairwise probabilities are called the pairwise marginals of the ranking distribution P. We denote the matrix composed of the values pi,j by P = [pi,j ]1i,jM .
+
+4 Preference-based Approximations
+
+Our learning problem essentially consists of making good predictions about properties of P. Concretely, we consider two different goals of the learner, depending on whether the application calls for the prediction of a single item or a full ranking of items:
+
+In the first problem, which we call PAC-Item or simply PACI, the goal is to find an item that is almost as good as the optimal one, with optimality referring to the Condorcet winner. An item i is
+
+2
+
+a Condorcet winner if pi,i > 1/2 for all i 6= i. Then, we call an item j a PAC-item, if it is beaten by the Condorcet winner with at most an -margin: |pi,j 1/2| < . This setting coincides with those considered in [29, 28]. Obviously, it requires the existence of a Condorcet winner, which is indeed guaranteed in our approach, thanks to the assumption of a Plackett-Luce model.
+
+The second problem, called AMPR, is defined as finding the most probable ranking [7], that is,
+
+rthe=oradregrmofatxwr2oSiMtemPs(ri)s.hTahrdistporeolbicleitm(biseceasupseecimalalynycheanltlreinegs ionfgPfoarrreanckloinseg
+
+distributions for which to 1/2). Therefore, we
+
+again relax the goal of the learner and only require it to find a ranking r with the following property:
+
+There is no pair of words, the ranking
+
+items 1  i, j r is allowed to
+
+M differ
+
+,frsoumchrthoatnlryi
+
+< for
+
+trhjo,sreiit>emrsj
+
+and pi,j > 1/2 + . Put in whose pairwise probabilities
+
+are close to 1/2. Any ranking r satisfying this property is called an approximately most probable
+
+ranking (AMPR).
+
+Both goals are meant to be achieved with probability at least 1 , for some > 0. Our learner operates in an online setting. In each iteration, it is allowed to gather information by asking for a single pairwise comparison between two items--or, using the dueling bandits jargon, to pull two arms. Thus, it selects two items i and j, and then observes either preference i j or j i; the former occurs with probability pi,j as defined in (1), the latter with probability pj,i = 1 pi,j. Based on this observation, the learner updates its estimates and decides either to continue the learning process or to terminate and return its prediction. What we are mainly interested in is the sample complexity of the learner, that is, the number of pairwise comparisons it queries prior to termination.
+
+Before tackling the problems introduced above, we need some additional notation. The pair of items
+
+chosen by the learner in the t-th comparison is denoted (it, jt), where it < jt, and the feedback
+
+received is defined as ot = 1 if it jt and ot = 0 if jt it. The set of steps among the
+
+first t iterations in which the learner decides to compare items i and j is denoted by Iit,j = { 2
+
+[t] | (i, j) = i against item
+
+(i, j)}, j up to
+
+and the size of this iteration t is then
+
+set by nti,j = given by pbit,j
+
+=#Init,1tij,j.1PTh2eIitp,jroop.orStiionnceofo"uwr isnasm"polfesiteamre
+
+independent the pairwise
+
+and identically distributed probability (1).
+
+(i.i.d.),
+
+the
+
+relative
+
+frequency
+
+pbit,j
+
+is
+
+a
+
+reasonable
+
+estimate
+
+of
+
+5 The Plackett-Luce Model
+
+The Plackett-Luce (PL) model is a widely-used probability distribution on rankings [24, 19]. It is
+
+parameterized by a "skill" vector v = (v1, of a ranking by selecting items position by
+
+. . . , vM ) position,
+
+e2acRhM+timanedchmoiomsiincsg
+
+the successive construction one of the remaining items
+
+i with a probability proportional to its skill vi. Thus, with o = r 1, the probability of a ranking r is
+
+P(r |
+
+v)
+
+=
+
+YM
+i=1
+
+voi
+
++
+
+voi voi+1 +
+
+*
+
+**
+
++
+
+voM
+
+.
+
+(2)
+
+As an appealing property of the PL model, we note that the marginal probabilities (1) are very easy to calculate [21], as they are simply given by
+
+pi,j
+
+=
+
+vi
+
+vi + vj
+
+.
+
+(3)
+
+Likewise, the most probable ranking r can be obtained quite easily, simply by sorting the items according to their skill parameters, that is, ri < rj iff vi > vj. Moreover, the PL model satisfies strong stochastic transitivity, i.e., pi,k max(pi,j, pj,k) whenever pi,j 1/2 and pj,k 1/2 [18].
+
+6 Ranking Distributions based on Sorting
+
+In the classical sorting literature, the outcome of pairwise comparisons is deterministic and determined by an underlying total order of the items, namely the order the sorting algorithm seeks to find. Now, if the pairwise comparisons are stochastic, the sorting algorithm can still be run, however, the result it will return is a random ranking. Interestingly, this is another way to define a probability distribution over the rankings: P(r) = P(r | P) is the probability that r is returned by the algorithm if
+
+1We omit the index t if there is no danger of confusion.
+
+3
+
+stochastic comparisons are specified by P. Obviously, this view is closely connected to the problem of noisy sorting (see the related work section).
+
+In a recent work by Ailon [1], the well-known QuickSort algorithm is investigated in a stochastic setting, where the pairwise comparisons are drawn from the pairwise marginals of the Plackett-Luce model. Several interesting properties are shown about the ranking distribution based on QuickSort, notably the property of pairwise stability. We denote the QuickSort-based ranking distribution by PQS(* | P), where the matrix P contains the marginals (3) of the Plackett-Luce model. Then, it can be shown that PQS(* | P) obeys the property of pairwise stability, which means that it preserves the marginals, although the distributions themselves might not be identical, i.e., PQS(* | P) 6= P(* | v).
+
+Theorem 1 (Theorem 4.1 vj ). Then, pi,j = PQS(i
+
+in [1]). j | P)
+
+=LePt Pr2bLe(grjiv>erni)bPyQthSe(rpa| iPrw).ise
+
+marginals
+
+(3),
+
+i.e.,
+
+pi,j
+
+=
+
+vi/(vi +
+
+One drawback of the QuickSort algorithm is its complexity: To generate a random ranking, it compares O(M 2) items in the worst case. Next, we shall introduce a budgeted version of the QuickSort algorithm, which terminates if the algorithm compares too many pairs, namely, more than O(M log M ). Upon termination, the modified Quicksort algorithm only returns a partial order. Nevertheless, we will show that it still preserves the pairwise stability property.
+
+6.1 The Budgeted QuickSort-based Algorithm
+
+Algorithm 1 shows a budgeted version of the QuickSort-based random ranking generation
+
+Algorithm 1 BQS(A, B)
+
+process described in the previous section. It Require: A, the set to be sorted, and a budget B
+
+works in a way quite similar to the standard Ensure: (r, B00), where B00 is the remaining bud-
+
+QuickSort-based algorithm, with the notable get, and r is the (partial) order that was con-
+
+difference of terminating as soon as the number structed based on B B00 samples
+
+of pairwise comparisons exceeds the budget B, 1: Initialize r to be the empty partial order over A
+
+which is a parameter assumed as an input. Ob- 2: if B  0 or |A|  1 then return (r, 0)
+
+viously, the BQS algorithm run with A = [M ] and B = 1 (or B > M 2) recovers the original QuickSort-based sampling algorithm as a special case.
+
+3: pick an element i 2 A uniformly at random 4: for all j 2 A \ {i} do 5: draw a random sample oij according to the
+PL marginal (3)
+
+A run of BQS(A, 1) can be represented quite 6: update r accordingly
+
+naturally as a random tree  : the root is labeled 7: A0 = {j 2 A | j 6= i & oi,j = 0}
+
+[M ], end whenever a call to BQS(A, B) initi- 8: A1 = {j 2 A | j 6= i & oi,j = 1} ates a recursive call BQS(A0, B0), a child node 9: (r0, B0) = BQS(A0, B |A| + 1) with label A0 is added to the node with label A. 10: (r00, B00) = BQS(A1, B0) Note that each such tree determines a ranking, 11: update r based on r0 and r00
+
+which is denoted by r , in a natural way.
+
+12: return (r, B00)
+
+The random ranking generated by BQS(A, 1) for some subset A  [M ] was analyzed by Ailon [1], who showed that it gives back the same marginals as the original Plackett-Luce model (as recalled in Theorem 1). Now, for B > 0, denote by  B the tree the algorithm would have returned for the budget B instead of 1. 2 Additionally, let T B denote the set of all possible outcomes of  B, and for two distinct indices i and j, let TiB,j denote the set of all trees T 2 T B in which i and j are incomparable in the associated ranking (i.e., some leaf of T is labelled by a superset of {i, j}).
+
+The main result of this section is that BQS does not introduce any bias in the marginals (3), i.e., Theorem 1 also holds for the budgeted version of BQS.
+
+Proposition 2. For any B > 0, any set A  I and any indices i, j 2 A, the partial order r = rB
+
+generated by BQS(A, B) satisfies P(i
+
+r
+
+j |B
+
+2
+
+T
+
+B
+
+\ TiB,j )
+
+=
+
+.vi
+vi +vj
+
+That is, whenever two items i and j are comparable by the partial ranking r generated by BQS,
+
+ir show
+
+j with probability that, conditioned
+
+oenxatchtelyevveiv+nitvjth. aTt hieabnadsjic
+
+idea of the proof are incomparable
+
+(deferred by r, i
+
+to
+r
+
+the appendix) j would have
+
+is to been
+
+2Put differently,  is obtained from  B by continuing the execution of BQS ignoring the stopping criterion B  0.
+
+4
+
+orebstualitntehdenwfitohllpowrosbabbyilciotymvbiiv+niivnjginthcisasweitehxeTchuetoiorenmof1B. QS had been continued (see Claim 6). The
+
+7 The PAC-Item Problem and its Analysis
+
+Our algorithm for finding the PAC item is based on the sorting-based sampling tech-
+
+Algorithm 2 PLPAC( , )
+
+nique described in the previous section. The 1: for i, j = 1 ! M do
+
+. Initialization
+
+pseudocode of the algorithm, called PLPAC, is shown in Algorithm 2. In each iteration, we generate a ranking, which is partial (line
+
+2: 3:
+
+pbi,j = 0 ni,j = 0
+
+. Pb = [pbi,j ]MM . Nb = [ni,j ]MM
+
+6), and translate this ranking into pairwise 4: Set A = {1, . . . , M }
+
+comparisons that are used to update the es- 5: repeat
+
+timates of the pairwise marginals. Based on 6: r = BQS(A, a 1) where a = #A
+
+.
+
+these estimates, we apply a simple elimina- Sorting based random ranking
+
+tion strategy, which consists of eliminating an 7: update the entries of Pb and N correspond-
+
+item i if it is significantly beaten by another item j, that is, pbi,j + ci,j < 1/2 (lines 9- 11). Finally, the algorithm terminates when it finds a PAC-item for which, by definition, |pi,i 1/2| < . To identify an item i as a PAC-item, it is enough to guarantee that i is not beaten by any j 2 A with a margin bigger than , that is, pi,j > 1/2  for all j 2 A. This sufficient condition is implemented in line 12. Since we only have empirical estimates of the pi,j values, the test of the
+
+ing to A basedron r
+
+8:
+
+set ci,j =
+
+1 2ni,j
+
+log
+
+4M 2n2i,j
+
+for all i 6= j
+
+9: for (i, j 2 A) ^ (i 6= j) do
+
+10: if pbi,j + ci,j < 1/2 then
+
+11: A = A \ {i}
+
+. Discard
+
+12: C = {i 2 A | (8j 2 A \ {i})
+
+13: until (#C 1)
+
+pbi,j ci,j > 1/2
+
+14: return C
+
+}
+
+condition does of course also take the confidence intervals into account.
+
+Note that vi = vj, i 6= j, implies pi,j = 1/2. In this case, it is not possible to decide whether pi,j is above 1/2 or not on the basis of a finite number of pairwise comparisons. The -relaxation of the goal to be achieved provides a convenient way to circumvent this problem.
+
+7.1 Sample Complexity Analysis of PLPAC First, let rt denote the (partial) ordering produced by BQS in the t-th iteration. Note that each of these (partial) orderings defines a bucket order: The indices are partitioned into different classes (buckets) in such a way that none of the pairs are comparable within one class, but pairs from different classes are; thus, if i and i0 belong to some class and j and j0 belong to some other class, then either i rt j and i0 rt j0, or j rt i and j0 rt i0. More specifically, the BQS algorithm with budget a 1 (line 6) always results in a bucket order containing only two buckets since no recursive call is carried out with this budget. Then one might show that the optimal arm i and an arbitrary arm i(6= i) fall into different buckets "often enough". This observation allows us to upper-bound the number of pairwise comparisons taken by PLPAC with high probability. The proof of the next theorem is deferred to Appendix B.
+
+Theorem 3. Set
+
+i = (1/2) max{, pi,i
+
+1/2}
+
+=
+
+(1/2)
+
+max{,
+
+vi 2(vi
+
+vi +vi )
+
+}
+
+for
+
+each
+
+index
+
+i
+
+6=
+
+i.
+
+With probability at least 1 1, PLPAC terminates and
+
+, after O
+
+maxi6=i
+
+1
+2
+
+outputs an -optimal armi.
+
+log M calls for BQS with budget M i Therefore, the total number of samples
+
+is
+
+O
+
+M maxi6=i
+
+1
+2
+
+log
+
+i
+
+M
+i
+
+.
+
+In Theorem 3, the dependence on M is of order M log M . It is easy to show that (M log M ) is a lower bound, therefore our result is optimal from this point of view. Our model assumptions based on the PL model imply some regularity properties for the pairwise marginals, such as strong stochastic transitivity and stochastic triangle inequality (see Appendix A of [28] for the proof). Therefore, the INTERLEAVED FILTER [28] and BEAT THE MEAN [29] algorithms can be directly applied in our online framework. Both algorithms achieve a similar sample complexity of order M log M . Yet, our experimental study in Section 9.1 clearly shows that, provided our model assumptions on pairwise marginals are valid, PLPAC outperforms both algorithms in terms of empirical sample complexity.
+
+5
+
+8 The AMPR Problem and its Analysis
+
+For strictly more than two elements, the sorting-based surrogate distribution and the PL distribution are in general not identical, although their mode rankings coincide [1]. The mode r of a PL model is the ranking that sorts the items in decreasing order of their skill values: ri < rj iff vi > vj for any i 6= j. Moreover, since vi > vj implies pi,j > 1/2, sorting based on the Copeland score bi = #{1  j  M | (i 6= j) ^ (pi,j > 1/2)} yields a most probable ranking r.
+
+Our algorithm is based on estimating the Copeland score of the items. Its pseudo-code is shown in
+
+Algorithm 3 in Appendix C. As a first step, it generates rankings based on sorting, which is used to
+
+ufisoprtdheaeatecnhuthmoefbptehareiorswfciiotsreeemspsbroit.hbaTatbhaielrieltoybweeesarttiebmnoabutynesditPibesm.gTiivhbeenansa,esditboicno=mth#peu{ctjuesr2raen[lMtoew]me\rp{iair}nicd|apbluiep,jspteimrcba>oteus1no/df2b}pi,aawirnwhdiicsbhei
+
+marginals. Similarly, the upper bound is given as [pbi,j c, pbi,j + c]}. Obviously, si is the number
+
+bi of
+
+=pabiris+fosri,wwhhicehre,
+
+si = #{j 2 based on the
+
+[M ] \ {i} | 1/2 2 current empirical
+
+estimates, it cannot be decided whether pi,j is above or below 1/2.
+
+As an important observation, note that there is no need to generate a full ranking based on sorting in every case, because if [bi, bi] \ [bj, bj] = ;, then we already know the order of items i and j with respect to r. Motivated by this observation, consider the interval graph G = ([M ], E) based on the
+[bi, bi], where E = {(i, j) 2 [M ]2 | [bi, bi] \ [bj, bj] 6= ;}. Denote the connected components of this graph by C1, . . . , Ck  [M ]. Obviously, if two items belong to different components, then they do not need to be compared anymore. Therefore, it is enough to call the sorting-based sampling with the connected components.
+
+Finally, the algorithm terminates if the goal is achieved (line 20). More specifically, it terminates if there is no pair of items i and j, for which the ordering with respect to r is not elicited yet, i.e., [bi, bi] \ [bj, bj] 6= ;, and their pairwise probabilities is close to 1/2, i.e., |pi,j 1/2| < .
+
+8.1 Sample Complexity Analysis of PLPAC-AMPR
+
+Denote by qM the expected number of comparisons of the (standard) QuickSort algorithm on M elements, namely, qM = 2M log M + O(log M ) (see e.g., [22]). Thanks to the concentration property of the performance of the QuickSort algorithm, there is no pair of items that falls into the same bucket "too often" in bucket order which is output by BQS. This observation allows us to upper-bound the number of pairwise comparisons taken by PLPAC-AMPR with high probability. The proof of the next theorem is deferred to Appendix D.
+
+Theorem 4. Set
+
+0 (i)
+
+=
+
+(1/2)
+
+max{,
+
+}v(i+1) v(i)
+2(v(i+1) +v(i) )
+
+for
+
+each
+
+1
+
+ i
+
+
+
+M,
+
+where
+
+v(i)
+
+denotes
+
+the
+
+i-
+
+th largest skill parameter. With probability at least 1
+
+, after O
+
+max1iM
+
+1(
+
+1
+
+0 (i)
+
+)2
+
+log
+
+M
+0 (i)
+
+calls
+
+for
+
+BQS
+
+with
+
+budget
+
+3 2
+
+qM
+
+,
+
+the
+
+algorithm
+
+PLPAC
+
+terminates
+
+and
+
+outputs
+
+an
+
+-optimal
+
+arm.
+
+Therefore, the total number of samples is O
+
+(M log M ) max1iM
+
+1(
+
+1
+
+0 (i)
+
+)2
+
+log
+
+M
+0 (i)
+
+.
+
+Remark 5. The RankCentrality algorithm proposed in [23] converts the empirical pairwise marginals Pb into a row-stochastic matrix Qb . Then, considering Qb as a transition matrix of a Markov chain, it ranks the items based on its stationary distribution. In [25], the authors show that if the pairwise marginals obey a PL distribution, this algorithm produces the mode of this distribution if the sample size is sufficiently large. In their setup, the learning algorithm has no influence on the selection of pairs to be compared; instead, comparisons are sampled using a fixed underlying distribution over the pairs. For any sampling distribution, their PAC bound is of order at least M 3, whereas our sample complexity bound in Theorem 4 is of order M log2 M .
+
+9 Experiments
+Our approach strongly exploits the assumption of a data generating process that can be modeled by means of a PL distribution. The experimental studies presented in this section are mainly aimed at showing that it is doing so successfully, namely, that it has advantages compared to other approaches in situations where this model assumption is indeed valid. To this end, we work with synthetic data.
+
+6
+
+Nevertheless, in order to get an idea of the robustness of our algorithm toward violation of the model assumptions, some first experiments on real data are presented in Appendix I.3
+9.1 The PAC-Item Problem We compared our PLPAC algorithm with other preference-based algorithms applicable in our setting, namely INTERLEAVED FILTER (IF) [28], BEAT THE MEAN (BTM) [29] and MALLOWSMPI [7]. While each of these algorithms follows a successive elimination strategy and discards items one by one, they differ with regard to the sampling strategy they follow. Since the time horizon must be given in advance for IF, we run it with T 2 {100, 1000, 10000}, subsequently referred to as IF(T ). The BTM algorithm can be accommodated into our setup as is (see Algorithm 3 in [29]). The MALLOWSMPI algorithm assumes a Mallows model [20] instead of PL as an underlying probability distribution over rankings, and it seeks to find the Condorcet winner--it can be applied in our setting, too, since a Condorcet winner does exist for PL. Since the baseline methods are not able to handle -approximation except the BTM, we run our algorithm with  = 0 (and made sure that vi 6= vj for all 1  i 6= j  M ).
+
+Sample complexity Sample complexity Sample complexity
+
+6 #104
+
+PLPAC
+
+IF(100) 5 IF(1000)
+
+IF(10000)
+
+4
+
+BTM MallowsMPI
+
+3
+
+2
+
+1
+
+0 5
+
+10
+
+Number of arms
+
+(a) c = 0
+
+15
+
+7 #104
+
+PLPAC
+
+6
+
+IF(100) IF(1000)
+
+IF(10000) 5 BTM
+
+MallowsMPI
+
+4
+
+3
+
+2
+
+1
+
+0 5
+
+10
+
+Number of arms
+
+(b) c = 2
+
+15
+
+18 #104
+
+PLPAC 16 IF(100)
+
+IF(1000) 14 IF(10000)
+
+12
+
+BTM MallowsMPI
+
+10
+
+8
+
+6
+
+4
+
+2
+
+0 5
+
+10
+
+Number of arms
+
+(c) c = 5
+
+15
+
+Figure 1: The sample complexity for M = {5, 10, 15}, = 0.1,  = 0. The results are averaged over 100 repetitions.
+
+We tested the learning algorithm by setting the parameters of PL to vi = 1/(c + i) with c = {0, 1, 2, 3, 5}. The parameter c controls the complexity of the rank elicitation task, since the gaps
+
+between pairwise probabilities and 1/2 to zero as c ! 1. We evaluated the
+
+are of the form |pi,j
+
+1/2|
+
+=
+
+|
+
+1 2
+
+algorithm on this test case with
+
+1
+va1r+yjii+n+cgc
+
+|, which converges numbers of items
+
+M = {5, 10, 15} and with various values of parameter c, and plotted the sample complexities, that
+
+is, the number of pairwise comparisons taken by the algorithms prior to termination. The results
+
+are shown in Figure 1 (only for c = {0, 2, 5}, the rest of the plots are deferred to Appendix E). As
+
+can be seen, the PLPAC algorithm significantly outperforms the baseline methods if the pairwise
+
+comparisons match with the model assumption, namely, they are drawn from the marginals of a PL
+
+distribution. MALLOWSMPI achieves a performance that is slightly worse than PLPAC for M = 5,
+
+and its performance is among the worst ones for M = 15. This can be explained by the elimination
+
+strategy of MALLOWSMPI, which heavily relies on the existence of a gap mini6=j |pi,j 1/2| > 0 between all pairwise probabilities and 1/2; in our test case, the minimal gap pM,M 1 1/2 =
+
+1 2 1/(c+M )
+
+1/2 > 0 is getting smaller with increasing M and c . The poor performance of BTM
+
+for large c and M can be explained by the same argument.
+
+9.2 The AMPR Problem Since the RankCentrality algorithm produces the most probable ranking if the pairwise marginals obey a PL distribution and the sample size is sufficiently large (cf. Remark 5), it was taken as a baseline. Using the same test case as before, input data of various size was generated for RankCentrality based on uniform sampling of pairs to be compared. Its performance is shown by the black lines in Figure 2 (the results for c = {1, 3, 4} are again deferred to Appendix F). The accuracy in a single run of the algorithm is 1 if the output of RankCentrality is identical with the most probable ranking, and 0 otherwise; this accuracy was averaged over 100 runs.
+
+3In addition, we conducted some experiments to asses the impact of parameter  and to test our algorithms based on Clopper-Pearson confidence intervals. These experiments are deferred to Appendix H and G due to lack of space.
+
+7
+
+Optimal recovery fraction Optimal recovery fraction Optimal recovery fraction
+
+1 0.8 0.6 0.4 0.2
+0 102
+
+RankCentrality (M=5) RankCentrality (M=10) RankCentrality (M=15) PLPAC-AMPR (M=5) PLPAC-AMPR (M=10) PLPAC-AMPR (M=15)
+
+104
+Sample size
+
+106
+
+(a) c = 0
+
+1 0.8 0.6 0.4 0.2
+0 102
+
+RankCentrality (M=5) RankCentrality (M=10) RankCentrality (M=15) PLPAC-AMPR (M=5) PLPAC-AMPR (M=10) PLPAC-AMPR (M=15)
+
+104
+Sample size
+
+106
+
+(b) c = 2
+
+1 0.8 0.6 0.4 0.2
+0 102
+
+RankCentrality (M=5) RankCentrality (M=10) RankCentrality (M=15) PLPAC-AMPR (M=5) PLPAC-AMPR (M=10) PLPAC-AMPR (M=15)
+
+104
+Sample size
+
+106
+
+(c) c = 5
+
+Figure 2: Sample complexity for finding the approximately most probable ranking (AMPR) with parameters M 2 {5, 10, 15}, = 0.05,  = 0. The results are averaged over 100 repetitions.
+
+We also run our PLPAC-AMPR algorithm and determined the number of pairwise comparisons it takes prior to termination. The horizontal lines in Figure 2 show the empirical sample complexity achieved by PLPAC-AMPR with  = 0. In accordance with Theorem 4, the accuracy of PLPACAMPR was always significantly higher than 1 (actually equal to 1 in almost every case). As can be seen, RankCentrality slightly outperforms PLPAC-AMPR in terms of sample complexity, that is, it achieves an accuracy of 1 for a smaller number of pairwise comparisons. Keep in mind, however, that PLPAC-AMPR only terminates when its output is correct with probability at least 1 . Moreover, it computes the confidence intervals for the statistics it uses based on the ChernoffHoeffding bound, which is known to be very conservative. As opposed to this, RankCentrality is an offline algorithm without any performance guarantee if the sample size in not sufficiently large (see Remark 5). Therefore, it is not surprising that, asymptotically, its empirical sample complexity shows a better behavior than the complexity of our online learner. As a final remark, ranking distributions can principally be defined based on any sorting algorithm, for example MergeSort. However, to the best of our knowledge, pairwise stability has not yet been shown for any sorting algorithm other than QuickSort. We empirically tested the MergeSort algorithm in our experimental study, simply by using it in place of budgeted QuickSort in the PLPAC-AMPR algorithm. We found MergeSort inappropriate for the PL model, since the accuracy of PLPAC-AMPR, when being used with MergeSort instead of QuickSort, drastically drops on complex tasks; for details, see Appendix J. The question of pairwise stability of different sorting algorithms for various ranking distributions, such as the Mallows model, is an interesting research avenue to be explored.
+10 Conclusion and Future Work
+In this paper, we studied different problems of online rank elicitation based on pairwise comparisons under the assumption of a Plackett-Luce model. Taking advantage of this assumption, our idea is to construct a surrogate probability distribution over rankings based on a sorting procedure, namely QuickSort, for which the pairwise marginals provably coincide with the marginals of the PL distribution. In this way, we manage to exploit the (stochastic) transitivity properties of PL, which is at the origin of the efficiency of our approach, together with the idea of replacing the original QuickSort with a budgeted version of this algorithm. In addition to a formal performance and complexity analysis of our algorithms, we also presented first experimental studies showing the effectiveness of our approach. Needless to say, in addition to the problems studied in this paper, there are many other interesting problems that can be tackled within the preference-based framework of online learning. For example, going beyond a single item or ranking, we may look for a good estimate Pb of the entire distribution P, for example, an estimate with small Kullback-Leibler divergence: KL P, Pb < . With regard to the use of sorting algorithms, another interesting open question is the following: Is there any sorting algorithm with a worst case complexity of order M log M , which preserves the marginal probabilities? This question might be difficult to answer since, as we conjecture, the MergeSort and the InsertionSort algorithms, which are both well-known algorithms with an M log M complexity, do not satisfy this property.
+8
+
+References
+[1] Nir Ailon. Reconciling real scores with binary comparisons: A new logistic based model for ranking. In Advances in Neural Information Processing Systems 21, pages 25-32, 2008.
+[2] M. Braverman and E. Mossel. Noisy sorting without resampling. In Proceedings of the nineteenth annual ACM-SIAM Symposium on Discrete algorithms, pages 268-276, 2008.
+[3] M. Braverman and E. Mossel. Sorting from noisy information. CoRR, abs/0910.1191, 2009. [4] S. Bubeck, R. Munos, and G. Stoltz. Pure exploration in multi-armed bandits problems. In Proceedings
+of the 20th ALT, ALT'09, pages 23-37, Berlin, Heidelberg, 2009. Springer-Verlag. [5] S. Bubeck, T. Wang, and N. Viswanathan. Multiple identifications in multi-armed bandits. In Proceedings
+of The 30th ICML, pages 258-265, 2013. [6] R. Busa-Fekete and E. Hullermeier. A survey of preference-based online learning with bandit algorithms.
+In Algorithmic Learning Theory (ALT), volume 8776, pages 18-39, 2014. [7] R. Busa-Fekete, E. Hullermeier, and B. Szorenyi. Preference-based rank elicitation using statistical mod-
+els: The case of Mallows. In (ICML), volume 32 (2), pages 1071-1079, 2014. [8] R. Busa-Fekete, B. Szorenyi, and E. Hullermeier. Pac rank elicitation through adaptive sampling of
+stochastic pairwise preferences. In AAAI, pages 1701-1707, 2014. [9] R. Busa-Fekete, B. Szorenyi, P. Weng, W. Cheng, and E. Hullermeier. Top-k selection based on adaptive
+sampling of noisy preferences. In Proceedings of the 30th ICML, JMLR W&CP, volume 28, 2013. [10] C. J. Clopper and E. S. Pearson. The Use of Confidence or Fiducial Limits Illustrated in the Case of the
+Binomial. Biometrika, 26(4):404-413, 1934. [11] E. Even-Dar, S. Mannor, and Y. Mansour. PAC bounds for multi-armed bandit and markov decision
+processes. In Proceedings of the 15th COLT, pages 255-270, 2002. [12] Uriel Feige, Prabhakar Raghavan, David Peleg, and Eli Upfal. Computing with noisy information. SIAM
+J. Comput., 23(5):1001-1018, October 1994. [13] V. Gabillon, M. Ghavamzadeh, A. Lazaric, and S. Bubeck. Multi-bandit best arm identification. In NIPS
+24, pages 2222-2230, 2011. [14] J. Guiver and E. Snelson. Bayesian inference for plackett-luce ranking models. In Proceedings of the
+26th ICML, pages 377-384, 2009. [15] C. A. R. Hoare. Quicksort. Comput. J., 5(1):10-15, 1962. [16] W. Hoeffding. Probability inequalities for sums of bounded random variables. Journal of the American
+Statistical Association, 58:13-30, 1963. [17] D.R. Hunter. MM algorithms for generalized bradley-terry models. The Annals of Statistics, 32(1):384-
+406, 2004. [18] R. Luce and P. Suppes. Handbook of Mathematical Psychology, chapter Preference, Utility and Subjective
+Probability, pages 249-410. Wiley, 1965. [19] R. D. Luce. Individual choice behavior: A theoretical analysis. Wiley, 1959. [20] C. Mallows. Non-null ranking models. Biometrika, 44(1):114-130, 1957. [21] John I. Marden. Analyzing and Modeling Rank Data. Chapman & Hall, 1995. [22] C.J.H. McDiarmid and R.B. Hayward. Large deviations for quicksort. Journal of Algorithms, 21(3):476-
+507, 1996. [23] S. Negahban, S. Oh, and D. Shah. Iterative ranking from pairwise comparisons. In Advances in Neural
+Information Processing Systems, pages 2483-2491, 2012. [24] R. Plackett. The analysis of permutations. Applied Statistics, 24:193-202, 1975. [25] Arun Rajkumar and Shivani Agarwal. A statistical convergence perspective of algorithms for rank aggre-
+gation from pairwise data. In ICML, pages 118-126, 2014. [26] H. A. Soufiani, W. Z. Chen, D. C. Parkes, and L. Xia. Generalized method-of-moments for rank aggrega-
+tion. In Advances in Neural Information Processing Systems (NIPS), pages 2706-2714, 2013. [27] T. Urvoy, F. Clerot, R. Feraud, and S. Naamane. Generic exploration and k-armed voting bandits. In
+Proceedings of the 30th ICML, JMLR W&CP, volume 28, pages 91-99, 2013. [28] Y. Yue, J. Broder, R. Kleinberg, and T. Joachims. The k-armed dueling bandits problem. Journal of
+Computer and System Sciences, 78(5):1538-1556, 2012. [29] Y. Yue and T. Joachims. Beat the mean bandit. In Proceedings of the ICML, pages 241-248, 2011. [30] M. Zoghi, S. Whiteson, R. Munos, and M. Rijke. Relative upper confidence bound for the k-armed
+dueling bandit problem. In ICML, pages 10-18, 2014.
+9
+

@@ -1,0 +1,623 @@
+Planar Ultrametrics for Image Segmentation
+
+Julian Yarkony Experian Data Lab San Diego, CA 92130 julian.yarkony@experian.com
+
+Charless C. Fowlkes Department of Computer Science
+University of California Irvine fowlkes@ics.uci.edu
+
+Abstract
+We study the problem of hierarchical clustering on planar graphs. We formulate this in terms of finding the closest ultrametric to a specified set of distances and solve it using an LP relaxation that leverages minimum cost perfect matching as a subroutine to efficiently explore the space of planar partitions. We apply our algorithm to the problem of hierarchical image segmentation.
+
+1 Introduction
+We formulate hierarchical image segmentation from the perspective of estimating an ultrametric distance over the set of image pixels that agrees closely with an input set of noisy pairwise distances. An ultrametric space replaces the usual triangle inequality with the ultrametric inequality d(u, v)  max{d(u, w), d(v, w)} which captures the transitive property of clustering (if u and w are in the same cluster and v and w are in the same cluster, then u and v must also be in the same cluster). Thresholding an ultrametric immediately yields a partition into sets whose diameter is less than the given threshold. Varying this distance threshold naturally produces a hierarchical clustering in which clusters at high thresholds are composed of clusters at lower thresholds.
+Inspired by the approach of [1], our method represents an ultrametric explicitly as a hierarchical collection of segmentations. Determining the appropriate segmentation at a single distance threshold is equivalent to finding a minimum-weight multicut in a graph with both positive and negative edge weights [3, 14, 2, 11, 20, 21, 4, 19, 7]. Finding an ultrametric imposes the additional constraint that these multicuts are hierarchically consistent across different thresholds. We focus on the case where the input distances are specified by a planar graph. This arises naturally in the domain of image segmentation where elements are pixels or superpixels and distances are defined between neighbors and allows us to exploit fast combinatorial algorithms for partitioning planar graphs that yield tighter LP relaxations than the local polytope relaxation often used in graphical inference [20].
+The paper is organized as follows. We first introduce the closest ultrametric problem and the relation between multicuts and ultrametrics. We then describe an LP relaxation that uses a delayed column generation approach and exploits planarity to efficiently find cuts via the classic reduction to minimum-weight perfect matching [13, 8, 9, 10]. We apply our algorithm to the task of natural image segmentation and demonstrate that our algorithm converges rapidly and produces optimal or near-optimal solutions in practice.
+
+2 Closest Ultrametric and Multicuts
+
+Let G = (V, E) be a weighted graph with non-negative edge weights  indexed by edges e =
+
+(u, v)  E. Our goal is to find an ultrametric distance d(u,v) over vertices of the graph that is
+
+close to  in the sense that the distortion
+
+(u,v)E
+
+(u,v) - d(u,v)
+
+2 2
+
+is minimized.
+
+We begin by
+
+reformulating this closest ultrametric problem in terms of finding a set of nested multicuts in a family
+
+of weighted graphs.
+
+1
+
+We specify a partitioning or multicut of the vertices of the graph G into components using a binary vector X  {0, 1}|E| where Xe = 1 indicates that the edge e = (u, v) is "cut" and that the vertices u and v associated with the edge are in separate components of the partition. We use MCUT(G) to denote the set of binary indicator vectors X that represent valid multicuts of the graph G. For notational simplicity, in the remainder of the paper we frequently omit the dependence on G which is given as a fixed input.
+A necessary and sufficient condition for an indicator vector X to define a valid multicut in G is that for every cycle of edges, if one edge on the cycle is cut then at least one other edge in the cycle must also be cut. Let C denote the set of all cycles in G where each cycle c  C is a set of edges and c - e is the set of edges in cycle c excluding edge e. We can express MCUT in terms of these cycle inequalities as:
+
+MCUT = X  {0, 1}|E| :
+
+Xe  Xe, c  C, e  c
+
+ec-e
+
+(1)
+
+A hierarchical clustering of a graph can be described by a nested collection of multicuts. We denote the space of valid hierarchical partitions with L layers by  L which we represent by a set of L edge-indicator vectors X = (X 1, X 2, X 3, . . . , X L) in which any cut edge remains cut at all finer layers of the hierarchy.
+
+ L = {(X 1, X 2, . . . X L) : X l  MCUT, X l  X l+1 l}
+
+(2)
+
+Given a valid hierarchical clustering X , an ultrametric d can be specified over the vertices of the
+
+graph by choosing a sequence of real values 0 = 0 < 1 < 2 < . . . < L that indicate a distance
+
+threshold associated with each level l of the hierarchical clustering. The ultrametric distance d
+
+specified by the pair (X , ) assigns a distance to each pair of vertices d(u,v) based on the coarsest
+
+level of the clustering at which they remain in separate clusters. For pairs corresponding to an edge
+
+in the graph (u, v) = e  E we can write this explicitly in terms of the multicut indicator vectors
+
+as:
+
+L
+
+de
+
+=
+
+max
+l{0,1,...,L}
+
+l
+
+Xel
+
+=
+
+l[Xel > Xel+1]
+
+l=0
+
+(3)
+
+We assume by convention that Xe0 = 1 and XeL+1 = 0. Pairs (u, v) that do not correspond to an edge in the original graph can still be assigned a unique distance based on the coarsest level l at
+
+which they lie in different connected components of the cut specified by Xl.
+
+To compute the quality of an ultrametric d with respect to an input set of edge weights , we measure
+
+the squared L2 difference between the edge weights and the ultrametric distance  - d 22. To write
+
+this compactly in terms of multicut indicator vectors, we construct a set of weights for each edge
+
+and layer, denoted el so that
+
+m l=0
+
+el
+
+=
+
+e - m 2. These weights are given explicitly by the
+
+telescoping series:
+
+e0 = e 2
+
+el = e - l 2 - e - l-1 2 l > 1
+
+(4)
+
+We use l  R|E| to denote the vector containing el for all e  E.
+
+For a fixed number of levels L and fixed set of thresholds , the problem of finding the closest ultrametric d can then be written as an integer linear program (ILP) over the edge cut indicators.
+
+L 2L
+
+min
+X  L eE
+
+e - l[Xel > Xel+1]
+l=0
+
+= min
+X  L eE l=0
+
+e - l 2(Xel - Xel+1)
+
+(5)
+
+= min
+X  L eE
+
+L
+e 2Xe0 +
+l=1
+
+e - l 2 - e - l-1 2 Xel + e - L 2XeL+1
+
+LL
+
+=
+
+min
+X  L
+
+l=0
+
+eE
+
+el Xel
+
+=
+
+min
+X  L
+
+l=0
+
+l
+
+*
+
+X l
+
+(6)
+
+This optimization corresponds to solving a collection of minimum-weight multicut problems where the multicuts are constrained to be hierarchically consistent.
+
+2
+
+(a) Linear combination of cut vectors
+
+(b) Hierarchical cuts
+
+Figure 1: (a) Any partitioning X can be represented as a linear superposition of cuts Z where
+
+each
+
+cut
+
+isolates
+
+a
+
+connected
+
+component
+
+of
+
+the
+
+partition
+
+and
+
+is
+
+assigned
+
+a
+
+weight
+
+
+
+=
+
+1 2
+
+[20].
+
+By
+
+introducing an auxiliary slack variables , we are able to represent a larger set of valid indicator
+
+vectors X using fewer columns of Z. (b) By introducing additional slack variables at each layer of
+
+the hierarchical segmentation, we can efficiently represent many hierarchical segmentations (here
+
+{X1, X2, X3}) that are consistent from layer to layer while using only a small number of cut indi-
+
+cators as columns of Z.
+
+Computing minimum-weight multicuts (also known as correlation clustering) is NP hard even in the case of planar graphs [6]. A direct approach to finding an approximate solution to Eq 6 is to relax the integrality constraints on X l and instead optimize over the whole polytope defined by the set of cycle inequalities. We use L to denote the corresponding relaxation of  L. While the resulting polytope is not the convex hull of MCUT, the integral vertices do correspond exactly to the set of valid multicuts [12].
+In practice, we found that applying a straightforward cutting-plane approach that successively adds violated cycle inequalities to this relaxation of Eq 6 requires far too many constraints and is too slow to be useful. Instead, we develop a column generation approach tailored for planar graphs that allows for efficient and accurate approximate inference.
+
+3 The Cut Cone and Planar Multicuts
+
+Consider a partition of a planar graph into two disjoint sets of nodes. We denote the space of
+
+indicator vectors corresponding to such two-way cuts by CUT. A cut may yield more than two
+
+connected components but it can not produce every possible multicut (e.g., it can not split a triangle
+
+of three nodes into three separate components). Let Z  {0, 1}|E|x|CUT| be an indicator matrix
+
+where each column specifies a valid two-way cut with Zek = 1 if and only if edge e is cut in two-
+
+way cut k. The indicator vector of any multicut in a planar graph can be generated by a suitable
+
+linear combination of of cuts (columns of Z) that isolate the individual components from the rest of
+
+the
+
+graph
+
+where
+
+the
+
+weight
+
+of
+
+each
+
+such
+
+cut
+
+is
+
+1 2
+
+.
+
+Let   R|CUT| be a vector specifying a positive weighted combination of cuts. The set CUT = {Z :   0} is the conic hull of CUT or "cut cone". Since any multicut can be expressed as a superposition of cuts, the cut cone is identical to the conic hull of MCUT. This equivalence suggests
+an LP relaxation of the minimum-cost multicut given by
+
+min  * Z s.t. Z  1
+0
+
+(7)
+
+where the vector   R|E| specifies the edge weights. For the case of planar graphs, any solution to this LP relaxation satisfies the cycle inequalities (see supplement and [12, 18, 10]).
+
+Expanded Multicut Objective: Since the matrix Z contains an exponential number of cuts, Eq. 7 is still intractable. Instead we consider an approximation using a constraint set Z which is a subset
+
+3
+
+of columns of Z. In previous work [20], we showed that since the optimal multicut may no longer lie in the span of the reduced cut matrix Z, it is useful to allow some values of Z exceed 1 (see Figure 1(a) for an example).
+We introduce a slack vector   0 that tracks the presence of any "overcut" edges and prevents them from contributing to the objective when the corresponding edge weight is negative. Let e- = min(e, 0) denote the non-positive component of e. The expanded multi-cut objective is given by:
+
+min  * Z - - * 
+0 0
+
+s.t. Z -   1
+
+(8)
+
+For any edge e such that e < 0, any decrease in the objective from overcutting by an amount e is exactly compensated for in the objective by the term -e-e.
+When Z contains all cuts (i.e., Z = Z) then Eq 7 and Eq 8 are equivalent [20]. Further, if  is the minimizer of Eq 8 when Z only contains a subset of columns, then the edge indicator vector given by X = min(1, Z ) still satisfies the cycle inequalities (see supplement for details).
+
+4 Expanded LP for Finding the Closest Ultrametric
+
+To develop an LP relaxation of the closest ultrametric problem, we replace the multicut problem at each layer l with the expanded multicut objective described by Eq 8. We let  = {1, 2, 3 . . . L} and  = {1, 2, 3 . . . L} denote the collection of weights and slacks for the levels of the hierarchy and let e+l = max(0, el ) and e-l = min(0, el ) denote the positive and negative components of l.
+To enforce hierarchical consistency between layers, we would like to add the constraint that Zl+1  Zl. However, this constraint is too rigid when Z does not include all possible cuts. It is thus computationally useful to introduce an additional slack vector associated with each level l and edge e which we denote as  = {1, 2, 3 . . . L-1}. The introduction of el allows for cuts represented by Zl to violate the hierarchical constraint. We modify the objective so that violations to the original hierarchy constraint are paid for in proportion to e+l. The introduction of  allows us to find valid ultrametrics while using a smaller number of columns of Z to be used than would otherwise be required (illustrated in Figure 1(b)).
+We call this relaxed closest ultrametric problem including the slack variable  the expanded closest ultrametric objective, written as:
+
+LL
+
+L-1
+
+min l * Zl + --l * l + +l * l
+
+0
+
+0 l=1
+
+l=1
+
+l=1
+
+0
+
+s.t. Zl+1 + l+1  Zl + l l < L
+
+Zl - l  1 l
+
+(9)
+
+where by convention we define L = 0 and we have dropped the constant l = 0 term from Eq 6.
+Given a solution (, , ) we can recover a relaxed solution to the closest ultrametric problem (Eq. 6) over L by setting Xel = min(1, maxml (Zm)e). In the supplement, we demonstrate that for any (, , ) that obeys the constraints in Eq 9, this thresholding operation yields a solution X that lies in L and achieves the same or lower objective value.
+
+5 The Dual Objective
+We optimize the dual of the objective in Eq 9 using an efficient column generation approach based on perfect matching. We introduce two sets of Lagrange multipliers  = {1, 2, 3 . . . L-1} and  = {1, 2, 3 . . . L} corresponding to the between and within layer constraints respectively. For
+
+4
+
+Algorithm 1 Dual Closest Ultrametric via Cutting Planes
+
+Zl  {} l, residual  -
+
+while residual < 0 do {}, {}  Solve Eq 10 given Z
+
+residual = 0
+
+for l = 1 : L do
+
+zl  arg minzCUT(l + l + l-1 - l) * z
+
+residual
+
+
+
+residual
+
++
+
+3 2
+
+(l
+
++
+
+l
+
++
+
+l-1
+
+-
+
+l)
+
+*
+
+zl
+
+{z(1), z(2), . . . , z(M )}  isocuts(zl)
+
+Zl  Zl  {z(1), z(2), . . . , z(M )}
+
+end for
+
+end while
+
+notational convenience, let 0 = 0. The dual objective can then be written as
+
+L
+max -l * 1
+0,0 l=1
+-l  -l
+
+l
+
+(10)
+
+- (l-1 - l)  +l l
+
+(l + l + l-1 - l) * Z  0 l
+
+The dual LP can be interpreted as finding a small modification of the original edge weights l so that every possible two-way cut of each resulting graph at level l has non-negative weight. Observe that the introduction of the two slack terms  and  in the primal problem (Eq 9) results in bounds on the Lagrange multipliers  and  in the dual problem in Eq 10. In practice these dual constraints turn out to be essential for efficient optimization and constitute the core contribution of this paper.
+
+6 Solving the Dual via Cutting Planes
+
+The chief complexity of the dual LP is contained in the constraints including Z which encodes non-negativity of an exponential number of cuts of the graph represented by the columns of Z. To circumvent the difficulty of explicitly enumerating the columns of Z, we employ a cutting plane method that efficiently searches for additional violated constraints (columns of Z) which are then successively added.
+
+Let Z denote the current working set of columns. Our dual optimization algorithm iterates over the following three steps: (1) Solve the dual LP with Z, (2) find the most violated constraint of the form (l + l + l-1 - l) * Z  0 for layer l, (3) Append a column to the matrix Z for each such cut found. We terminate when no violated constraints exist or a computational budget has been exceeded.
+Finding Violated Constraints: Identifying columns to add to Z is carried out for each layer l separately. Finding the most violated constraint of the full problem corresponds to computing the minimum-weight cut of a graph with edge weights l + l + l-1 - l. If this cut has non-negative weight then all the constraints are satisfied, otherwise we add the corresponding cut indicator vector as an additional column of Z.
+
+To generate a new constraint for layer l based on the current Lagrange multipliers, we solve
+
+zl = arg min
+zCUT
+
+(el + le + el-1 - el )ze
+
+eE
+
+(11)
+
+and subsequently add the new constraints from all layers to our LP, Z  [Z, z1, z2, . . . zL].
+
+Unlike the multicut problem, finding a (two-way) cut in a planar graph can be solved exactly by a
+
+reduction to minimum-weight perfect matching. This is a classic result that, e.g. provides an exact
+
+solution for the ground state of a 2D lattice Ising model without a ferromagnetic field [13, 8, 9, 10]
+
+in
+
+O(N
+
+3 2
+
+log
+
+N)
+
+time
+
+[15].
+
+5
+
+Bound
+Counts
+
+80
+UB LB
+
+10-2
+
+60
+
+40
+
+10-4
+
+20
+
+100 101 102 103 Time (sec)
+
+0
+
+0.2 0.4 0.6 0.8
+
+1
+
+Objective ratio (UCM / UM)
+
+Figure 2: (a): The average convergence of the upper (blue) and lower-bounds (red) as a function of running time. Values plotted are the gap between the bound and the best lower-bound computed (at termination) for a given problem instance. This relative gap is averaged over problem instances which have not yet converged at a given time point. We indicate the percentage of problem instances that have yet to terminate using black bars marking [95, 85, 75, 65, .....5] percent. (b) Histogram of the ratio of closest ultrametric objective values for our algorithm (UM) and the baseline clustering produced by UCM. All ratios were less than 1 showing that in no instances did UM produce a worse solution than UCM
+
+Computing a lower bound: At a given iteration, prior to adding a newly generated set of constraints
+
+we can compute the total residual constraint violation over all layers of hierarchy by  = l(l + l + l-1 - l) * zl. In the supplement we demonstrate that the value of the dual objective plus
+
+3 2
+
+
+
+is
+
+a
+
+lower-bound
+
+on
+
+the
+
+relaxed
+
+closest
+
+ultrametric
+
+problem
+
+in
+
+Eq
+
+9.
+
+Thus,
+
+as
+
+the
+
+costs
+
+of
+
+the
+
+minimum-weight matchings approach zero from below, the objective of the reduced problem over
+
+Z approaches an accurate lower-bound on optimization over  L
+
+Expanding generated cut constraints: When a given cut zl produces more than two connected
+components, we found it useful to add a constraint corresponding to each component, following the approach of [20]. Let the number of connected components of zl be denoted M . For each of the M components then we add one column to Z corresponding to the cut that isolates that connected
+component from the rest. This allows more flexibility in representing the final optimum multicut as
+superpositions of these components. In addition, we also found it useful in practice to maintain a separate set of constraints Zl for each layer l. Maintaining independent constraints Z1, Z2, . . . , ZL
+can result in a smaller overall LP.
+
+Speeding convergence of : We found that adding an explicit penalty term to the objective that encourages small values of  speeds up convergence dramatically with no loss in solution quality. In our experiments, this penalty is scaled by a parameter = 10-4 which is chosen to be extremely small in magnitude relative to the values of  so that it only has an influence when no other "forces" are acting on a given term in .
+
+Primal Decoding: Algorithm 1 gives a summary of the dual solver which produces a lower-bound as well as a set of cuts described by the constraint matrices Zl. The subroutine isocuts(zl) computes the set of cuts that isolate each connected component of zl. To generate a hierarchical clustering, we solve the primal, Eq 9, using the reduced set Z in order to recover a fractional solution Xel = min(1, maxml(Zmm)e). We use an LP solver (IBM CPLEX) which provides this primal solution
+"for free" when solving the dual in Alg. 1.
+
+We round the fractional primal solution X to a discrete hierarchical clustering by thresholding: Xel  [Xel > t]. We then repair (uncut) any cut edges that lie inside a connected component. In our implementation we test a few discrete thresholds t  {0, 0.2, 0.4, 0.6, 0.8} and take that threshold that yields X with the lowest cost. After each pass through the loop of Alg. 1 we compute these upper-bounds and retain the optimum solution observed thus far.
+
+6
+
+Precision Maximum F-measure
+
+1 UCM
+0.9 UCM-L UM
+0.8
+0.7
+0.6
+0.5
+0.4 0 0.2 0.4 0.6 0.8 1 Recall
+
+0.7 0.6 0.5 0.4 0.3
+100
+
+101 102 Time (sec)
+
+UM UCM-L UCM
+103
+
+Figure 3: (a) Boundary detection performance of our closest ultrametric algorithm (UM) and the baseline ultrametric contour maps algorithm with (UCM) and without (UCM-L) length weighting [5] on BSDS. Black circles indicate thresholds used in the closest UM optimization. (b) Anytime performance: F-measure on the BSDS benchmark as a function of run-time. UM, UCM with and without length weighting achieve a maximum F-measure of 0.728, 0.726, and 0.718 respectively.
+
+7 Experiments
+
+We applied our algorithm to segmenting images from the Berkeley Segmentation Data set (BSDS) [16]. We use superpixels generated by performing an oriented watershed transform on the output of the global probability of boundary (gPb) edge detector [17] and construct a planar graph whose vertices are superpixels with edges connecting neighbors in the image plane whose base distance  is derived from gP b.
+
+Let gP be be the local estimate of boundary contrast given by averaging the gP b classifier output over the boundary between a pair of neighboring superpixels. We truncate extreme values to enforce
+
+that gP be  [ , 1 - ] with
+
+= 0.001 and set e = log
+
+1-gP be gP be
+
++ log 1-
+
+The additive offset
+
+assures that e  0. In our experiments we use a fixed set of eleven distance threshold levels {l}
+
+chosen to uniformly span the useful range of threshold values [9.6, 12.6]. Finally, we weighted edges
+
+proportionally to the length of the corresponding boundary in the image.
+
+We performed dual cutting plane iterations until convergence or 2000 seconds had passed. Lowerbounds for the BSDS segmentations were on the order of -103 or -104. We terminate when the total residual is greater than -2 x 10-4. All codes were written in MATLAB using the Blossom
+V implementation of minimum-weight perfect matching [15] and the IBM ILOG CPLEX LP solver
+with default options.
+
+Baseline: We compare our results with the hierarchical clusterings produced by the Ultrametric Contour Map (UCM) [5]. UCM performs agglomerative clustering of superpixels and assigns the length-weighted averaged gP b value as the distance between each pair of merged regions. While UCM was not explicitly designed to find the closest ultrametric, it provides a strong baseline for hierarchical clustering. To compute the closest l-level ultrametric corresponding to the UCM clustering result, we solve the minimization in Eq. 6 while restricting each multicut to be the partition at some level of the UCM hierarchy.
+
+Convergence and Timing: Figure 2 shows the average behavior of convergence as a function of runtime. We found the upper-bound given by the cost of the decoded integer solution and the lowerbound estimated by the dual LP are very close. The integrality gap is typically within 0.1% of the lower-bound and never more than 1 %. Convergence of the dual is achieved quite rapidly; most instances require less than 100 iterations to converge with roughly linear growth in the size of the LP at each iteration as cutting planes are added. In Fig 2 we display a histogram, computed over test image problem instances, of the cost of UCM solutions relative to those produced by closest ultrametric (UM) estimated by our method. A ratio of less than 1 indicates that our approach generated a solution with a lower distortion ultrametric. In no problem instance did UCM outperform our UM algorithm.
+
+7
+
+UM
+MC
+UM
+MC
+Figure 4: The proposed closest ultrametric (UM) enforces consistency across levels while performing independent multi-cut clustering (MC) at each threshold does not guarantee a hierarchical segmentation (c.f. first image, columns 3 and 4). In the second image, hierarchical segmentation (UM) better preserves semantic parts of the two birds while correctly merging the background regions.
+Segmentation Quality: Figure 3 shows the segmentation benchmark accuracy of our closest ultrametric algorithm (denoted UM) along with the baseline ultrametric contour maps algorithm (UCM) with and without length weighting [5]. In terms of segmentation accuracy, UM performs nearly identically to the state of the art UCM algorithm with some small gains in the high-precision regime. It is worth noting that the BSDS benchmark does not provide strong penalties for small leaks between two segments when the total number of boundary pixels involved is small. Our algorithm may find strong application in domains where the local boundary signal is noisier (e.g., biological imaging) or when under-segmentation is more heavily penalized. While our cutting-plane approach is slower than agglomerative clustering, it is not necessary to wait for convergence in order to produce high quality results. We found that while the upper and lower bounds decrease as a function of time, the clustering performance as measured by precision-recall is often nearly optimal after only ten seconds and remains stable. Figure 3 shows a plot of the F-measure achieved by UM as a function of time. Importance of enforcing hierarchical constraints: Although independently finding multicuts at different thresholds often produces hierarchical clusterings, this is by no means guaranteed. We ran Algorithm 1 while setting el = 0, allowing each layer to be solved independently. Fig 4 shows examples where hierarchical constraints between layers improves segmentation quality relative to independent clustering at each threshold.
+8 Conclusion
+We have introduced a new method for approximating the closest ultrametric on planar graphs that is applicable to hierarchical image segmentation. Our contribution is a dual cutting plane approach that exploits the introduction of novel slack terms that allow for representing a much larger space of solutions with relatively few cutting planes. This yields an efficient algorithm that provides rigorous bounds on the quality the resulting solution. We empirically observe that our algorithm rapidly produces compelling image segmentations along with lower- and upper-bounds that are nearly tight on the benchmark BSDS test data set. Acknowledgements: JY acknowledges the support of Experian, CF acknowledges support of NSF grants IIS-1253538 and DBI-1262547
+8
+
+References
+[1] Nir Ailon and Moses Charikar. Fitting tree metrics: Hierarchical clustering and phylogeny. In Foundations of Computer Science, 2005., pages 73-82, 2005.
+[2] Bjoern Andres, Joerg H. Kappes, Thorsten Beier, Ullrich Kothe, and Fred A. Hamprecht. Probabilistic image segmentation with closedness constraints. In Proc. of ICCV, pages 2611-2618, 2011.
+[3] Bjoern Andres, Thorben Kroger, Kevin L. Briggman, Winfried Denk, Natalya Korogod, Graham Knott, Ullrich Kothe, and Fred. A. Hamprecht. Globally optimal closed-surface segmentation for connectomics. In Proc. of ECCV, 2012.
+[4] Bjoern Andres, Julian Yarkony, B. S. Manjunath, Stephen Kirchhoff, Engin Turetken, Charless Fowlkes, and Hanspeter Pfister. Segmenting planar superpixel adjacency graphs w.r.t. nonplanar superpixel affinity graphs. In Proc. of EMMCVPR, 2013.
+[5] Pablo Arbelaez, Michael Maire, Charless Fowlkes, and Jitendra Malik. Contour detection and hierarchical image segmentation. IEEE Trans. Pattern Anal. Mach. Intell., 33(5):898-916, May 2011.
+[6] Yoram Bachrach, Pushmeet Kohli, Vladimir Kolmogorov, and Morteza Zadimoghaddam. Optimal coalition structure generation in cooperative graph games. In Proc. of AAAI, 2013.
+[7] Shai Bagon and Meirav Galun. Large scale correlation clustering. In CoRR, abs/1112.2903, 2011.
+[8] F Barahona. On the computational complexity of ising spin glass models. Journal of Physics A: Mathematical, Nuclear and General, 15(10):3241-3253, april 1982.
+[9] F Barahona. On cuts and matchings in planar graphs. Mathematical Programming, 36(2):53- 68, november 1991.
+[10] F Barahona and A Mahjoub. On the cut polytope. Mathematical Programming, 60(1-3):157- 173, September 1986.
+[11] Thorsten Beier, Thorben Kroeger, Jorg H Kappes, Ullrich Kothe, and Fred A Hamprecht. Cut, glue, and cut: A fast, approximate solver for multicut partitioning. In Computer Vision and Pattern Recognition (CVPR), 2014 IEEE Conference on, pages 73-80, 2014.
+[12] Michel Deza and Monique Laurent. Geometry of cuts and metrics, volume 15. Springer Science & Business Media, 1997.
+[13] Michael Fisher. On the dimer solution of planar ising models. Journal of Mathematical Physics, 7(10):1776-1781, 1966.
+[14] Sungwoong Kim, Sebastian Nowozin, Pushmeet Kohli, and Chang Dong Yoo. Higher-order correlation clustering for image segmentation. In Advances in Neural Information Processing Systems,25, pages 1530-1538, 2011.
+[15] Vladimir Kolmogorov. Blossom v: a new implementation of a minimum cost perfect matching algorithm. Mathematical Programming Computation, 1(1):43-67, 2009.
+[16] David Martin, Charless Fowlkes, Doron Tal, and Jitendra Malik. A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics. In Proc. of ICCV, pages 416-423, 2001.
+[17] David Martin, Charless C. Fowlkes, and Jitendra Malik. Learning to detect natural image boundaries using local brightness, color, and texture cues. IEEE Trans. Pattern Anal. Mach. Intell., 26(5):530-549, May 2004.
+[18] Julian Yarkony. Analyzing PlanarCC. NIPS 2014 workshop, 2014.
+[19] Julian Yarkony, Thorsten Beier, Pierre Baldi, and Fred A Hamprecht. Parallel multicut segmentation via dual decomposition. In New Frontiers in Mining Complex Patterns, 2014.
+[20] Julian Yarkony, Alexander Ihler, and Charless Fowlkes. Fast planar correlation clustering for image segmentation. In Proc. of ECCV, 2012.
+[21] Chong Zhang, Julian Yarkony, and Fred A. Hamprecht. Cell detection and segmentation using correlation clustering. In MICCAI, volume 8673, pages 9-16, 2014.
+9
+

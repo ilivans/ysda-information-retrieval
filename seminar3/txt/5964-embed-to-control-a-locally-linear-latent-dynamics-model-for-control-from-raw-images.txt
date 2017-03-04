@@ -1,0 +1,541 @@
+Embed to Control: A Locally Linear Latent Dynamics Model for Control from Raw Images
+
+Manuel Watter
+
+Jost Tobias Springenberg
+
+Joschka Boedecker
+
+University of Freiburg, Germany
+
+{watterm,springj,jboedeck}@cs.uni-freiburg.de
+
+Martin Riedmiller Google DeepMind
+London, UK
+riedmiller@google.com
+
+Abstract
+We introduce Embed to Control (E2C), a method for model learning and control of non-linear dynamical systems from raw pixel images. E2C consists of a deep generative model, belonging to the family of variational autoencoders, that learns to generate image trajectories from a latent space in which the dynamics is constrained to be locally linear. Our model is derived directly from an optimal control formulation in latent space, supports long-term prediction of image sequences and exhibits strong performance on a variety of complex control problems.
+1 Introduction
+Control of non-linear dynamical systems with continuous state and action spaces is one of the key problems in robotics and, in a broader context, in reinforcement learning for autonomous agents. A prominent class of algorithms that aim to solve this problem are model-based locally optimal (stochastic) control algorithms such as iLQG control [1, 2], which approximate the general nonlinear control problem via local linearization. When combined with receding horizon control [3], and machine learning methods for learning approximate system models, such algorithms are powerful tools for solving complicated control problems [3, 4, 5]; however, they either rely on a known system model or require the design of relatively low-dimensional state representations. For real autonomous agents to succeed, we ultimately need algorithms that are capable of controlling complex dynamical systems from raw sensory input (e.g. images) only. In this paper we tackle this difficult problem.
+If stochastic optimal control (SOC) methods were applied directly to control from raw image data, they would face two major obstacles. First, sensory data is usually high-dimensional - i.e. images with thousands of pixels - rendering a naive SOC solution computationally infeasible. Second, the image content is typically a highly non-linear function of the system dynamics underlying the observations; thus model identification and control of this dynamics are non-trivial.
+While both problems could, in principle, be addressed by designing more advanced SOC algorithms we approach the "optimal control from raw images" problem differently: turning the problem of locally optimal control in high-dimensional non-linear systems into one of identifying a low-dimensional latent state space, in which locally optimal control can be performed robustly and easily. To learn such a latent space we propose a new deep generative model belonging to the class of variational autoencoders [6, 7] that is derived from an iLQG formulation in latent space. The resulting Embed to Control (E2C) system is a probabilistic generative model that holds a belief over viable trajectories in sensory space, allows for accurate long-term planning in latent space, and is trained fully unsupervised. We demonstrate the success of our approach on four challenging tasks for control from raw images and compare it to a range of methods for unsupervised representation learning. As an aside, we also validate that deep up-convolutional networks [8, 9] are powerful generative models for large images.
+Authors contributed equally.
+1
+
+2 The Embed to Control (E2C) model
+
+We briefly review the problem of SOC for dynamical systems, introduce approximate locally optimal control in latent space, and finish with the derivation of our model.
+
+2.1 Problem Formulation
+
+We consider the control of unknown dynamical systems of the form
+
+st+1 = f (st, ut) + ,   N (0, ),
+
+(1)
+
+where t denotes the time steps, st  Rns the system state, ut  Rnu the applied control and 
+
+the system noise. The function f (st, ut) is an arbitrary, smooth, system dynamics. We equivalently
+
+refer to Equation (1) using the notation P (st+1|st, ut), which we assume to be a multivariate normal
+
+distribution N (f (st, ut), ). We further assume that we are only given access to visual depictions xt  Rnx of state st. This restriction requires solving a joint state identification and control problem.
+
+For simplicity we will in the following assume that xt is a fully observed depiction of st, but relax
+
+this assumption later.
+
+Our goal then is to infer a low-dimensional latent state space model in which optimal control can
+
+be performed. That is, we seek to learn a function m, mapping from high-dimensional images xt to low-dimensional vectors zt  Rnz with nz nx, such that the control problem can be solved
+
+using zt instead of xt:
+
+zt = m(xt) + ,   N (0, ),
+
+(2)
+
+where  accounts for system noise; or equivalently zt  N (m(xt), ). Assuming for the moment
+
+that such a function can be learned (or approximated), we will first define SOC in a latent space and
+
+introduce our model thereafter.
+
+2.2 Stochastic locally optimal control in latent spaces
+
+Let zt  Rnz be the inferred latent state from image xt of state st and f lat(zt, ut) the transition dynamics in latent space, i.e., zt+1 = f lat(zt, ut). Thus f lat models the changes that occur in zt when control ut is applied to the underlying system as a latent space analogue to f (st, ut). Assuming f lat is known, optimal controls for a trajectory of length T in the dynamical system can
+
+be derived by minimizing the function J(z1:T , u1:T ) which gives the expected future costs when following (z1:T , u1:T ):
+
+T -1
+
+J (z1:T , u1:T ) = Ez cT (zT , uT ) + c(zt, ut) ,
+
+(3)
+
+t0
+where c(zt, ut) are instantaneous costs, cT (zT , uT ) denotes terminal costs and z1:T = {z1, . . . , zT } and u1:T = {u1, . . . , uT } are state and action sequences respectively. If zt contains sufficient information about st, i.e., st can be inferred from zt alone, and f lat is differentiable, the cost-minimizing controls can be computed from J(z1:T , u1:T ) via SOC algorithms [10]. These optimal control algorithms approximate the global non-linear dynamics with locally linear dynamics at each time step
+
+t. Locally optimal actions can then be found in closed form. Formally, given a reference trajectory
+
+z1:T - the current estimate for the optimal trajectory - together with corresponding controls u1:T the system is linearized as
+
+zt+1 = A(zt)zt + B(zt)ut+1 + o(zt) + ,   N (0, ),
+
+(4)
+
+where A(zt) =
+
+,f lat(zt,ut)
+zt
+
+B(zt)
+
+=
+
+f lat(zt,ut) u t
+
+are
+
+local
+
+Jacobians,
+
+and
+
+o(zt)
+
+is
+
+an
+
+offset.
+
+To
+
+enable efficient computation of the local controls we assume the costs to be a quadratic function of
+
+the latent representation
+
+c(zt, ut) = (zt - zgoal)T Rz(zt - zgoal) + uTt Ruut,
+
+(5)
+
+where Rz  Rnzxnz and Ru  Rnuxnu are cost weighting matrices and zgoal is the inferred
+
+representation of the goal state. We also assume cT (zT , uT ) = c(zT , uT ) throughout this paper.
+
+In combination with Equation (4) this gives us a local linear-quadratic-Gaussian formulation at
+
+each time step t which can be solved by SOC algorithms such as iterative linear-quadratic reg-
+
+ulation (iLQR) [11] or approximate inference control (AICO) [12]. The result of this trajectory optimization step is a locally optimal trajectory with corresponding control sequence (z1:T , u1:T )  arg minuz11::TT J (z1:T , u1:T ).
+
+2
+
+henc
+
+t t
+
+At htrans Bt
+ot
+
+KL
+Q Q
+
+t+1 t+1
+
+henc
+
+xt zt zt+1  zt+1
+
+xt+1
+
+pt hdec
+
+ut
+
+hdec pt
+
+encode decode transition
+
+Figure 1: The information flow in the E2C model. From left to right, we encode and decode an image xt with the networks henc and hdec, where we use the latent code zt for the transition step. The htrans network computes the local matrices At, Bt, ot with which we can predict zt+1 from zt
+and ut. Similarity to the encoding zt+1 is enforced by a KL divergence on their distributions and reconstruction is again performed by hdec.
+
+2.3 A locally linear latent state space model for dynamical systems
+
+Starting from the SOC formulation, we now turn to the problem of learning an appropriate lowdimensional latent representation zt  P (Zt|m(xt), ) of xt. The representation zt has to fulfill three properties: (i) it must capture sufficient information about xt (enough to enable reconstruction); (ii) it must allow for accurate prediction of the next latent state zt+1 and thus, implicitly, of the next observation xt+1; (iii) the prediction f lat of the next latent state must be locally linearizable for all valid control magnitudes ut. Given some representation zt, properties (ii) and (iii) in particular require us to capture possibly highly non-linear changes of the latent representation due to transfor-
+mations of the observed scene induced by control commands. Crucially, these are particularly hard
+to model and subsequently linearize. We circumvent this problem by taking a more direct approach: instead of learning a latent space z and transition model f lat which are then linearized and combined
+with SOC algorithms, we directly impose desired transformation properties on the representation zt during learning. We will select these properties such that prediction in the latent space as well as
+locally linear inference of the next observation according to Equation (4) are easy.
+
+The transformation properties that we desire from a latent representation can be formalized directly
+from the iLQG formulation given in Section 2.2 . Formally, following Equation (2), let the latent representation be Gaussian P (Z|X) = N (m(xt), ). To infer zt from xt we first require a method for sampling latent states. Ideally, we would generate samples directly from the unknown true posterior P (Z|X), which we, however, have no access to. Following the variational Bayes
+approach (see Jordan et al. [13] for an overview) we resort to sampling zt from an approximate posterior distribution Q(Z|X) with parameters .
+
+Inference model for Q. In our work this is always a diagonal Gaussian distribution Q(Z|X) = N (t, diag(2t )), whose mean t  Rnz and covariance t = diag(2t )  Rnzxnz are computed by an encoding neural network with outputs
+
+t = Whenc(xt) + b,
+
+(6)
+
+log t = Whenc(xt) + b,
+
+(7)
+
+where henc  Rne is the activation of the last hidden layer and where  is given by the set of all learnable parameters of the encoding network, including the weight matrices W, W and biases b, b. Parameterizing the mean and variance of a Gaussian distribution based on a neural network
+
+gives us a natural and very expressive model for our latent space. It additionally comes with the
+
+benefit that we can use the reparameterization trick [6, 7] to backpropagate gradients of a loss
+
+function based on samples through the latent distribution.
+
+Generative model for P. Using the approximate posterior distribution Q we generate observed samples (images) xt and xt+1 from latent samples zt and zt+1 by enforcing a locally linear relationship in latent space according to Equation (4), yielding the following generative model
+
+zt  Q(Z | X) = N (t, t), zt+1  Q(Z | Z, u) = N (Att + Btut + ot, Ct), xt, xt+1  P(X | Z) = Bernoulli(pt),
+
+(8)
+
+where Q is the next latent state posterior distribution, which exactly follows the linear form required for stochastic optimal control. With t  N (0, Ht) as an estimate of the system noise,
+
+3
+
+C can be decomposed as Ct = AttATt + Ht. Note that while the transition dynamics in our generative model operates on the inferred latent space, it takes untransformed controls into account.
+That is, we aim to learn a latent space such that the transition dynamics in z linearizes the non-linear
+observed dynamics in x and is locally linear in the applied controls u. Reconstruction of an image
+from zt is performed by passing the sample through multiple hidden layers of a decoding neural network which computes the mean pt of the generative Bernoulli distribution1 P(X|Z) as
+
+pt = Wphdec(zt) + bp,
+
+(9)
+
+where hdec(zt)  Rnd is the response of the last hidden layer in the decoding network. The set of parameters for the decoding network, including weight matrix Wp and bias bp, then make up the learned generative parameters .
+
+Transition model for Q. What remains is to specify how the linearization matrices At  Rnzxnz , Bt  Rnzxnu and offset ot  Rnz are predicted. Following the same approach as for distribution means and covariance matrices, we predict all local transformation parameters from samples zt based on the hidden representation htrans(zt)  Rnt of a third neural network with parameters  - to which we refer as the transformation network. Specifically, we parametrize the transformation
+
+matrices and offset as
+
+vec[At] vec[Bt]
+ot
+
+= WA htrans(zt) + bA, = WB htrans(zt) + bB, = Wo htrans(zt) + bo,
+
+(10)
+
+where vec denotes vectorization and therefore vec[At]  R(n2z) and vec[Bt]  R(nz*nu). To circumvent estimating the full matrix At of size nz x nz, we can choose it to be a perturbation of the identity matrix At = (I + vtrTt ) which reduces the parameters to be estimated for At to 2nz.
+
+A sketch of the complete architecture is shown in Figure 1. It also visualizes an additional constraint
+that is essential for learning a representation for long-term predictions: we require samples zt+1 from the state transition distribution Q to be similar to the encoding of xt+1 through Q. While it might seem that just learning a perfect reconstruction of xt+1 from zt+1 is enough, we require multistep predictions for planning in Z which must correspond to valid trajectories in the observed space X. Without enforcing similarity between samples from Q and Q, following a transition in latent space from zt with action ut may lead to a point zt+1, from which reconstruction of xt+1 is possible, but that is not a valid encoding (i.e. the model will never encode any image as zt+1). Executing another action in zt+1 then does not result in a valid latent state - since the transition model is conditional on samples coming from the inference network - and thus long-term predictions fail.
+In a nutshell, such a divergence between encodings and the transition model results in a generative
+model that does not accurately model the Markov chain formed by the observations.
+
+2.4 Learning via stochastic gradient variational Bayes
+
+For training the model we use a data set D = {(x1, u1, x2), . . . , (xT -1, uT -1, xT )} containing observation tuples with corresponding controls obtained from interactions with the dynamical system.
+Using this data set, we learn the parameters of the inference, transition and generative model by minimizing a variational bound on the true data negative log-likelihood - log P (xt, ut, xt+1) plus an additional constraint on the latent representation. The complete loss function2 is given as
+
+L(D) =
+
+Lbound(xt, ut, xt+1) +  KL Q(Z | t, ut) Q(Z | xt+1) .
+
+(xt ,ut ,xt+1 )D
+
+(11)
+
+The first part of this loss is the per-example variational bound on the log-likelihood
+
+Lbound(xt, ut, xt+1) = E ztQ [- log P(xt|zt) - log P(xt+1|zt+1)] + KL(Q||P (Z)), (12)
+zt+1 Q 
+
+where Q, P and Q are the parametric inference, generative and transition distributions from Section 2.3 and P (Zt) is a prior on the approximate posterior Q; which we always chose to be
+
+1A Bernoulli distribution for P is a common choice when modeling black-and-white images. 2Note that this is the loss for the latent state space model and distinct from the SOC costs.
+
+4
+
+an isotropic Gaussian distribution with mean zero and unit variance. The second KL divergence in Equation (11) is an additional contraction term with weight , that enforces agreement between the transition and inference models. This term is essential for establishing a Markov chain in latent space that corresponds to the real system dynamics (see Section 2.3 above for an in depth discussion). This KL divergence can also be seen as a prior on the latent transition model. Note that all KL terms can be computed analytically for our model (see supplementary for details).
+During training we approximate the expectation in L(D) via sampling. Specifically, we take one sample zt for each input xt and transform that sample using Equation (10) to give a valid sample zt+1 from Q. We then jointly learn all parameters of our model by minimizing L(D) using SGD.
+
+3 Experimental Results
+
+We evaluate our model on four visual tasks: an agent in a plane with obstacles, a visual version of the classic inverted pendulum swing-up task, balancing a cart-pole system, and control of a three-link arm with larger images. These are described in detail below.
+
+3.1 Experimental Setup
+
+Model training. We consider two different network types for our model: Standard fully connected neural networks with up to three layers, which work well for moderately sized images, are used for the planar and swing-up experiments; A deep convolutional network for the encoder in combination with an up-convolutional network as the decoder which, in accordance with recent findings from the literature [8, 9], we found to be an adequate model for larger images. Training was performed using Adam [14] throughout all experiments. The training data set D for all tasks was generated by randomly sampling N state observations and actions with corresponding successor states. For the plane we used N =3, 000 samples, for the inverted pendulum and cart-pole system we used N = 15, 000 and for the arm N=30, 000. A complete list of architecture parameters and hyperparameter choices as well as an in-depth explanation of the up-convolutional network are specified in the supplementary material. We will make our code and a video containing controlled trajectories for all systems available under http://ml.informatik.uni-freiburg.de/research/e2c .
+
+Model variants. In addition to the Embed to Control (E2C) dynamics model derived above, we also consider two variants: By removing the latent dynamics network htrans, i.e. setting its output to one in Equation (10) - we obtain a variant in which At, Bt and ot are estimated as globally
+linear matrices (Global E2C). If we instead replace the transition model with a network estimating
+the dynamics as a non-linear function flat and only linearize during planning, estimating At, Bt, ot as Jacobians to flat as described in Section 2.2, we obtain a variant with nonlinear latent dynamics.
+
+Baseline models. For a thorough comparison and to exhibit the complicated nature of the tasks,
+we also test a set of baseline models on the plane and the inverted pendulum task (using the same
+architecture as the E2C model): a standard variational autoencoder (VAE) and a deep autoencoder (AE) are trained on the autoencoding subtask for visual problems. That is, given a data set D used for training our model, we remove all actions from the tuples in D and disregard temporal
+context between images. After autoencoder training we learn a dynamics model in latent space, approximating f lat from Section 2.2. We also consider a VAE variant with a slowness term on the
+latent representation - a full description of this variant is given in the supplementary material.
+
+Optimal control algorithms. To perform optimal control in the latent space of different models,
+
+we employ two trajectory optimization algorithms: iterative linear quadratic regulation (iLQR) [11]
+
+(for the plane and inverted pendulum) and approximate inference control (AICO) [12] (all other
+
+experiments). For all VAEs both methods operate on the mean of distributions Q and Q. AICO
+
+additionally makes use of the local Gaussian covariances t and Ct. Except for the experiments
+
+on the planar system, control was performed in a model predictive control fashion using the reced-
+
+ing horizon scheme introduced in [3]. To obtain closed loop control given an image xt, it is first
+
+passed through the encoder to obtain the latent state zt. A locally optimal trajectory is subsequently
+
+found by optimizing (zt:t+T , T (with T = 10 unless noted
+
+uott:ht+erTw)ise).arCgomntirnouzlstt::ttu++tTT
+
+J (zt:t+T , ut:t+T ) with fixed, are applied to the system and
+
+small horizon a transition to
+
+zt+1 is observed (by encoding the next image xt+1). Then a new control sequence - with horizon
+
+5
+
+AE
+
+VAE
+
+VAE with slowness
+
+35 30 25 20 15 10
+5
+5 10 15 20 25 30 35
+
+Non-linear E2C
+
+Global E2C
+
+E2C
+
+Figure 2: The true state space of the planar system (left) with examples (obstacles encoded as circles) and the inferred spaces (right) of different models. The spaces are spanned by generating images for every valid position of the agent and embedding them with the respective encoders.
+
+T - starting in zt+1 is found using the last estimated trajectory as a bootstrap. Note that planning is performed entirely in the latent state without access to any observations except for the depiction
+of the current state. To compute the cost function c(zt, ut) required for trajectory optimization in z we assume knowledge of the observation xgoal of the goal state sgoal. This observation is then transformed into latent space and costs are computed according to Equation (5).
+
+3.2 Control in a planar system
+The agent in the planar system can move in a bounded two-dimensional plane by choosing a continuous offset in x- and y-direction. The high-dimensional representation of a state is a 40 x 40 black-and-white image. Obstructed by six circular obstacles, the task is to move to the bottom right of the image, starting from a random x position at the top of the image. The encodings of obstacles are obtained prior to planning and an additional quadratic cost term is penalizing proximity to them.
+A depiction of the observations on which control is performed - together with their corresponding state values and embeddings into latent space - is shown in Figure 2. The figure also clearly shows a fundamental advantage the E2C model has over its competitors: While the separately trained autoencoders make for aesthetically pleasing pictures, the models failed to discover the underlying structure of the state space, complicating dynamics estimation and largely invalidating costs based on distances in said space. Including the latent dynamics constraints in these end-to-end models on the other hand, yields latent spaces approaching the optimal planar embedding.
+We test the long-term accuracy by accumulating latent and real trajectory costs to quantify whether the imagined trajectory reflects reality. The results for all models when starting from random positions at the top and executing 40 pre-computed actions are summarized in Table 1 - using a seperate test set for evaluating reconstructions. While all methods achieve a low reconstruction loss, the difference in accumulated real costs per trajectory show the superiority of the E2C model. Using the globally or locally linear E2C model, trajectories planned in latent space are as good as trajectories planned on the real state. All models besides E2C fail to give long-term predictions that result in good performance.
+
+3.3 Learning swing-up for an inverted pendulum
+We next turn to the task of controlling the classical inverted pendulum system [15] from images. We create depictions of the state by rendering a fixed length line starting from the center of the image at an angle corresponding to the pendulum position. The goal in this task is to swing-up and balance an underactuated pendulum from a resting position (pendulum hanging down). Exemplary observations and reconstructions for this system are given in Figure 3(d). In the visual inverted pendulum task our algorithm faces two additional difficulties: the observed space is non-Markov, as the angular velocity cannot be inferred from a single image, and second, discretization errors due to rendering pendulum angles as small 48x48 pixel images make exact control difficult. To restore the Markov property, we stack two images (as input channels), thus observing a one-step history.
+Figure 3 shows the topology of the latent space for our model, as well as one sample trajectory in true state and latent space. The fact that the model can learn a meaningful embedding, separating
+
+6
+
+Table 1: Comparison between different approaches to model learning from raw pixels for the planar
+and pendulum system. We compare all models with respect to their prediction quality on a test set
+of sampled transitions and with respect to their performance when combined with SOC (trajectory
+cost for control from different start states). Note that trajectory costs in latent space are not neces-
+sarily comparable. The "real" trajectory cost was computed on the dynamics of the simulator while executing planned actions. For the true models for st, real trajectory costs were 20.24  4.15 for the planar system, and 9.8  2.4 for the pendulum. Success was defined as reaching the goal state and
+staying -close to it for the rest of the trajectory (if non terminating). All statistics quantify over 5/30 (plane/pendulum) different starting positions. A  marks separately trained dynamics networks.
+
+Algorithm
+AE VAE VAE + slowness Non-linear E2C Global E2C E2C
+AE VAE VAE + slowness E2C no latent KL Non-linear E2C Global E2C E2C
+
+State Loss log p(xt|xt)
+11.5  97.8 3.6  18.9 10.5  22.8 8.3  5.5 6.9  3.2 7.7  2.0
+8.9  100.3 7.5  47.7 26.5  18.0 64.4  32.8 59.6  25.2 115.5  56.9 84.0  50.8
+
+Next State Loss
+
+Trajectory Cost
+
+log p(xt+1|xt, ut)
+
+Latent
+
+Real
+
+Planar System
+
+3538.9  1395.2 1325.6  81.2 273.3  16.4
+
+652.1  930.6
+
+43.1  20.8 91.3  16.4
+
+104.3  235.8
+
+47.1  20.5 89.1  16.4
+
+11.3  10.1
+
+19.8  9.8
+
+42.3  16.4
+
+9.3  4.6
+
+12.5  3.9
+
+27.3  9.7
+
+9.7  3.2
+
+10.3  2.8
+
+25.1  5.3
+
+Inverted Pendulum Swing-Up
+
+13433.8  6238.8 1285.9  355.8 194.7  44.8
+
+8791.2  17356.9 497.8  129.4 237.2  41.2
+
+779.7  633.3
+
+419.5  85.8 188.2  43.6
+
+87.7  64.2
+
+489.1  87.5 213.2  84.3
+
+72.6  34.5
+
+313.3  65.7 37.4  12.4
+
+125.3  62.6
+
+628.1  45.9 125.1  10.7
+
+89.3  42.9
+
+275.0  16.6 15.4  3.4
+
+Success percent
+0% 0% 0% 96.6 % 100 % 100 %
+0% 0% 0% 0% 63.33 % 0% 90 %
+
+velocities and positions, from this data is remarkable (no other model recovered this shape). Table 1 again compares the different models quantitatively. While the E2C model is not the best in terms of reconstruction performance, it is the only model resulting in stable swing-up and balance behavior. We explain the failure of the other models with the fact that the non-linear latent dynamics model cannot be guaranteed to be linearizable for all control magnitudes, resulting in undesired behavior around unstable fixpoints of the real system dynamics, and that for this task a globally linear dynamics model is inadequate.
+
+3.4 Balancing a cart-pole and controlling a simulated robot arm
+Finally, we consider control of two more complex dynamical systems from images using a six layer convolutional inference and six layer up-convolutional generative network, resulting in a 12-layer deep path from input to reconstruction. Specifically, we control a visual version of the classical cartpole system [16] from a history of two 80 x 80 pixel images as well as a three-link planar robot arm based on a history of two 128 x 128 pixel images. The latent space was set to be 8-dimensional in both experiments. The real state dimensionality for the cart-pole is four and is controlled using one
+
+Angle 3 2 1 0 -1 -2 -3 -10
+
+-5 0
+
+5
+
+Angular velocity
+
+(a)
+
+3
+
+2
+
+1
+
+0
+
+-1
+
+-2
+
+-3
+
+10-3 -2 -1 0
+z0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0 -1-2-3 z1
+
+(b)
+
+z0
+
+3 2 1 0 -1 -2 -3
+-3 -2 -1(cz0)1 1 2 3
+
+z2
+z2
+
+x100 x100 x70 x70
+(d)
+
+Figure 3: (a) The true state space of the inverted pendulum task overlaid with a successful trajectory taken by the E2C agent. (b) The learned latent space. (c) The trajectory from (a) traced out in the latent space. (d) Images x and reconstructions x showing current positions (right) and history (left).
+
+7
+
+1 234 5 6 78
+
+Observed Predicted
+
+Figure 4: Left: Trajectory from the cart-pole domain. Only the first image (green) is "real", all other images are "dreamed up" by our model. Notice discretization artifacts present in the real image. Right: Exemplary observed (with history image omitted) and predicted images (including the history image) for a trajectory in the visual robot arm domain with the goal marked in red.
+action, while for the arm the real state can be described in 6 dimensions (joint angles and velocities) and controlled using a three-dimensional action vector corresponding to motor torques.
+As in previous experiments the E2C model seems to have no problem finding a locally linear embedding of images into latent space in which control can be performed. Figure 4 depicts exemplary images - for both problems - from a trajectory executed by our system. The costs for these trajectories (11.13 for the cart-pole, 85.12 for the arm) are only slightly worse than trajectories obtained by AICO operating on the real system dynamics starting from the same start-state (7.28 and 60.74 respectively). The supplementary material contains additional experiments using these domains.
+4 Comparison to recent work
+In the context of representation learning for control (see Bohmer et al. [17] for a review), deep autoencoders (ignoring state transitions) similar to our baseline models have been applied previously, e.g. by Lange and Riedmiller [18]. A more direct route to control based on image streams is taken by recent work on (model free) deep end-to-end Q-learning for Atari games by Mnih et al. [19], as well as kernel based [20] and deep policy learning for robot control [21].
+Close to our approach is a recent paper by Wahlstrom et al. [22], where autoencoders are used to extract a latent representation for control from images, on which a non-linear model of the forward dynamics is learned. Their model is trained jointly and is thus similar to the non-linear E2C variant in our comparison. In contrast to our model, their formulation requires PCA pre-processing and does neither ensure that long-term predictions in latent space do not diverge, nor that they are linearizable.
+As stated above, our system belongs to the family of VAEs and is generally similar to recent work such as Kingma and Welling [6], Rezende et al. [7], Gregor et al. [23], Bayer and Osendorfer [24]. Two additional parallels between our work and recent advances for training deep neural networks can be observed. First, the idea of enforcing desired transformations in latent space during learning - such that the data becomes easy to model - has appeared several times already in the literature. This includes the development of transforming auto-encoders [25] and recent probabilistic models for images [26, 27]. Second, learning relations between pairs of images - although without control - has received considerable attention from the community during the last years [28, 29]. In a broader context our model is related to work on state estimation in Markov decision processes (see Langford et al. [30] for a discussion) through, e.g., hidden Markov models and Kalman filters [31, 32].
+5 Conclusion
+We presented Embed to Control (E2C), a system for stochastic optimal control on high-dimensional image streams. Key to the approach is the extraction of a latent dynamics model which is constrained to be locally linear in its state transitions. An evaluation on four challenging benchmarks revealed that E2C can find embeddings on which control can be performed with ease, reaching performance close to that achievable by optimal control on the real system model.
+Acknowledgments
+We thank A. Radford, L. Metz, and T. DeWolf for sharing code, as well as A. Dosovitskiy for useful discussions. This work was partly funded by a DFG grant within the priority program "Autonomous learning" (SPP1597) and the BrainLinks-BrainTools Cluster of Excellence (grant number EXC 1086). M. Watter is funded through the State Graduate Funding Program of Baden-Wurttemberg.
+
+8
+
+References
+[1] D. Jacobson and D. Mayne. Differential dynamic programming. American Elsevier, 1970.
+[2] E. Todorov and W. Li. A generalized iterative LQG method for locally-optimal feedback control of constrained nonlinear stochastic systems. In ACC. IEEE, 2005.
+[3] Y. Tassa, T. Erez, and W. D. Smart. Receding horizon differential dynamic programming. In Proc. of NIPS, 2008.
+[4] Y. Pan and E. Theodorou. Probabilistic differential dynamic programming. In Proc. of NIPS, 2014.
+[5] S. Levine and V. Koltun. Variational policy search via trajectory optimization. In Proc. of NIPS, 2013.
+[6] D. P. Kingma and M. Welling. Auto-encoding variational bayes. In Proc. of ICLR, 2014.
+[7] D. J. Rezende, S. Mohamed, and D. Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In Proc. of ICML, 2014.
+[8] M. D. Zeiler, D. Krishnan, G. W. Taylor, and R. Fergus. Deconvolutional networks. In CVPR, 2010.
+[9] A. Dosovitskiy, J. T. Springenberg, and T. Brox. Learning to generate chairs with convolutional neural networks. In Proc. of CVPR, 2015.
+[10] R. F. Stengel. Optimal Control and Estimation. Dover Publications, 1994.
+[11] W. Li and E. Todorov. Iterative Linear Quadratic Regulator Design for Nonlinear Biological Movement Systems. In Proc. of ICINCO, 2004.
+[12] M. Toussaint. Robot Trajectory Optimization using Approximate Inference. In Proc. of ICML, 2009.
+[13] M. I. Jordan, Z. Ghahramani, T. S. Jaakkola, and L. K. Saul. An introduction to variational methods for graphical models. In Machine Learning, 1999.
+[14] D. Kingma and J. Ba. Adam: A method for stochastic optimization. In Proc. of ICLR, 2015.
+[15] H. Wang, K. Tanaka, and M. Griffin. An approach to fuzzy control of nonlinear systems; stability and design issues. IEEE Trans. on Fuzzy Systems, 4(1), 1996.
+[16] R. S. Sutton and A. G. Barto. Introduction to Reinforcement Learning. MIT Press, Cambridge, MA, USA, 1st edition, 1998. ISBN 0262193981.
+[17] W. Bohmer, J. T. Springenberg, J. Boedecker, M. Riedmiller, and K. Obermayer. Autonomous learning of state representations for control. KI - Kunstliche Intelligenz, 2015.
+[18] S. Lange and M. Riedmiller. Deep auto-encoder neural networks in reinforcement learning. In Proc. of IJCNN, 2010.
+[19] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, S. Petersen, C. Beattie, A. Sadik, I. Antonoglou, H. King, D. Kumaran, D. Wierstra, S. Legg, and D. Hassabis. Human-level control through deep reinforcement learning. Nature, 518(7540), 02 2015.
+[20] H. van Hoof, J. Peters, and G. Neumann. Learning of non-parametric control policies with highdimensional state features. In Proc. of AISTATS, 2015.
+[21] S. Levine, C. Finn, T. Darrell, and P. Abbeel. End-to-end training of deep visuomotor policies. CoRR, abs/1504.00702, 2015. URL http://arxiv.org/abs/1504.00702.
+[22] N. Wahlstrom, T. B. Schon, and M. P. Deisenroth. From pixels to torques: Policy learning with deep dynamical models. CoRR, abs/1502.02251, 2015. URL http://arxiv.org/abs/1502.02251.
+[23] K. Gregor, I. Danihelka, A. Graves, D. Rezende, and D. Wierstra. DRAW: A recurrent neural network for image generation. In Proc. of ICML, 2015.
+[24] J. Bayer and C. Osendorfer. Learning stochastic recurrent networks. In NIPS 2014 Workshop on Advances in Variational Inference, 2014.
+[25] G. Hinton, A. Krizhevsky, and S. Wang. Transforming auto-encoders. In Proc. of ICANN, 2011.
+[26] L. Dinh, D. Krueger, and Y. Bengio. Nice: Non-linear independent components estimation. CoRR, abs/1410.8516, 2015. URL http://arxiv.org/abs/1410.8516.
+[27] T. Cohen and M. Welling. Transformation properties of learned visual representations. In ICLR, 2015.
+[28] G. W. Taylor, L. Sigal, D. J. Fleet, and G. E. Hinton. Dynamical binary latent variable models for 3d human pose tracking. In Proc. of CVPR, 2010.
+[29] R. Memisevic. Learning to relate images. IEEE Trans. on PAMI, 35(8):1829-1846, 2013.
+[30] J. Langford, R. Salakhutdinov, and T. Zhang. Learning nonlinear dynamic models. In ICML, 2009.
+[31] M. West and J. Harrison. Bayesian Forecasting and Dynamic Models (Springer Series in Statistics). Springer-Verlag, February 1997. ISBN 0387947256.
+[32] T. Matsubara, V. Gomez, and H. J. Kappen. Latent Kullback Leibler control for continuous-state systems using probabilistic graphical models. UAI, 2014.
+9
+

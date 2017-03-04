@@ -1,0 +1,425 @@
+Frank-Wolfe Bayesian Quadrature: Probabilistic Integration with Theoretical Guarantees
+
+Francois-Xavier Briol Department of Statistics University of Warwick f-x.briol@warwick.ac.uk
+
+Chris J. Oates School of Mathematical and Physical Sciences
+University of Technology, Sydney christopher.oates@uts.edu.au
+
+Mark Girolami Department of Statistics University of Warwick & The Alan Turing Institute for Data Science m.girolami@warwick.ac.uk
+
+Michael A. Osborne Department of Engineering Science
+University of Oxford mosb@robots.ox.ac.uk
+
+Abstract
+There is renewed interest in formulating integration as a statistical inference problem, motivated by obtaining a full distribution over numerical error that can be propagated through subsequent computation. Current methods, such as Bayesian Quadrature, demonstrate impressive empirical performance but lack theoretical analysis. An important challenge is therefore to reconcile these probabilistic integrators with rigorous convergence guarantees. In this paper, we present the first probabilistic integrator that admits such theoretical treatment, called Frank-Wolfe Bayesian Quadrature (FWBQ). Under FWBQ, convergence to the true value of the integral is shown to be up to exponential and posterior contraction rates are proven to be up to super-exponential. In simulations, FWBQ is competitive with state-of-the-art methods and out-performs alternatives based on Frank-Wolfe optimisation. Our approach is applied to successfully quantify numerical error in the solution to a challenging Bayesian model choice problem in cellular biology.
+1 Introduction
+Computing integrals is a core challenge in machine learning and numerical methods play a central role in this area. This can be problematic when a numerical integration routine is repeatedly called, maybe millions of times, within a larger computational pipeline. In such situations, the cumulative impact of numerical errors can be unclear, especially in cases where the error has a non-trivial structural component. One solution is to model the numerical error statistically and to propagate this source of uncertainty through subsequent computations. Conversely, an understanding of how errors arise and propagate can enable the efficient focusing of computational resources upon the most challenging numerical integrals in a pipeline.
+Classical numerical integration schemes do not account for prior information on the integrand and, as a consequence, can require an excessive number of function evaluations to obtain a prescribed level of accuracy [21]. Alternatives such as Quasi-Monte Carlo (QMC) can exploit knowledge on the smoothness of the integrand to obtain optimal convergence rates [7]. However these optimal rates can only hold on sub-sequences of sample sizes n, a consequence of the fact that all function evaluations are weighted equally in the estimator [24]. A modern approach that avoids this problem is to consider arbitrarily weighted combinations of function values; the so-called quadrature rules (also called cubature rules). Whilst quadrature rules with non-equal weights have received compar-
+1
+
+atively little theoretical attention, it is known that the extra flexibility given by arbitrary weights can lead to extremely accurate approximations in many settings (see applications to image de-noising [3] and mental simulation in psychology [13]).
+Probabilistic numerics, introduced in the seminal paper of [6], aims at re-interpreting numerical tasks as inference tasks that are amenable to statistical analysis.1 Recent developments include probabilistic solvers for linear systems [14] and differential equations [5, 26]. For the task of computing integrals, Bayesian Quadrature (BQ) [22] and more recent work by [20] provide probabilistic numerics methods that produce a full posterior distribution on the output of numerical schemes. One advantage of this approach is that we can propagate uncertainty through all subsequent computations to explicitly model the impact of numerical error [15]. Contrast this with chaining together classical error bounds; the result in such cases will typically be a weak bound that provides no insight into the error structure. At present, a significant shortcoming of these methods is the absence of theoretical results relating to rates of posterior contraction. This is unsatisfying and has likely hindered the adoption of probabilistic approaches to integration, since it is not clear that the induced posteriors represent a sensible quantification of the numerical error (by classical, frequentist standards).
+This paper establishes convergence rates for a new probabilistic approach to integration. Our results thus overcome a key perceived weakness associated with probabilistic numerics in the quadrature setting. Our starting point is recent work by [2], who cast the design of quadrature rules as a problem in convex optimisation that can be solved using the Frank-Wolfe (FW) algorithm. We propose a hybrid approach of [2] with BQ, taking the form of a quadrature rule, that (i) carries a full probabilistic interpretation, (ii) is amenable to rigorous theoretical analysis, and (iii) converges orders-of-magnitude faster, empirically, compared with the original approaches in [2]. In particular, we prove that super-exponential rates hold for posterior contraction (concentration of the posterior probability mass on the true value of the integral), showing that the posterior distribution provides a sensible and effective quantification of the uncertainty arising from numerical error. The methodology is explored in simulations and also applied to a challenging model selection problem from cellular biology, where numerical error could lead to mis-allocation of expensive resources.
+
+2 Background
+
+2.1 Quadrature and Cubature Methods
+
+Let X  Rd be a measurable space such that d  N+ and consider a probability density p(x) defined with respect to the Lebesgue measure on X . This paper focuses on computing integrals of the form
+f (x)p(x)dx for a test function f : X  R where, for simplicity, we assume f is square-integrable
+with respect to p(x). A quadrature rule approximates such integrals as a weighted sum of function values at some design points {xi}ni=1  X :
+
+n
+f (x)p(x)dx  wif (xi).
+X i=1
+
+(1)
+
+Viewing integrals as projections, we write p[f ] for the left-hand side and p[f ] for the right-hand side,
+
+where p = distribution;
+
+inni=f1acwt,iw(xeiig)hatnsd{w(ix}ini)=i1s
+
+a Dirac measure at xi. do not have to sum to
+
+Note that p may not be a probability one or be non-negative. Quadrature
+
+rules can be extended to multivariate functions f : X  Rd by taking each component in turn.
+
+There are many ways of choosing combinations {xi, wi}ni=1 in the literature. For example, taking weights to be wi = 1/n with points {xi}ni=1 drawn independently from the probability distribution p(x) recovers basic Monte Carlo integration. The case with weights wi = 1/n, but with points cho-
+sen with respect to some specific (possibly deterministic) schemes includes kernel herding [4] and Quasi-Monte Carlo (QMC) [7]. In Bayesian Quadrature, the points {xi}ni=1 are chosen to minimise a posterior variance, with weights {wi}ni=1 arising from a posterior probability distribution.
+
+Classical error analysis for quadrature rules is naturally couched in terms of minimising the worstcase estimation error. Let H be a Hilbert space of functions f : X  R, equipped with the inner
+
+1A detailed discussion on probabilistic numerics and an extensive up-to-date bibliography can be found at http://www.probabilistic-numerics.org.
+
+2
+
+product *, * H and associated norm * H. We define the maximum mean discrepancy (MMD) as:
+
+MMD {xi, wi}ni=1 := sup p[f ] - p[f ] .
+f H: f H=1
+
+(2)
+
+The reader can refer to [27] for conditions on H that are needed for the existence of the MMD. The
+rate at which the MMD decreases with the number of samples n is referred to as the `convergence rate' of the quadrature rule. For Monte Carlo, the MMD decreases with the slow rate of OP (n-1/2) (where the subscript P specifies that the convergence is in probability). Let H be a RKHS with reproducing kernel k : X x X  R and denote the corresponding canonical feature map by (x) = k(*, x), so that the mean element is given by p(x) = p[(x)]  H. Then, following [27]
+
+MMD {xi, wi}ni=1 = p - p H.
+
+(3)
+
+This shows that to obtain low integration error in the RKHS H, one only needs to obtain a good approximation of its mean element p (as f  H: p[f ] = f, p H). Establishing theoretical results for such quadrature rules is an active area of research [1].
+
+2.2 Bayesian Quadrature
+
+Bayesian Quadrature (BQ) was originally introduced in [22] and later revisited by [11, 12] and [23].
+The main idea is to place a functional prior on the integrand f , then update this prior through Bayes' theorem by conditioning on both samples {xi}ni=1 and function evaluations at those sample points {fi}ni=1 where fi = f (xi). This induces a full posterior distribution over functions f and hence over the value of the integral p[f ]. The most common implementation assumes a Gaussian Process (GP) prior f  GP(0, k). A useful property motivating the use of GPs is that linear projection preserves
+normality, so that the posterior distribution for the integral p[f ] is also a Gaussian, characterised by
+its mean and covariance. A natural estimate of the integral p[f ] is given by the mean of this posterior
+distribution, which can be compactly written as
+
+pBQ[f ] = zT K-1f.
+
+(4)
+
+where zi = p(xi) and Kij = k(xi, xj). Notice that this estimator takes the form of a quadrature rule with weights wBQ = zT K-1. Recently, [25] showed how specific choices of kernel and design
+points for BQ can recover classical quadrature rules. This begs the question of how to select design points {xi}ni=1. A particularly natural approach aims to minimise the posterior uncertainty over the integral p[f ], which was shown in [16, Prop. 1] to equal:
+
+vBQ {xi}ni=1 = p[p] - zT K-1z = MMD2 {xi, wiBQ}ni=1 .
+
+(5)
+
+Thus, in the RKHS setting, minimising the posterior variance corresponds to minimising the worst
+case error of the quadrature rule. Below we refer to Optimal BQ (OBQ) as BQ coupled with design points {xOi BQ}ni=1 chosen to globally minimise (5). We also call Sequential BQ (SBQ) the algorithm that greedily selects design points to give the greatest decrease in posterior variance at each iteration.
+OBQ will give improved results over SBQ, but cannot be implemented in general, whereas SBQ is
+comparatively straight-forward to implement. There are currently no theoretical results establishing
+the convergence of either BQ, OBQ or SBQ.
+
+Remark: (5) is independent of observed function values f. As such, no active learning is possible in SBQ (i.e. surprising function values never cause a revision of a planned sampling schedule). This is not always the case: For example [12] approximately encodes non-negativity of f into BQ which leads to a dependence on f in the posterior variance. In this case sequential selection becomes an active strategy that outperforms batch selection in general.
+
+2.3 Deriving Quadrature Rules via the Frank-Wolfe Algorithm
+Despite the elegance of BQ, its convergence rates have not yet been rigorously established. In brief, this is because pBQ[f ] is an orthogonal projection of f onto the affine hull of {(xi)}ni=1, rather than e.g. the convex hull. Standard results from the optimisation literature apply to bounded domains, but the affine hull is not bounded (i.e. the BQ weights can be arbitrarily large and possibly negative). Below we describe a solution to the problem of computing integrals recently proposed by [2], based on the FW algorithm, that restricts attention to the (bounded) convex hull of {(xi)}ni=1.
+
+3
+
+Algorithm 1 The Frank-Wolfe (FW) and Frank-Wolfe with Line-Search (FWLS) Algorithms.
+Require: function J, initial state g1 = g1  G (and, for FW only: step-size sequence {i}ni=1). 1: for i = 2, . . . , n do
+2: Compute gi = argmingG g, (DJ )(gi-1) x 3: [For FWLS only, line search: i = argmin[0,1]J (1 - )gi-1 +  gi ] 4: Update gi = (1 - i)gi-1 + igi 5: end for
+
+The Frank-Wolfe (FW) algorithm (Alg. 1), also called the conditional gradient algorithm, is a convex
+optimization method introduced in [9]. It considers problems of the form mingG J(g) where the function J : G  R is convex and continuously differentiable. A particular case of interest in this paper will be when the domain G is a compact and convex space of functions, as recently investigated
+in [17]. These assumptions imply the existence of a solution to the optimization problem.
+
+At each iteration i, the FW algorithm computes a linearisation of the objective function J at the previous state gi-1  G along its gradient (DJ)(gi-1) and selects an `atom' gi  G that minimises the inner product a state g and (DJ)(gi-1). The new state gi  G is then a convex combination of the previous state gi-1 and of the atom gi. This convex combination depends on a step-size i which is pre-determined and different versions of the algorithm may have different step-size sequences.
+
+Our goal in quadrature is to approximate the mean element p. Recently [2] proposed to frame integration as a FW optimisation problem. Here, the domain G  H is a space of functions and
+taking the objective function to be:
+
+1 J(g) =
+2
+
+g - p
+
+2 H
+
+.
+
+(6)
+
+This gives an approximation of the mean element and J takes the form of half the posterior variance (or the MMD2). In this functional approximation setting, minimisation of J is carried out over
+G = M, the marginal polytope of the RKHS H. The marginal polytope M is defined as the
+closure of the convex hull of (X ), so that in particular p  M. Assuming as in [18] that (x) is uniformly bounded in feature space (i.e. R > 0 : x  X , (x) H  R), then M is a closed
+and bounded set and can be optimised over.
+
+In order to define the algorithm rigorously in this case, we introduce the Frechet derivative of J,
+
+denoted DJ, such that for H being the dual space of H, we have the unique map DJ : H  H
+
+such that for each g  We also introduce the
+
+H, (DJ)(g) bilinear map
+
+is the function mapping h  H to (DJ)(g)(h) = g - , h *, * x : H x H  R which, for F  H given by F (g)
+
+H. =
+
+g, f H, is the rule giving h, F x = h, f H.
+
+A particular advantage of this method is that it leads to `sparse' solutions which are linear combinations of the atoms {gi}ni=1 [2]. In particular this provides a weighted estimate for the mean element:
+
+n
+FW := gn =
+i=1
+
+nn
+
+1 - j-1 i-1 gi := wiFWgi,
+
+j=i+1
+
+i=1
+
+(7)
+
+where by default 0 = 1 which leads to all wiFW  [0, 1] when i = 1/(i + 1). A typical sequence of approximations to the mean element is shown in Fig. 1 (left), demonstrating that the approximation
+quickly converges to the ground truth (in black). Since minimisation of a linear function can be restricted to extreme points of the domain, the atoms will be of the form gi = (xFi W) = k(*, xFi W) for some xFi W  X . The minimisation in g over G from step 2 in Algorithm 1 therefore becomes a minimisation in x over X and this algorithm therefore provides us design points. In practice, at each iteration i, the FW algorithm hence selects a design point xFi W  X which induces an atom gi and gives us an approximation of the mean element p. We denote by FW this approximation after n
+iterations. Using the reproducing property, we can show that the FW estimate is a quadrature rule:
+
+nn
+
+n
+
+pFW[f ] := f, FW H = f,
+
+wiFWgi
+
+=
+H
+
+wiFW f, k(*, xFi W) H =
+
+wiFWf (xFi W). (8)
+
+i=1 i=1
+
+i=1
+
+The total computational cost for FW is O(n2). An extension known as FW with Line Search (FWLS) uses a line-search method to find the optimal step size i at each iteration (see Alg. 1).
+
+4
+
+x2
+
+10 0
+-10
+
+* *** **** **
+
+******************************
+
+-10 0
+x1
+
+10
+
+Figure 1: Left: Approximations of the mean element p using the FWLS algorithm, based on n =
+
+1, 2, 5, 10, 50 design points (purple, blue, green, red and orange respectively). It is not possible to
+
+distinguish between approximation and ground truth when n = 50. Right: Density of a mixture
+
+of 20 Gaussian distributions, displaying the first n = 25 design points chosen by FW (red), FWLS
+
+(orange) and SBQ (green). Each method provides well-spaced design points in high-density regions.
+
+Most FW and FWLS design points overlap, partly explaining their similar performance in this case.
+
+Once again, the approximation obtained by FWLS has a sparse expression as a convex combination of all the previously visited states and we obtain an associated quadrature rule. FWLS has theoretical convergence rates that can be stronger than standard versions of FW but has computational cost in O(n3). The authors in [10] provide a survey of FW-based algorithms and their convergence rates under different regularity conditions on the objective function and domain of optimisation.
+Remark: The FW design points {xFi W}ni=1 are generally not available in closed-form. We follow mainstream literature by selecting, at each iteration, the point that minimises the MMD over a finite collection of M points, drawn i.i.d from p(x). The authors in [18] proved that this approximation adds a O(M -1/4) term to the MMD, so that theoretical results on FW convergence continue to apply provided that M (n)   sufficiently quickly. Appendix A provides full details. In practice, one may also make use of a numerical optimisation scheme in order to select the points.
+
+3 A Hybrid Approach: Frank-Wolfe Bayesian Quadrature
+
+To combine the advantages of a probabilistic integrator with a formal convergence theory, we propose Frank-Wolfe Bayesian Quadrature (FWBQ). In FWBQ, we first select design points {xFi W}ni=1 using the FW algorithm. However, when computing the quadrature approximation, instead of using the usual FW weights {wiFW}ni=1 we use instead the weights {wiBQ}ni=1 provided by BQ. We denote this quadrature rule by pFWBQ and also consider pFWLSBQ, which uses FWLS in place of FW. As we show below, these hybrid estimators (i) carry the Bayesian interpretation of Sec. 2.2, (ii) permit a rigorous theoretical analysis, and (iii) out-perform existing FW quadrature rules by orders of magnitude in simulations. FWBQ is hence ideally suited to probabilistic numerics applications.
+For these theoretical results we assume that f belongs to a finite-dimensional RKHS H, in line with recent literature [2, 10, 17, 18]. We further assume that X is a compact subset of Rd, that p(x) > 0 x  X and that k is continuous on X x X . Under these hypotheses, Theorem 1 establishes consistency of the posterior mean, while Theorem 2 establishes contraction for the posterior distribution.
+Theorem 1 (Consistency). The posterior mean pFWBQ[f ] converges to the true integral p[f ] at the following rates:
+
+p[f ] - pFWBQ[f ]  MMD {xi, wi}ni=1 
+
+ 2D
+
+2D2 R
+
+n-1
+
+exp(-
+
+R2 2D2
+
+n)
+
+for FWBQ for FWLSBQ
+
+(9)
+
+where the FWBQ uses step-size i = 1/(i+ 1), D  (0, ) is the diameter of the marginal polytope M and R  (0, ) gives the radius of the smallest ball of center p included in M.
+
+5
+
+Note that all the proofs of this paper can be found in Appendix B. An immediate corollary of Theorem 1 is that FWLSBQ has an asymptotic error which is exponential in n and is therefore superior to that of any QMC estimator [7]. This is not a contradiction - recall that QMC restricts attention to uniform weights, while FWLSBQ is able to propose arbitrary weightings. In addition we highlight a robustness property: Even when the assumptions of this section do not hold, one still obtains atleast a rate OP (n-1/2) for the posterior mean using either FWBQ or FWLSBQ [8].
+
+Remark: The choice of kernel affects the convergence of the FWBQ method [15]. Clearly, we expect faster convergence if the function we are integrating is `close' to the space of functions induced by our kernel. Indeed, the kernel specifies the geometry of the marginal polytope M, that in turn directly influences the rate constant R and D associated with FW convex optimisation.
+
+Consistency is only a stepping stone towards our main contribution which establishes posterior contraction rates for FWBQ. Posterior contraction is important as these results justify, for the first time, the probabilistic numerics approach to integration; that is, we show that the full posterior distribution is a sensible quantification (at least asymptotically) of numerical error in the integration routine:
+
+Theorem 2 (Contraction). Let S  R be an open neighbourhood of the true integral p[f ] and let  = infrSC |r - p[f ]| > 0. Then the posterior probability mass on Sc = R \ S vanishes at a rate:
+
+
+ prob(Sc) 
+
+
+22D2 R
+
+n-1
+
+exp
+
+-
+
+n2R2 2
+8D4
+
+2D 
+
+exp
+
+-
+
+R2 2D2
+
+n
+
+-
+
+2 2 2D
+
+exp
+
+R2 2D2
+
+n
+
+for FWBQ for FWLSBQ
+
+(10)
+
+where the FWBQ uses step-size i = 1/(i+ 1), D  (0, ) is the diameter of the marginal polytope M and R  (0, ) gives the radius of the smallest ball of center p included in M.
+
+The contraction rates are exponential for FWBQ and super-exponential for FWLBQ, and thus the two algorithms enjoy both a probabilistic interpretation and rigorous theoretical guarantees. A notable corollary is that OBQ enjoys the same rates as FWLSBQ, resolving a conjecture by Tony O'Hagan that OBQ converges exponentially [personal communication]:
+Corollary. The consistency and contraction rates obtained for FWLSBQ apply also to OBQ.
+
+4 Experimental Results
+4.1 Simulation Study
+To facilitate the experiments in this paper we followed [1, 2, 11, 18] and employed an exponentiatedquadratic (EQ) kernel k(x, x ) := 2 exp(-1/22 x - x 22). This corresponds to an infinitedimensional RKHS, not covered by our theory; nevertheless, we note that all simulations are practically finite-dimensional due to rounding at machine precision. See Appendix E for a finitedimensional approximation using random Fourier features. EQ kernels are popular in the BQ literature as, when p is a mixture of Gaussians, the mean element p is analytically tractable (see Appendix C). Some other (p, k) pairs that produce analytic mean elements are discussed in [1].
+For this simulation study, we took p(x) to be a 20-component mixture of 2D-Gaussian distributions. Monte Carlo (MC) is often used for such distributions but has a slow convergence rate in OP (n-1/2). FW and FWLS are known to converge more quickly and are in this sense preferable to MC [2]. In our simulations (Fig. 2, left), both our novel methods FWBQ and FWLSBQ decreased the MMD much faster than the FW/FWLS methods of [2]. Here, the same kernel hyper-parameters (, ) = (1, 0.8) were employed for all methods to have a fair comparison. This suggests that the best quadrature rules correspond to elements outside the convex hull of {(xi)}ni=1. Examples of those, including BQ, often assign negative weights to features (Fig. S1 right, Appendix D).
+The principle advantage of our proposed methods is that they reconcile theoretical tractability with a fully probabilistic interpretation. For illustration, Fig. 2 (right) plots the posterior uncertainty due to numerical error for a typical integration problem based on this p(x). In-depth empirical studies of such posteriors exist already in the literature and the reader is referred to [3, 13, 22] for details.
+Beyond these theoretically tractable integrators, SBQ seems to give even better performance as n increases. An intuitive explanation is that SBQ picks {xi}ni=1 to minimise the MMD whereas
+
+6
+
+0.1
+
+Estimator
+
+0.0
+
+-0.1
+
+FWLS FWLSBQ
+
+100 200
+number of design points
+
+300
+
+Figure 2: Simulation study. Left: Plot of the worst-case integration error squared (MMD2). Both FWBQ and FWLSBQ are seen to outperform FW and FWLS, with SBQ performing best overall. Right: Integral estimates for FWLS and FWLSBQ for a function f  H. FWLS converges more slowly and provides only a point estimate for a given number of design points. In contrast, FWLSBQ converges faster and provides a full probability distribution over numerical error shown shaded in orange (68% and 95% credible intervals). Ground truth corresponds to the dotted black line.
+
+FWBQ and FWLSBQ only minimise an approximation of the MMD (its linearisation along DJ). In addition, the SBQ weights are optimal at each iteration, which is not true for FWBQ and FWLSBQ. We conjecture that Theorem 1 and 2 provide upper bounds on the rates of SBQ. This conjecture is partly supported by Fig. 1 (right), which shows that SBQ selects similar design points to FW/FWLS (but weights them optimally). Note also that both FWBQ and FWLSBQ give very similar result. This is not surprising as FWLS has no guarantees over FW in infinite-dimensional RKHS [17].
+
+4.2 Quantifying Numerical Error in a Proteomic Model Selection Problem
+
+A topical bioinformatics application that extends recent work by [19] is presented. The objective is
+
+to select among a set of candidate models {Mi}mi=1 for protein regulation. This choice is based on a dataset D of protein expression levels, in order to determine a `most plausible' biological hypothesis
+
+for further experimental investigation. Each Mi is specified by a vector of kinetic parameters i (full
+
+details in Appendix D). Bayesian model selection requires that these parameters are integrated out
+
+against a prior p(i) to obtain marginal likelihood terms L(Mi) = p(D|i)p(i)di. Our focus
+
+here is on obtaining the maximum posterior model probability L(Mj
+
+)a/posmit=e1riLor(iM(Mi)A(wP)hmeroedweleMhajv,edeafissnuemd eads
+
+the maximiser of the a uniform prior over
+
+model space). Numerical error in the computation of each term L(Mi), if unaccounted for, could
+
+cause us to return a model Mk that is different from the true MAP estimate Mj and lead to the
+
+mis-allocation of valuable experimental resources.
+
+The problem is quickly exaggerated when the number m of models increases, as there are more opportunities for one of the L(Mi) terms to be `too large' due to numerical error. In [19], the number m of models was combinatorial in the number of protein kinases measured in a high-throughput assay (currently  102 but in principle up to  104). This led [19] to deploy substantial computing resources to ensure that numerical error in each estimate of L(Mi) was individually controlled. Probabilistic numerics provides a more elegant and efficient solution: At any given stage, we have a fully probabilistic quantification of our uncertainty in each of the integrals L(Mi), shown to be sensible both theoretically and empirically. This induces a full posterior distribution over numerical
+uncertainty in the location of the MAP estimate (i.e. `Bayes all the way down'). As such we can
+determine, on-line, the precise point in the computational pipeline when numerical uncertainty near
+the MAP estimate becomes acceptably small, and cease further computation.
+
+The FWBQ methodology was applied to one of the model selection tasks in [19]. In Fig. 3 (left) we display posterior model probabilities for each of m = 352 candidates models, where a low number (n = 10) of samples were used for each integral. (For display clarity only the first 50 models are shown.) In this low-n regime, numerical error introduces a second level of uncertainty that we quantify by combining the FWBQ error models for all integrals in the computational pipeline; this is summarised by a box plot (rather than a single point) for each of the models (obtained by sampling - details in Appendix D). These box plots reveal that our estimated posterior model probabilities are
+
+7
+
+n = 10 0.03
+
+n = 100 0.06
+
+Posterior Probability Posterior Probability
+
+0.02 0.04
+
+0.01 0.02
+
+00
+
+10 20 30 40 50...
+
+10 20 30 40 50...
+
+Candidate Models
+
+Candidate Models
+
+Figure 3: Quantifying numerical error in a model selection problem. FWBQ was used to model the numerical error of each integral L(Mi) explicitly. For integration based on n = 10 design points, FWBQ tells us that the computational estimate of the model posterior will be dominated by numerical error (left). When instead n = 100 design points are used (right), uncertainty due to numerical error becomes much smaller (but not yet small enough to determine the MAP estimate).
+
+completely dominated by numerical error. In contrast, when n is increased through 50, 100 and 200 (Fig. 3, right and Fig. S2), the uncertainty due to numerical error becomes negligible. At n = 200 we can conclude that model 26 is the true MAP estimate and further computations can be halted. Correctness of this result was confirmed using the more computationally intensive methods in [19].
+In Appendix D we compared the relative performance of FWBQ, FWLSBQ and SBQ on this problem. Fig. S1 shows that the BQ weights reduced the MMD by orders of magnitude relative to FW and FWLS and that SBQ converged more quickly than both FWBQ and FWLSBQ.
+5 Conclusions
+This paper provides the first theoretical results for probabilistic integration, in the form of posterior contraction rates for FWBQ and FWLSBQ. This is an important step in the probabilistic numerics research programme [15] as it establishes a theoretical justification for using the posterior distribution as a model for the numerical integration error (which was previously assumed [e.g. 11, 12, 20, 23, 25]). The practical advantages conferred by a fully probabilistic error model were demonstrated on a model selection problem from proteomics, where sensitivity of an evaluation of the MAP estimate was modelled in terms of the error arising from repeated numerical integration.
+The strengths and weaknesses of BQ (notably, including scalability in the dimension d of X ) are well-known and are inherited by our FWBQ methodology. We do not review these here but refer the reader to [22] for an extended discussion. Convergence, in the classical sense, was proven here to occur exponentially quickly for FWLSBQ, which partially explains the excellent performance of BQ and related methods seen in applications [12, 23], as well as resolving an open conjecture. As a bonus, the hybrid quadrature rules that we developed turned out to converge much faster in simulations than those in [2], which originally motivated our work.
+A key open problem for kernel methods in probabilistic numerics is to establish protocols for the practical elicitation of kernel hyper-parameters. This is important as hyper-parameters directly affect the scale of the posterior over numerical error that we ultimately aim to interpret. Note that this problem applies equally to BQ, as well as related quadrature methods [2, 11, 12, 20] and more generally in probabilistic numerics [26]. Previous work, such as [13], optimised hyper-parameters on a perapplication basis. Our ongoing research seeks automatic and general methods for hyper-parameter elicitation that provide good frequentist coverage properties for posterior credible intervals, but we reserve the details for a future publication.
+Acknowledgments
+The authors are grateful for discussions with Simon Lacoste-Julien, Simo Sarkka, Arno Solin, Dino Sejdinovic, Tom Gunter and Mathias Cronjager. FXB was supported by EPSRC [EP/L016710/1]. CJO was supported by EPSRC [EP/D002060/1]. MG was supported by EPSRC [EP/J016934/1], an EPSRC Established Career Fellowship, the EU grant [EU/259348] and a Royal Society Wolfson Research Merit Award.
+
+8
+
+References
+[1] F. Bach. On the Equivalence between Quadrature Rules and Random Features. arXiv:1502.06800, 2015.
+[2] F. Bach, S. Lacoste-Julien, and G. Obozinski. On the Equivalence between Herding and Conditional Gradient Algorithms. In Proceedings of the 29th International Conference on Machine Learning, pages 1359-1366, 2012.
+[3] Y. Chen, L. Bornn, N. de Freitas, M. Eskelin, J. Fang, and M. Welling. Herded Gibbs Sampling. Journal of Machine Learning Research, 2015. To appear.
+[4] Y. Chen, M. Welling, and A. Smola. Super-Samples from Kernel Herding. In Proceedings of the Conference on Uncertainty in Artificial Intelligence, pages 109-116, 2010.
+[5] P. Conrad, M. Girolami, S. Sarkka, A. Stuart, and K. Zygalakis. Probability Measures for Numerical Solutions of Differential Equations. arXiv:1506.04592, 2015.
+[6] P. Diaconis. Bayesian Numerical Analysis. Statistical Decision Theory and Related Topics IV, pages 163-175, 1988.
+[7] J. Dick and F. Pillichshammer. Digital Nets and Sequences - Discrepancy Theory and Quasi-Monte Carlo Integration. Cambridge University Press, 2010.
+[8] J. C. Dunn. Convergence Rates for Conditional Gradient Sequences Generated by Implicit Step Length Rules. SIAM Journal on Control and Optimization, 18(5):473-487, 1980.
+[9] M. Frank and P. Wolfe. An Algorithm for Quadratic Programming. Naval Research Logistics Quarterly, 3:95-110, 1956.
+[10] D. Garber and E. Hazan. Faster Rates for the Frank-Wolfe Method over Strongly-Convex Sets. In Proceedings of the 32nd International Conference on Machine Learning, pages 541-549, 2015.
+[11] Z. Ghahramani and C. Rasmussen. Bayesian Monte Carlo. In Advances in Neural Information Processing Systems, pages 489-496, 2003.
+[12] T. Gunter, R. Garnett, M. Osborne, P. Hennig, and S. Roberts. Sampling for Inference in Probabilistic Models with Fast Bayesian Quadrature. In Advances in Neural Information Processing Systems, 2014.
+[13] J.B. Hamrick and T.L. Griffiths. Mental Rotation as Bayesian Quadrature. In NIPS 2013 Workshop on Bayesian Optimization in Theory and Practice, 2013.
+[14] P. Hennig. Probabilistic Interpretation of Linear Solvers. SIAM Journal on Optimization, 25:234-260, 2015.
+[15] P. Hennig, M. Osborne, and M. Girolami. Probabilistic Numerics and Uncertainty in Computations. Proceedings of the Royal Society A, 471(2179), 2015.
+[16] F. Huszar and D. Duvenaud. Optimally-Weighted Herding is Bayesian Quadrature. In Uncertainty in Artificial Intelligence, pages 377-385, 2012.
+[17] M. Jaggi. Revisiting Frank-Wolfe: Projection-Free Sparse Convex Optimization. In Proceedings of the 30th International Conference on Machine Learning, volume 28, pages 427-435, 2013.
+[18] S. Lacoste-Julien, F. Lindsten, and F. Bach. Sequential Kernel Herding : Frank-Wolfe Optimization for Particle Filtering. In Proceedings of the 18th International Conference on Artificial Intelligence and Statistics, pages 544-552, 2015.
+[19] C.J. Oates, F. Dondelinger, N. Bayani, J. Korkola, J.W. Gray, and S. Mukherjee. Causal Network Inference using Biochemical Kinetics. Bioinformatics, 30(17):i468-i474, 2014.
+[20] C.J. Oates, M. Girolami, and N. Chopin. Control Functionals for Monte Carlo Integration. arXiv: 1410.2392, 2015.
+[21] A. O'Hagan. Monte Carlo is Fundamentally Unsound. Journal of the Royal Statistical Society, Series D, 36(2):247-249, 1984.
+[22] A. O'Hagan. Bayes-Hermite Quadrature. Journal of Statistical Planning and Inference, 29:245-260, 1991.
+[23] M. Osborne, R. Garnett, S. Roberts, C. Hart, S. Aigrain, and N. Gibson. Bayesian Quadrature for Ratios. In Proceedings of the 15th International Conference on Artificial Intelligence and Statistics, pages 832- 840, 2012.
+[24] A. B. Owen. A Constraint on Extensible Quadrature Rules. Numerische Mathematik, pages 1-8, 2015.
+[25] S. Sarkka, J. Hartikainen, L. Svensson, and F. Sandblom. On the Relation between Gaussian Process Quadratures and Sigma-Point Methods. arXiv:1504.05994, 2015.
+[26] M. Schober, D. Duvenaud, and P. Hennig. Probabilistic ODE solvers with Runge-Kutta means. In Advances in Neural Information Processing Systems 27, pages 739-747, 2014.
+[27] B. Sriperumbudur, A. Gretton, K. Fukumizu, B. Scholkopf, and G. Lanckriet. Hilbert Space Embeddings and Metrics on Probability Measures. Journal of Machine Learning Research, 11:1517-1561, 2010.
+9
+
