@@ -5,41 +5,35 @@ import os
 import numpy as np
 from tabulate import tabulate
 
-from utils import get_terms
-from make_index import PICKLE_PATH
+from utils import get_terms, PICKLE_PATH, TFIDF_PATH, NPMI_PATH
 
 TOP_SIZE = 10
 
 
-def get_documents_ids(terms, inverted_index):
-    doc_ids = set()
+def get_documents_ids(terms, tfidf_matrix):
+    tfidf_sums = np.zeros(tfidf_matrix.shape[0])
     for term in terms:
-        doc_ids = doc_ids.union(inverted_index.get(term, set()))
-    return np.array(list(doc_ids))
-
-
-def get_tfidf_matrix(documents_ids, terms, inverted_index, term_to_idf):
-    tfidf_matrix = np.array([[0.] * len(terms) for _ in range(len(documents_ids))])
-    doc_id_to_position = dict(zip(documents_ids, range(len(documents_ids))))
-    for term_id, term in enumerate(terms):
-        if term not in term_to_idf:
-            continue
-        idf = term_to_idf[term]
-        for doc_id, tf in inverted_index[term].iteritems():
-            tfidf_matrix[doc_id_to_position[doc_id]][term_id] = tf * idf
-    return tfidf_matrix
+        tfidf_sums += tfidf_matrix[:, term]
+    doc_ids = np.argwhere(tfidf_sums)  # get documents that have non-zero tfidf sum for terms
+    return doc_ids
 
 
 def main():
-    inverted_index, id_to_path, term_to_idf = cPickle.load(open(PICKLE_PATH, "rb"))
+    vocabulary, term_to_id, inverted_index, doc_id_to_path = cPickle.load(open(PICKLE_PATH, "rb"))
+    tfidf_matrix = np.load(TFIDF_PATH)
+    npmi_matrix = np.load(NPMI_PATH)
 
     while True:
         query = raw_input("\nType your query: ")
         print
         terms = get_terms(query)
+        # Get id-s for terms presented in vocabulary
+        terms = [term_to_id[t] for t in terms if t in term_to_id]
         if not len(terms):
             continue
-        documents_ids = get_documents_ids(terms, inverted_index)
+        documents_ids = get_documents_ids(terms, tfidf_matrix)
+        print documents_ids
+        break
         tfidf_matrix = get_tfidf_matrix(documents_ids, terms, inverted_index, term_to_idf)
         similarities = tfidf_matrix.sum(axis=1) / len(terms)
 
