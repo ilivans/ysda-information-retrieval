@@ -96,10 +96,7 @@ def build_and_save_npmi_submatrix(terms_batch):
             p2 = float(len(posting_list2)) / num_docs
             intersection_size = len(docs1.intersection(posting_list2))
             p12 = float(intersection_size) / num_docs
-            if p12 != 0.:
-                npmi = log2(p12 / p1 / p2) / (-log2(p12))
-            else:
-                npmi = 0.
+            npmi = log2(p12 / p1 / p2) / (-log2(p12)) if p12 != 0. else -1.
             npmi_submatrix[term1 - term0, term2] = npmi
     np.save(NPMI_PATH_TEMPLATE.format(term0, term0 + NPMI_PART_SIZE - 1), npmi_submatrix)
 
@@ -107,7 +104,8 @@ def build_and_save_npmi_submatrix(terms_batch):
 def build_and_save_npmi_matrix():
     print("Building and saving NPMI matrix...")
     num_tasks = voc_size / NPMI_PART_SIZE + min(1, voc_size % NPMI_PART_SIZE)
-    print("{} tasks total should take about {} minutes with 8 threads.".format(num_tasks, num_tasks / 152 * 4 * NPMI_PART_SIZE / 100))
+    print("{} tasks total should take about {} minutes with 8 threads at 3.5GHz.".format(
+           num_tasks, num_tasks / 35 * NPMI_PART_SIZE / 100))
     make_npmi_dir()
     voc_range = np.arange(voc_size)
     Parallel(n_jobs=-1, verbose=10)(delayed(build_and_save_npmi_submatrix)(batch)

@@ -76,12 +76,12 @@ def main():
             tuples = get_top_pairs(tfidf_subvector, npmi_subsubmatrix)
             tuples = map(lambda tup: (vocabulary[query_terms[tup[0]]], vocabulary[doc_terms[tup[1]]]) + tup[2:], tuples)
 
-            top_table.append([similarities[i], file_name] + tuples[:1])
+            top_table.append([similarities[i], file_name] + list(tuples[0]))
             for tup in tuples[1:]:
-                top_table.append(["", "", tup])
-            top_table.append(["", "", ""])
+                top_table.append(["", ""] + list(tup))
+            top_table.append([""] * 6)
 
-        print(tabulate(top_table, showindex=False, headers=["sim", "doc", "(u, v, v_tfidf, uv_npmi)"] + query_terms, numalign="left"))
+        print(tabulate(top_table, showindex=False, headers=["sim", "doc", "u", "v", "v_tfidf", "uv_npmi"] + query_terms, numalign="left"))
 
 
 if __name__ == "__main__":
