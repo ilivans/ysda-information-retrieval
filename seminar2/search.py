@@ -3,10 +3,9 @@ import cPickle
 import os
 
 import numpy as np
-from tabulate import tabulate
+# from tabulate import tabulate
 
-from utils import get_terms
-from make_index import PICKLE_PATH
+from utils import get_terms, PICKLE_PATH
 
 TOP_SIZE = 10
 
