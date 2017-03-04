@@ -6,14 +6,17 @@ import cPickle
 import argparse
 from collections import Counter
 from time import clock
+import warnings
 
 import numpy as np
+import sys
+
 from numpy import log2
 from joblib import Parallel, delayed
 
-from utils import get_terms, PICKLE_PATH, TFIDF_PATH, NPMI_PATH
+from utils import get_terms, make_npmi_dir, PICKLE_PATH, TFIDF_PATH, NPMI_PART_SIZE, NPMI_PATH_TEMPLATE, VOCABULARY_PATH
 
-EPSILON = 1e-6
+EPSILON = 1e-8
 
 
 def build_index():
@@ -47,7 +50,7 @@ def get_vocabulary():
 
 
 def build_inverted_index():
-    inverted_index = [dict()] * voc_size
+    inverted_index = [dict() for _ in xrange(voc_size)]
     for document_id, document in index.iteritems():
         tokens = get_terms(document)
         if not len(tokens):
@@ -74,7 +77,7 @@ def get_inverse_document_frequencies():
 
 
 def get_tfidf_matrix():
-    tfidf_matrix = np.zeros((num_docs, voc_size))
+    tfidf_matrix = np.zeros((num_docs, voc_size), dtype=np.float32)
     for term, posting_list in enumerate(inverted_index):
         idf = idfs[term]
         for doc_id, tf in posting_list.iteritems():
@@ -82,48 +85,38 @@ def get_tfidf_matrix():
     return tfidf_matrix
 
 
-def get_npmi_vector(term1):
-    posting_list1 = inverted_index[term1]
-    p1 = float(len(posting_list1)) / num_docs
-    npmi_vector = np.zeros(len(vocabulary))
-    for term2, posting_list2 in enumerate(inverted_index):
-        p2 = float(len(posting_list2)) / num_docs
-        intersection_size = len(set().union(posting_list1).intersection(posting_list2))
-        p12 = float(intersection_size) / num_docs + EPSILON
-        npmi_vector[term2] = log2(p12 / p1 / p2) / (-log2(p12))
-    return npmi_vector
-
-
-def get_npmi_matrix():
-    print(voc_size, "tasks")
-    npmi_matrix = Parallel(n_jobs=-1, verbose=5)(delayed(get_npmi_vector)(i1) for i1 in range(voc_size))
-    npmi_matrix = np.array(npmi_matrix)
-    return npmi_matrix
-
-
-def get_npmi_vector2(terms1):
-    npmi_submatrix = np.zeros((len(terms1), voc_size))
-    for term1 in terms1:
+def build_and_save_npmi_submatrix(terms_batch):
+    npmi_submatrix = np.zeros((len(terms_batch), voc_size), dtype=np.float32)
+    term0 = terms_batch[0]  # id of the first term in the batch
+    for term1 in terms_batch:
         posting_list1 = inverted_index[term1]
-        p1 = float(len(posting_list1)) / num_docs
+        docs1 = set().union(posting_list1)
+        p1 = float(len(docs1)) / num_docs
         for term2, posting_list2 in enumerate(inverted_index):
             p2 = float(len(posting_list2)) / num_docs
-            intersection_size = len(set().union(posting_list1).intersection(posting_list2))
-            p12 = float(intersection_size) / num_docs + EPSILON
-            npmi_submatrix[term1 - terms1[0], term2] = log2(p12 / p1 / p2) / (-log2(p12))
-    return npmi_submatrix
+            intersection_size = len(docs1.intersection(posting_list2))
+            p12 = float(intersection_size) / num_docs
+            if p12 != 0.:
+                npmi = log2(p12 / p1 / p2) / (-log2(p12))
+            else:
+                npmi = 0.
+            npmi_submatrix[term1 - term0, term2] = npmi
+    np.save(NPMI_PATH_TEMPLATE.format(term0, term0 + NPMI_PART_SIZE - 1), npmi_submatrix)
 
 
-def get_npmi_matrix2():
-    print(voc_size, "tasks")
-    n_jobs = 8
-    part_size = voc_size / n_jobs
-    npmi_matrix = Parallel(n_jobs=-1, verbose=5)(delayed(get_npmi_vector2)(i1) for i1 in [part_size * n for n in range(1, n_jobs)])
-    npmi_matrix = np.vstack(npmi_matrix)
-    return npmi_matrix
+def build_and_save_npmi_matrix():
+    print("Building and saving NPMI matrix...")
+    num_tasks = voc_size / NPMI_PART_SIZE + min(1, voc_size % NPMI_PART_SIZE)
+    print("{} tasks total should take about {} minutes with 8 threads.".format(num_tasks, num_tasks / 8 * 5))
+    make_npmi_dir()
+    voc_range = np.arange(voc_size)
+    Parallel(n_jobs=-1, verbose=50)(delayed(build_and_save_npmi_submatrix)(batch)
+                                    for batch in np.split(voc_range, voc_range[NPMI_PART_SIZE::NPMI_PART_SIZE]))
+
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-d", "--dir", nargs="?", default="./txt/", help="Path to the directory with documents")
     dir_path = arg_parser.parse_args().dir
@@ -135,13 +128,11 @@ if __name__ == "__main__":
     num_docs = get_documents_number()
     idfs = get_inverse_document_frequencies()
     tfidf_matrix = get_tfidf_matrix()
-    npmi_matrix = get_npmi_matrix()
+    npmi_matrix = build_and_save_npmi_matrix()
 
-    print("Saving results... ", end="")
+    print("Saving the other results... ", end=""), sys.stdout.flush()
     start_time = clock()
-    cPickle.dump((vocabulary, term_to_id, inverted_index, doc_id_to_path), open(PICKLE_PATH, "wb"))
+    cPickle.dump((term_to_id, inverted_index, doc_id_to_path), open(PICKLE_PATH, "wb"))
     np.save(TFIDF_PATH, tfidf_matrix)
-    np.save(NPMI_PATH, npmi_matrix)
+    np.save(VOCABULARY_PATH, vocabulary)
     print("{:.0f} s".format(clock() - start_time))
-
-    get_npmi_matrix2()
