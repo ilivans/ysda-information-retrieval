@@ -107,10 +107,10 @@ def build_and_save_npmi_submatrix(terms_batch):
 def build_and_save_npmi_matrix():
     print("Building and saving NPMI matrix...")
     num_tasks = voc_size / NPMI_PART_SIZE + min(1, voc_size % NPMI_PART_SIZE)
-    print("{} tasks total should take about {} minutes with 8 threads.".format(num_tasks, num_tasks / 8 * 5))
+    print("{} tasks total should take about {} minutes with 8 threads.".format(num_tasks, num_tasks / 152 * 4 * NPMI_PART_SIZE / 100))
     make_npmi_dir()
     voc_range = np.arange(voc_size)
-    Parallel(n_jobs=-1, verbose=50)(delayed(build_and_save_npmi_submatrix)(batch)
+    Parallel(n_jobs=-1, verbose=10)(delayed(build_and_save_npmi_submatrix)(batch)
                                     for batch in np.split(voc_range, voc_range[NPMI_PART_SIZE::NPMI_PART_SIZE]))
 
 

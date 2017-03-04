@@ -10,7 +10,7 @@ VOCABULARY_PATH = "vocabulary.npy"
 
 NPMI_FOLDER = "npmi_parts"
 NPMI_PATH_TEMPLATE = os.path.join(NPMI_FOLDER, "npmi{}-{}.npy")
-NPMI_PART_SIZE = 1000
+NPMI_PART_SIZE = 100
 
 def get_terms(text):
     return tokenize(text.lower())
