@@ -4,7 +4,6 @@ import cPickle
 import argparse
 from collections import defaultdict, Counter
 
-import numpy as np
 from numpy import log2
 
 from utils import get_terms, PICKLE_PATH
@@ -24,16 +23,6 @@ def build_index(dir_path):
             id_to_path[document_id] = document_path
             document_id += 1
     return index, id_to_path
-
-
-def get_vocabulary(index):
-    vocabulary = {}
-    
-    for document_id, document in index.iteritems():
-        tokens = get_terms(document)
-        if not len(tokens):
-            continue
-        vocabulary[]
 
 
 def build_inverted_index(index):
@@ -61,18 +50,6 @@ def get_inverse_document_frequencies(inverted_index, num_docs):
         idf = log2(float(num_docs) / num_docs_local) / log2(num_docs) # 0 <= idf <= 1
         term_to_idf[term] = idf
     return term_to_idf
-
-
-def get_npmi_matrix(inverted_index, num_docs):
-    vocabulary = inverted_index.keys()
-    voc_size = len(inverted_index)
-    npmi_matrix = np.array((voc_size, voc_size))
-    for v1 in vocabulary:
-        p1 = float(inverted_index[v1]) / num_docs
-        for v2 in vocabulary:
-            p2 = float(inverted_index[v2]) / num_docs
-            p12 = float(inverted_index[v1] & inverted_index[v2]) / num_docs + EPSILON
-            npmi_matrix[v1]
 
 
 def main():

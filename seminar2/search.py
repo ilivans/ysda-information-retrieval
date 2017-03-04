@@ -3,7 +3,7 @@ import cPickle
 import os
 
 import numpy as np
-# from tabulate import tabulate
+from tabulate import tabulate
 
 from utils import get_terms, PICKLE_PATH
 
