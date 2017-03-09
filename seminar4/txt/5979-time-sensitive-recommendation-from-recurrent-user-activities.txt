@@ -1,0 +1,860 @@
+Time-Sensitive Recommendation From Recurrent User Activities
+Nan Du , Yichen Wang , Niao He, Le Song College of Computing, Georgia Tech
+H. Milton Stewart School of Industrial & System Engineering, Georgia Tech dunan@gatech.edu, yichen.wang@gatech.edu, nhe6@gatech.edu
+lsong@cc.gatech.edu
+Abstract
+By making personalized suggestions, a recommender system is playing a crucial role in improving the engagement of users in modern web-services. However, most recommendation algorithms do not explicitly take into account the temporal behavior and the recurrent activities of users. Two central but less explored questions are how to recommend the most desirable item at the right moment, and how to predict the next returning time of a user to a service. To address these questions, we propose a novel framework which connects self-exciting point processes and low-rank models to capture the recurrent temporal patterns in a large collection of user-item consumption pairs. We show that the parameters of the model can be estimated via a convex optimization, and furthermore, we develop an efficient algorithm that maintains O(1/ ) convergence rate, scales up to problems with millions of user-item pairs and thousands of millions of temporal events. Compared to other state-of-the-arts in both synthetic and real datasets, our model achieves superb predictive performance in the two time-sensitive recommendation questions. Finally, we point out that our formulation can incorporate other extra context information of users, such as profile, textual and spatial features.
+1 Introduction
+Delivering personalized user experiences is believed to play a crucial role in the long-term engagement of users to modern web-services [26]. For example, making recommendations on proper items at the right moment can make personal assistant services on mainstream mobile platforms more competitive and usable, since people tend to have different activities depending on the temporal/spatial contexts such as morning vs. evening, weekdays vs. weekend (see for example Figure 1(a)). Unfortunately, most existing recommendation techniques are mainly optimized at predicting users' onetime preference (often denoted by integer ratings) on items, while users' continuously time-varying preferences remain largely under explored.
+Besides, traditional user feedback signals (e.g. user-item ratings, click-through-rates, etc.) have been increasingly argued to be ineffective to represent real engagement of users due to the sparseness and nosiness of the data [26]. The temporal patterns at which users return to the services (items) thus becomes a more relevant metric to evaluate their satisfactions [12]. Furthermore, successful predictions of the returning time not only allows a service to keep track of the evolving user preferences, but also helps a service provider to improve their marketing strategies. For most web companies, if we can predict when users will come back next, we could make ads bidding more economic, allowing marketers to bid on time slots. After all, marketers need not blindly bid all time slots indiscriminately. In the context of modern electronic health record data, patients may have several diseases that have complicated dependencies on each other shown at the bottom of Figure 1(a). The occurrence of one disease could trigger the progression of another. Predicting the returning time on certain disease can effectively help doctors to take proactive steps to reduce the potential risks. However, since most models in literature are particularly optimized for predicting ratings [16, 23, 15, 3, 25, 13, 21],
+1
+
+user
+
+Church
+
+? t
+
+time
+
+predict the next activity at time t ?
+
+Grocery
+
+? t
+
+time
+
+Disease 1
+
+? time
+
+Disease n
+
+next event prediction ? time
+
+time
+
+patient
+
+(a) Predictions from recurrent events.
+
+(b) User-item-event model.
+
+Figure 1: Time-sensitive recommendation. (a) in the top figure, one wants to predict the most desirable activity at a given time t for a user; in the bottom figure, one wants to predict the returning time to a particular disease of a patient. (b) The sequence of events induced from each user-item pair (u, i) is modeled as a temporal point process along time.
+
+exploring the recurrent temporal dynamics of users' returning behaviors over time becomes more imperative and meaningful than ever before.
+Although the aforementioned applications come from different domains, we seek to capture them in a unified framework by addressing the following two related questions: (1) how to recommend the most relevant item at the right moment, and (2) how to accurately predict the next returningtime of users to existing services. More specifically, we propose a novel convex formulation of the problems by establishing an under explored connection between self-exciting point processes and low-rank models. We also develop a new optimization algorithm to solve the low rank point process estimation problem efficiently. Our algorithm blends proximal gradient and conditional gradient methods, and achieves the optimal O(1/t) convergence rate. As further demonstrated by our numerical experiments, the algorithm scales up to millions of user-item pairs and thousands of millions of temporal events, and achieves superb predictive performance on the two time-sensitive problems on both synthetic and real datasets. Furthermore, our model can be readily generalized to incorporate other contextual information by making the intensity function explicitly depend on the additional spatial, textual, categorical, and user profile information.
+Related Work. The very recent work of Kapoor et al. [12, 11] is most related to our approach. They attempt to predict the returning time for music streaming service based on survival analysis [1] and hidden semi-markov model. Although these methods explicitly consider the temporal dynamics of user-item pairs, a major limitation is that the models cannot generalize to recommend any new item in future time, which is a crucial difference compared to our approach. Moreover, survival analysis is often suitable for modeling a single terminal event [1], such as infection and death, by assuming that the inter-event time to be independent. However, in many cases this assumption might not hold.
+
+2 Background on Temporal Point Processes
+
+This section introduces necessary concepts from the theory of temporal point processes [4, 5, 6]. A temporal point process is a random process of which the realization is a sequence of events {ti} with ti  R+ and i  Z+ abstracted as points on the time line. Let the history T be the list of event time {t1, t2, . . . , tn} up to but not including the current time t. An important way to characterize temporal point processes is via the conditional intensity function, which is the stochastic model
+for the next event time given all previous events. Within a small window [t, t + dt), (t)dt = P {event in [t, t + dt)|T } is the probability for the occurrence of a new event given the history T .
+
+The functional form of the intensity (t) is designed to capture the phenomena of interests [1]. For
+
+instance, a homogeneous Poisson process has a constant intensity over time, i.e., (t) = 0 0, which is independent of the history T . The inter-event gap thus conforms to the exponential
+
+distribution with the mean being 1/0. Alternatively, for an inhomogeneous Poisson process, its intensity function is also assumed to be independent of the history T but can be a simple function
+
+of time, i.e., (t) = g(t) 0. Given a sequence of events T = {t1, . . . , tn}, for any t > tn,
+
+we characterize the conditional probability that no event happens during [tn, t) and the conditional
+
+density f (t|T ) that an event occurs at time t as S(t|T ) = exp
+
+-
+
+t tn
+
+(
+
+)
+
+d
+
+and f (t|T ) =
+
+2
+
+(t) S(t|T ) [1]. Then given a sequence of events T = {t1, . . . , tn}, we express its likelihood by
+
+({t1, . . . , tn}) =
+
+T
+
+tiT (ti) * exp
+
+- ( ) d
+0
+
+.
+
+(1)
+
+3 Low Rank Hawkes Processes
+In this section, we present our model in terms of low-rank self-exciting Hawkes processes, discuss its possible extensions and provide solutions to our proposed time-sensitive recommendation problems.
+
+3.1 Modeling Recurrent User Activities with Hawkes Processes
+Figure 1(b) highlights the basic setting of our model. For each observed user-item pair (u, i), we model the occurrences of user u's past consumption events on item i as a self-exciting Hawkes process [10] with the intensity:
+
+(t) = 0 +  tiT (t, ti),
+
+(2)
+
+where (t, ti) 0 is the triggering kernel capturing temporal dependencies,  0 scales the magnitude of the influence of each past event, 0 0 is a baseline intensity, and the summation of the kernel terms is history dependent and thus a stochastic process by itself.
+
+We have a twofold rationale behind this modeling choice. First, the baseline intensity 0 captures users' inherent and long-term preferences to items, regardless of the history. Second, the triggering kernel (t, ti) quantifies how the influence from each past event evolves over time, which makes the intensity function depend on the history T . Thus, a Hawkes process is essentially a conditional Poisson process [14] in the sense that conditioned on the history T , the Hawkes process is a Poisson
+process formed by the superposition of a background homogeneous Poisson process with the intensity 0 and a set of inhomogeneous Poisson processes with the intensity (t, ti). However, because the events in the past can affect the occurrence of the events in future, the Hawkes process in general
+is more expressive than a Poisson process, which makes it particularly useful for modeling repeated
+activities by keeping a balance between the long and the short term aspects of users' preferences.
+
+3.2 Transferring Knowledge with Low Rank Models
+So far, we have shown modeling a sequence of events from a single user-item pair. Since we cannot observe the events from all user-item pairs, the next step is to transfer the learned knowledge to unobserved pairs. Given m users and n items, we represent the intensity function between user u and item i as u,i(t) = u0,i + u,i tuj ,iT u,i (t, tuj ,i), where u0,i and u,i are the (u, i)-th entry of the m-by-n non-negative base intensity matrix 0 and the self-exciting matrix A, respectively.
+However, the two matrices of coefficients 0 and A contain too many parameters. Since it is often believed that users' behaviors and items' attributes can be categorized into a limited number of prototypical types, we assume that 0 and A have low-rank structures. That is, the nuclear norms of these parameter matrices are small 0   , A   . Some researchers also explicitly assume that the two matrices factorize into products of low rank factors. Here we assume the above nuclear norm constraints in order to obtain convex parameter estimation procedures later.
+
+3.3 Triggering Kernel Parametrization and Extensions
+Because it is only required that the triggering kernel should be nonnegative and bounded, feature u,i in 3 often has analytic forms when (t, tuj ,i) belongs to many flexible parametric families, such as the Weibull and Log-logistic distributions [1]. For the simplest case, (t, tuj ,i) takes the exponential form (t, tuj ,i) = exp(-(t - tuj ,i)/). Alternatively, we can make the intensity function u,i(t) depend on other additional context information associated with each event. For instance, we can make the base intensity 0 depend on user-profiles and item-contents [9, 7]. We might also extend 0 and A into tensors to incorporate the location information. Furthermore, we can even learn the triggering kernel directly using nonparametric methods [8, 30]. Without loss of generality, we stick with the exponential form in later sections.
+
+3.4 Time-Sensitive Recommendation Once we have learned 0 and A, we are ready to solve our proposed problems as follows :
+
+3
+
+(a) Item recommendation. At any given time t, for each user-item pair (u, i), because the intensity function u,i(t) indicates the tendency that user u will consume item i at time t, for each user u, we recommend the proper items by the following procedures :
+1. Calculate u,i(t) for each item i. 2. Sort the items by the descending order of u,i(t). 3. Return the top-k items.
+
+(b) Returning-time prediction: for each user-item pair (u, i), the intensity function u,i(t) domi-
+
+nates the point patterns along time. Given the history T u,i = {t1, t2, . . . , tn}, we calculate the
+
+density of the next event time by f (t|T u,i) = u,i(t) exp
+
+-
+
+t tn
+
+u,i(t)dt
+
+, so we can use the
+
+expectation to predict the next event. Unfortunately, this expectation often does not have analytic
+
+forms due to the complexity of u,i(t) for Hawkes process, so we approximate the returning-time
+
+as following :
+
+1. Draw samples t1n+1, . . . , tmn+1  f (t|T u,i) by Ogata's thinning algorithm [19].
+
+2.
+
+Estimate the returning-time by the sample average
+
+1 m
+
+m i=1
+
+tin+1
+
+4 Parameter Estimation
+Having presented our model, in this section, we develop a new algorithm which blends proximal gradient and conditional gradient methods to learn the model efficiently.
+4.1 Convex Formulation
+
+Let T u,i be the set of events induced between u and i. We express the log-likelihood of observing each sequence T u,i based on Equation 1 as :
+
+T u,i|0, A =
+
+tuj ,iT u,i log(wu,iuj ,i) - wu,iu,i,
+
+(3)
+
+where wu,i = (0(u, i), A(u, i)) , uj ,i = (1, tuk,i<tuj ,i (tuj ,i, tuk,i)) and u,i =
+
+(T ,
+
+tuj ,iT u,i
+
+T tuj ,i
+
+(t,
+
+tuj ,i)dt)
+
+.
+
+When (t, tuj ,i) is the exponential kernel, u,i can be ex-
+
+pressed as u,i = (T, (1tuj ,iT u,i - exp(-(T - tuj ,i)/))) . Then, the log-likelihood of
+
+observing all event sequences O = T u,i u,i is simply a summation of each individual term by
+
+(O) = T u,iO T u,i . Finally, we can have the following convex formulation :
+
+OPT = min - 1 0,A |O|
+
+T u,iO T u,i|0, A +  0  +  A  subject to 0, A 0, (4)
+
+where the matrix nuclear norm * , which is a summation of all singular values, is commonly used as a convex surrogate for the matrix rank function [24]. One off-the-shelf solution to 4 is proposed in [29] based on ADMM. However, the algorithm in [29] requires, at each iteration, a full SVD for computing the proximal operator, which is often prohibitive with large matrices. Alternatively, we might turn to more efficient conditional gradient algorithms [28], which require instead, the much cheaper linear minimization oracles. However, the non-negativity constraints in our problem prevent the linear minimization from having a simple analytical solution.
+
+4.2 Alternative Formulation
+
+The difficulty of directly solving the original formulation 4 is caused by the fact that the nonnegative constraints are entangled with the non-smooth nuclear norm penalty. To address this challenge, we approximate 4 using a simple penalty method. Specifically, given  > 0, we arrive at the next formulation 5 by introducing two auxiliary variables Z1 and Z2 with some penalty function, such as the squared Frobenius norm.
+
+1
+
+OPT = min -
+
+0 ,A,Z1 ,Z2
+
+|O|
+T u,iO
+
+T u,i|0, A
+
++
+
+Z1
+
++
+
+Z2
+
+ +  0 - Z1
+
+2 F
+
++
+
+A - Z2
+
+2 F
+
+subject to 0, A
+
+0.
+
+(5)
+
+4
+
+Algorithm 1: Learning Hawkes-Recommender
+
+Input: O = T u,i ,  > 0
+
+Output: Y1 = [0; A] Choose to initialize X10 and X20 = X10 ; Set Y 0 = X0;
+
+for k = 1, 2, . . . do
+
+k
+
+=
+
+2 k+1
+
+;
+
+U k-1 = (1 - k)Y k-1 + kXk-1 ;
+
+X1k = ProxUk-1 k1(f (U k-1)) ; X2k = LMO 2(f (U k-1)) ;
+Y k = (1 - k)Y k-1 + kXk;
+
+end
+
+Algorithm 2: ProxUk-1 k1(f (U k-1))
+X1k = U k-1 - k1(f (U k-1)) +;
+Algorithm 3: LMO 2(f (U k-1))
+(u1, v1), (u2, v2) top singular vector pairs of -2(f (U k-1))[Z1] and -2(f (U k-1))[Z2]; X2k[Z1] = u1v1 , X2k[Z2] = u2v2 ; Find 1k and 2k by solving (6); X2k[Z1] = 1kX2k[Z1]; X2k[Z2] = 2kX2k[Z2];
+
+We show in Theorem 1 that when  is properly chosen, these two formulations lead to the same optimum. See appendix for the complete proof. More importantly, the new formulation 5 allows us to handle the nonegativity constraints and nuclear norm regularization terms separately.
+
+Theorem 1. With the condition  , the optimal value OPT of the problem 5 coincides with the optimal value OPT in the problem 4 of interest, where  is a problem dependent threshold,
+
+ = max
+
+ ( 0  - Z1 ) +  ( A  - Z2 )
+
+0 - Z1
+
+2 F
+
++
+
+A - Z2
+
+2 F
+
+.
+
+4.3 Efficient Optimization: Proximal Method Meets Conditional Gradient
+
+Now, we are ready to present Algorithm 1 for solving 5 efficiently. Denote X1 = [0; A], X2 =
+
+[Z1; Z2] and X = [X1; X2]. We use the bracket [*] notation X1[0], X1[A], X2[Z1], X2[Z2]
+
+to represent the respective part for simplicity. Let f (X) := f (0, A, Z1, Z2) =
+
+-
+
+1 |O|
+
+T u,iO
+
+T u,i|0, A
+
++
+
+0 - Z1
+
+2 F
+
++
+
+
+
+A - Z2
+
+2 F
+
+.
+
+The course of our action is straightforward: at each iteration, we apply cheap projection gradient for
+block X1 and cheap linear minimization for block X2 and maintain three interdependent sequences U k k 1, Y k k 1 and Xk k 1 based on the accelerated scheme in [17, 18]. To be more
+specific, the algorithm is consisted of two main subroutines:
+
+Proximal Gradient. When updating X1, we compute directly the associated proximal operator, which in our case, reduces to the simple projection X1k = U k-1 - k1f (U k-1) +, where (*)+ simply sets the negative coordinates to zero.
+
+Conditional Gradient. When updating X2, instead of computing the proximal operator, we call the linear minimization oracle (LMO): X2k[Z1] = argmin { pk[Z1], Z1 + (Z1)} where pk = 2(f (U k-1)) is the partial derivative with respect to X2 and (Z1) =  Z1 . We do similar updates for X2k[Z2]. The overall performance clearly depends on the efficiency of this LMO, which can be solved efficiently in our case as illustrated in Algorithm 3. Following [27], the linear minimization for our situation requires only : (i) computing X2k[Z1] = argmin Z1  1 pk[Z1], Z1 ,
+where the minimizer is readily given by X2k[Z1] = u1v1 , and u1, v1 are the top singular vectors of -pk[Z1]; and (ii) conducting a line-search that produces a scaling factor 1k = argmin1 0 h(1)
+
+h(1) := 
+
+Y1k-1[0] - (1 - k)Y2k-1[Z1] - k(1X2k[Z1])
+
+2 F
+
++ k1 + C,
+
+(6)
+
+where C = (1 - k) Y2k-1[Z1] . The quadratic problem (6) admits a closed-form solution and thus can be computed efficiently. We repeat the same process for updating 2k accordingly.
+
+4.4 Convergence Analysis
+Denote F (X) = f (X)+(X2) as the objective in formulation 5, where X = [X1; X2]. We establish the following convergence results for Algorithm 1 described above when solving formulation 5. Please refer to Appendix for complete proof.
+
+5
+
+Theorem 2. Let Y k be the sequence generated by Algorithm 1 by setting k = 2/(k + 1), and k = (k)-1/L. Then for k 1, we have
+
+F (Y k) - OPT 4LD1 + 2LD2 . k(k + 1) k + 1
+
+(7)
+
+where L corresponds to the Lipschitz constant of f (X) and D1 and D2 are some problem dependent constants.
+
+Remark. Let g(0, A) denote the objective in formulation 4, which is the original problem of our
+
+interest. By invoking Theorem 1, we further have, g(Y k[0], Y k[A]) - OPT
+
+4LD1 k(k+1)
+
++
+
+2LD2 k+1
+
+.
+
+The analysis build upon the recursions from proximal gradient and conditional gradient methods.
+
+As a result, the overall convergence rate comes from two parts, as reflected in (7). Interestingly, one
+
+can easily see that for both the proximal and the conditional gradient parts, we achieve the respective
+
+optimal convergence rates. When there is no nuclear norm regularization term, the results recover
+
+the well-known optimal O(1/t2) rate achieved by proximal gradient method for smooth convex
+
+optimization. When there is no nonnegative constraints, the results recover the well-known O(1/t)
+
+rate attained by conditional gradient method for smooth convex minimization. When both nuclear
+
+norm and nonnegativity are in present, the proposed algorithm, up to our knowledge, is first of its
+
+kind, that achieves best of both worlds, which could be of independent interest.
+
+5 Experiments
+We evaluate our algorithm by comparing with state-of-the-art competitors on both synthetic and real datasets. For each user, we randomly pick 20-percent of all the items she has consumed and hold out the entire sequence of events. Besides, for each sequence of the other 80-percent items, we further split it into a pair of training/testing subsequences. For each testing event, we evaluate the predictive accuracy on two tasks :
+(a) Item Recommendation: suppose the testing event belongs to the user-item pair (u, i). Ideally item i should rank top at the testing moment. We record its predicted rank among all items. Smaller value indicates better performance.
+(b) Returning-Time Prediction: we predict the returning-time from the learned intensity function and compute the absolute error with respect to the true time.
+We repeat these two evaluations on all testing events. Because the predictive tasks on those entirely held-out sequences are much more challenging, we report the total mean absolute error (MAE) and that specific to the set of entirely heldout sequences, seperately.
+
+5.1 Competitors
+Poisson process is a relaxation of our model by assuming each user-item pair (u, i) has only a constant base intensity 0(u, i), regardless of the history. For task (a), it gives static ranks regardless of the time. For task (b), it produces an estimate of the average inter-event gaps. In many cases, the Poisson process is a hard baseline in that the most popular items often have large base intensity, and recommending popular items is often a strong heuristic.
+STiC [11] fits a semi-hidden markov model to each observed user-item pair. Since it can only make recommendations specific to the few observed items visited before, instead of the large number of new items, we only evaluate its performance on the returning time prediction task. For the set of entirely held-out sequences, we use the average predicted inter-event time from each observed item as the final prediction.
+SVD is the classic matrix factorization model. The implicit user feedback is converted into an explicit rating using the frequency of a users item consumptions [2]. Since it is not designed for predicting the returning time, we report its performance on the time-sensitive recommendation task as a reference.
+Tensor factorization generalizes matrix factorization to include time. We compare with the stateof-art method [3] which considers poisson regression as the loss function to fit the number of events in each discretized time slot and shows better performance compared to other alternatives with the squared loss [25, 13, 22, 21]. We report the performance by (1) using the parameters fitted only in the last interval, and (2) using the average parameters over all time intervals. We denote these two variants with varying number of intervals as Tensor-#-Last and Tensor-#-Avg.
+
+6
+
+0.3
+
+0.4
+
+Parameters
+
+Parameters
+
+Parameters
+
+A AA
+
+0 0.10
+
+0
+
+0
+
+0.2 0.3
+
+MAE
+
+MAE
+
+MAE
+
+0.2 0.1 0.05
+0.1
+
+0.0 0
+
+100 200 300 400 500 0.00 0
+#iterations
+
+25000
+
+50000
+
+75000
+
+#entries
+
+0.0
+
+100000
+
+0
+
+2500
+
+5000
+
+7500
+
+#events
+
+10000
+
+time(s)
+
+(a) Convergence by iterations
+104
+
+(b) Convergence by #user-item
+
+400
+
+Methods
+Hawkes
+
+Poisson
+
+Tensor2
+
+300
+
+Tensor90 SVD
+
+398.3
+
+200
+
+261.9 242.6
+213.5
+
+351.3
+234.7 210.5 193.4
+
+MAE
+
+103 102
+
+103 104 105
+#entries
+
+100
+
+59.9 43.3
+
+0 106
+
+Heldout
+
+Total
+
+Groups
+
+MAE
+
+(c) Convergence by #events
+
+300 200
+
+Methods
+Hawkes Poisson Tensor2Last Tensor2Avg Tensor90Last Tensor90Avg STiC
+
+319.3
+
+182.4 182.8 169.5 169.7 163.4
+
+100
+
+312.7
+171.3 171.9 151.5 153.7 141.2
+
+68.3 54.7
+
+0
+
+Heldout
+
+Total
+
+Groups
+
+(d) Scalability
+
+(e) Item recommendation
+
+(f) Returning-time prediction
+
+Figure 2: Estimation error (a) by #iterations, (b) by #entries (1,000 events per entry), and (c) by #events per entry (10,000 entries); (d) scalability by #entries (1,000 events per entry, 500 iterations); (e) MAE of the predicted ranking; and (f) MAE of the predicted returning time.
+
+5.2 Results
+
+Synthetic data. We generate two 1,024-by-1,204 user-item matrices 0 and A with rank five as the ground-truth. For each user-item pair, we simulate 1,000 events by Ogata's thinning algorithm [19] with an exponential triggering kernel and get 109 events in total. The bandwidth for the triggering
+kernel is fixed to one. By theorem 1, it is inefficient to directly estimate the exact value of the
+threshold value for . Instead, we tune ,  and  to give the best performance.
+
+How does our algorithm converge ? Figure 2(a) shows that it only requires a few hundred iterations to descend to a decent error for both 0 and A, indicating algorithm 1 converges very fast. Since the true parameters are low-rank, Figure 2(b-c) verify that it only requires a modest number of observed entries, each of which induces a small number of events (1,000) to achieve a good estimation performance. Figure 2(d) further illustrates that algorithm 1 scales linearly as the training set grows.
+
+What is the predictive performance ? Figure 2(e-f) confirm that algorithm 1 achieves the best predictive performance compared to other baselines. In Figure 2(e), all temporal methods outperform the static SVD since this classic baseline does not consider the underlying temporal dynamics of the observed sequences. In contrast, although the Poisson regression also produces static rankings of the items, it is equivalent to recommending the most popular items over time. This simple heuristic can still give competitive performance. In Figure 2(f), since the occurrence of a new event depends on the whole past history instead of the last one, the performance of STiC deteriorates vastly. The other tensor methods predict the returning time with the information from different time intervals. However, because our method automatically adapts different contributions of each past event to the prediction of the next event, it can achieve the best prediction performance overall.
+
+Real data. We also evaluate the proposed method on real datasets. last.fm consists of the music streaming logs between 1,000 users and 3,000 albums. There are around 20,000 observed useralbum pairs with more than one million events in total. tmall.com contains around 100K shopping events between 26,376 users and 2,563 stores. The unit time for both dataset is hour. MIMIC II medical dataset is a collection of de-identified clinical visit records of Intensive Care Unit patients for seven years. We filtered out 650 patients and 204 diseases. Each event records the time when a patient was diagnosed with a specific disease. The time unit is week. All model parameters , , , the kernel bandwidth and the latent rank of other baselines are tuned to give the best performance.
+
+Does the history help ? Because the true temporal dynamics governing the event patterns are unobserved, we first investigate whether our model assumption is reasonable. Our Hawkes model considers the self-exciting effects from past user activities, while the survival analysis applied in [11]
+
+7
+
+last.fm
+Quantiles of Real Data
+
+Quantile-plot
+8
+6
+4
+
+Item recommendation
+
+Methods
+Hawkes
+
+1085.7
+
+Poisson
+
+900
+
+Tensor2 Tensor90 896.7 903.7
+
+SVD 807.5
+
+1043.7 889.4 896.4
+
+600
+
+615.6
+
+MAE
+
+2
+Hawkes
+
+0 0
+
+Poisson Rayleigh
+246
+Theoretical Quantiles
+
+4
+
+3
+Hawkes
+2
+
+1
+
+8
+Poisson
+
+MAE
+
+300
+
+201.7
+
+191.6
+
+0
+
+Heldout
+
+Total
+
+Groups
+
+Methods
+200 Hawkes
+Poisson
+Tensor2
+Tensor90 150 SVD
+
+204 174.01
+
+132.06
+
+100
+
+111.27
+
+183.43 164.78
+115.15 87.23
+
+50
+43.65
+
+MAE
+
+MAE
+
+Returning-time prediction
+
+Methods
+Hawkes Poisson Tensor2Last 300 Tensor2Avg Tensor90Last Tensor90Avg STiC
+
+379.1
+
+200
+
+174.7 168.2 173.5 176.7
+
+100
+
+111.6 95.1
+
+372.9
+158.7 162.3 160.3 163.8 140.6 147.1
+
+0
+
+Heldout
+
+Total
+
+Groups
+
+300 200
+
+Methods
+Hawkes
+
+297.8
+
+Poisson
+
+Tensor2Last
+
+Tensor2Avg
+
+Tensor90Last
+
+Tensor90Avg
+
+STiC
+
+192.3 188.1 187.4 189.4
+
+100
+
+140.5 134.2
+
+292.6
+185.9 184.3 180.9 180.7 163.7 165.6
+
+tmall.com
+Quantiles of Real Data
+
+MIMIC II
+Quantiles of Real Data
+
+0 0
+8
+6
+4
+2
+
+Rayleigh
+123
+Theoretical Quantiles
+Hawkes Poisson
+
+0 4
+
+11.28
+Heldout
+Groups
+
+Total
+
+Methods
+200 Hawkes
+Poisson
+Tensor2
+Tensor90 150 SVD
+
+204 174.01
+
+132.06
+
+100
+
+111.27
+
+183.43 164.78
+115.15 87.23
+
+MAE
+
+50
+43.65
+
+MAE
+
+0
+
+Heldout
+
+Total
+
+Groups
+
+300 200
+
+Methods
+Hawkes
+
+297.8
+
+Poisson
+
+Tensor2Last
+
+Tensor2Avg
+
+Tensor90Last
+
+Tensor90Avg
+
+STiC
+
+192.3 188.1 187.4 189.4
+
+100
+
+140.5 134.2
+
+292.6
+185.9 184.3 180.9 180.7 163.7 165.6
+
+0
+
+Rayleigh
+
+0
+
+02468
+Theoretical Quantiles
+
+11.28
+Heldout
+Groups
+
+Total
+
+0
+
+Heldout
+
+Total
+
+Groups
+
+Figure 3: The quantile plots of different fitted processes, the MAE of predicted rankings and returning-time on the last.fm (top), tmall.com (middle) and the MIMIC II (bottom), respectively.
+
+assumes i.i.d. inter-event gaps which might conform to an exponential (Poisson process) or Rayleigh
+
+distribution. According to the time-change theorem [6], given a sequence T = {t1, . . . , tn} and a
+
+particular point process with intensity (t), the set of samples
+
+ti ti -1
+
+(t)dt
+
+n
+should conform
+i=1
+
+to a unit-rate exponential distribution if T is truly sampled from the process. Therefore, we compare
+
+the theoretical quantiles from the exponential distribution with the fittings of different models to a
+
+real sequence of (listening/shopping/visiting) events. The closer the slope goes to one, the better a
+
+model matches the event patterns. Figure 3 clearly shows that our Hawkes model can better explain
+
+the observed data compared to the other survival analysis models.
+
+What is the predictive performance ? Finally, we evaluate the prediction accuracy in the 2nd and 3rd column of Figure 3. Since holding-out an entire testing sequence is more challenging, the performance on the Heldout group is a little lower than that on the average Total group. However, across all cases, since the proposed model is able to better capture the temporal dynamics of the observed sequences of events, it can achieve a better performance on both tasks in the end.
+
+6 Conclusions
+We propose a novel convex formulation and an efficient learning algorithm to recommend relevant services at any given moment, and to predict the next returning-time of users to existing services. Empirical evaluations on large synthetic and real data demonstrate its superior scalability and predictive performance. Moreover, our optimization algorithm can be used for solving general nonnegative matrix rank minimization problem with other convex losses under mild assumptions, which may be of independent interest.
+
+Acknowledge
+The research was supported in part by NSF IIS-1116886, NSF/NIH BIGDATA 1R01GM108341, NSF CAREER IIS-1350983.
+
+8
+
+References
+[1] O. Aalen, O. Borgan, and H. Gjessing. Survival and event history analysis: a process point of view. Springer, 2008.
+[2] L. Baltrunas and X. Amatriain. Towards time-dependant recommendation based on implicit feedback, 2009.
+[3] E. C. Chi and T. G. Kolda. On tensors, sparsity, and nonnegative factorizations, 2012. [4] D. Cox and V. Isham. Point processes, volume 12. Chapman & Hall/CRC, 1980. [5] D. Cox and P. Lewis. Multivariate point processes. Selected Statistical Papers of Sir David Cox: Volume
+1, Design of Investigations, Statistical Methods and Applications, 1:159, 2006. [6] D. Daley and D. Vere-Jones. An introduction to the theory of point processes: volume II: general theory
+and structure, volume 2. Springer, 2007. [7] N. Du, M. Farajtabar, A. Ahmed, A. J. Smola, and L. Song. Dirichlet-hawkes processes with applications
+to clustering continuous-time document streams. In KDD'15, 2015. [8] N. Du, L. Song, A. Smola, and M. Yuan. Learning networks of heterogeneous influence. In Advances in
+Neural Information Processing Systems 25, pages 2789-2797, 2012. [9] N. Du, L. Song, H. Woo, and H. Zha. Uncover topic-sensitive information diffusion networks. In Artificial
+Intelligence and Statistics (AISTATS), 2013. [10] A. G. Hawkes. Spectra of some self-exciting and mutually exciting point processes. Biometrika,
+58(1):83-90, 1971. [11] K. Kapoor, K. Subbian, J. Srivastava, and P. Schrater. Just in time recommendations: Modeling the
+dynamics of boredom in activity streams. WSDM, pages 233-242, 2015. [12] K. Kapoor, M. Sun, J. Srivastava, and T. Ye. A hazard based approach to user return time prediction. In
+KDD'14, pages 1719-1728, 2014. [13] A. Karatzoglou, X. Amatriain, L. Baltrunas, and N. Oliver. Multiverse recommendation: N-dimensional
+tensor factorization for context-aware collaborative filtering. In Proceeedings of the 4th ACM Conference on Recommender Systems (RecSys), 2010. [14] J. Kingman. On doubly stochastic poisson processes. Mathematical Proceedings of the Cambridge Philosophical Society, pages 923-930, 1964. [15] N. Koenigstein, G. Dror, and Y. Koren. Yahoo! music recommendations: Modeling music ratings with temporal dynamics and item taxonomy. In Proceedings of the Fifth ACM Conference on Recommender Systems, RecSys '11, pages 165-172, 2011. [16] Y. Koren. Collaborative filtering with temporal dynamics. In Knowledge discovery and data mining KDD, pages 447-456, 2009. [17] G. Lan. An optimal method for stochastic composite optimization. Mathematical Programming, 2012. [18] G. Lan. The complexity of large-scale convex programming under a linear optimization oracle. arXiv preprint arxiv:1309.5550v2, 2014. [19] Y. Ogata. On lewis' simulation method for point processes. Information Theory, IEEE Transactions on, 27(1):23-31, 1981. [20] H. Ouyang, N. He, L. Q. Tran, and A. Gray. Stochastic alternating direction method of multipliers. In ICML, 2013. [21] J. Z. J. L. Preeti Bhargava, Thomas Phan. Who, what, when, and where: Multi-dimensional collaborative recommendations using tensor factorization on sparse user-generated data. In WWW, 2015. [22] Y. Wang, R. Chen, J. Ghosh, J. Denny, A. Kho, Y. Chen, B. Malin, and J. Sun. Rubik: Knowledge guided tensor factorization and completion for health data analytics. In KDD, 2015. [23] S. Rendle. Time-Variant Factorization Models Context-Aware Ranking with Factorization Models. volume 330 of Studies in Computational Intelligence, chapter 9, pages 137-153. 2011. [24] S. Sastry. Some np-complete problems in linear algebra. Honors Projects, 1990. [25] L. Xiong, X. Chen, T.-K. Huang, J. G. Schneider, and J. G. Carbonell. Temporal collaborative filtering with bayesian probabilistic tensor factorization. In SDM, pages 211-222. SIAM, 2010. [26] X. Yi, L. Hong, E. Zhong, N. N. Liu, and S. Rajan. Beyond clicks: Dwell time for personalization. In Proceedings of the 8th ACM Conference on Recommender Systems, RecSys '14, pages 113-120, 2014. [27] A. W. Yu, W. Ma, Y. Yu, J. G. Carbonell, and S. Sra. Efficient structured matrix rank minimization. In NIPS, 2014. [28] A. N. Zaid Harchaoui, Anatoli Juditsky. Conditional gradient algorithms for norm-regularized smooth convex optimization. Mathematical Programming, 2013. [29] K. Zhou, H. Zha, and L. Song. Learning social infectivity in sparse low-rank networks using multidimensional hawkes processes. In Artificial Intelligence and Statistics (AISTATS), 2013. [30] K. Zhou, H. Zha, and L. Song. Learning triggering kernels for multi-dimensional hawkes processes. In International Conference on Machine Learning (ICML), 2013.
+9
+

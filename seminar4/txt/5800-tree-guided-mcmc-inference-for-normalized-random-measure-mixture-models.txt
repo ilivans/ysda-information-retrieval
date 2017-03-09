@@ -1,0 +1,858 @@
+Tree-Guided MCMC Inference for Normalized Random Measure Mixture Models
+Juho Lee and Seungjin Choi Department of Computer Science and Engineering
+Pohang University of Science and Technology 77 Cheongam-ro, Nam-gu, Pohang 37673, Korea {stonecold,seungjin}@postech.ac.kr
+Abstract
+Normalized random measures (NRMs) provide a broad class of discrete random measures that are often used as priors for Bayesian nonparametric models. Dirichlet process is a well-known example of NRMs. Most of posterior inference methods for NRM mixture models rely on MCMC methods since they are easy to implement and their convergence is well studied. However, MCMC often suffers from slow convergence when the acceptance rate is low. Tree-based inference is an alternative deterministic posterior inference method, where Bayesian hierarchical clustering (BHC) or incremental Bayesian hierarchical clustering (IBHC) have been developed for DP or NRM mixture (NRMM) models, respectively. Although IBHC is a promising method for posterior inference for NRMM models due to its efficiency and applicability to online inference, its convergence is not guaranteed since it uses heuristics that simply selects the best solution after multiple trials are made. In this paper, we present a hybrid inference algorithm for NRMM models, which combines the merits of both MCMC and IBHC. Trees built by IBHC outlines partitions of data, which guides Metropolis-Hastings procedure to employ appropriate proposals. Inheriting the nature of MCMC, our tree-guided MCMC (tgMCMC) is guaranteed to converge, and enjoys the fast convergence thanks to the effective proposals guided by trees. Experiments on both synthetic and realworld datasets demonstrate the benefit of our method.
+1 Introduction
+Normalized random measures (NRMs) form a broad class of discrete random measures, including Dirichlet proccess (DP) [1] normalized inverse Gaussian process [2], and normalized generalized Gamma process [3, 4]. NRM mixture (NRMM) model [5] is a representative example where NRM is used as a prior for mixture models. Recently NRMs were extended to dependent NRMs (DNRMs) [6, 7] to model data where exchangeability fails. The posterior analysis for NRM mixture (NRMM) models has been developed [8, 9], yielding simple MCMC methods [10]. As in DP mixture (DPM) models [11], there are two paradigms in the MCMC algorithms for NRMM models: (1) marginal samplers and (2) slice samplers. The marginal samplers simulate the posterior distributions of partitions and cluster parameters given data (or just partitions given data provided that conjugate priors are assumed) by marginalizing out the random measures. The marginal samplers include the Gibbs sampler [10], and the split-merge sampler [12], although it was not formally extended to NRMM models. The slice sampler [13] maintains random measures and explicitly samples the weights and atoms of the random measures. The term "slice" comes from the auxiliary slice variables used to control the number of atoms to be used. The slice sampler is known to mix faster than the marginal Gibbs sampler when applied to complicated DNRM mixture models where the evaluation of marginal distribution is costly [7].
+1
+
+The main drawback of MCMC methods for NRMM models is their poor scalability, due to the nature of MCMC methods. Moreover, since the marginal Gibbs sampler and slice sampler iteratively sample the cluster assignment variable for a single data point at a time, they easily get stuck in local optima. Split-merge sampler may resolve the local optima problem to some extent, but is still problematic for large-scale datasets since the samples proposed by split or merge procedures are rarely accepted. Recently, a deterministic alternative to MCMC algorithms for NRM (or DNRM) mixture models were proposed [14], extending Bayesian hierarchical clustering (BHC) [15] which was developed as a tree-based inference for DP mixture models. The algorithm, referred to as incremental BHC (IBHC) [14] builds binary trees that reflects the hierarchical cluster structures of datasets by evaluating the approximate marginal likelihood of NRMM models, and is well suited for the incremental inferences for large-scale or streaming datasets. The key idea of IBHC is to consider only exponentially many posterior samples (which are represented as binary trees), instead of drawing indefinite number of samples as in MCMC methods. However, IBHC depends on the heuristics that chooses the best trees after the multiple trials, and thus is not guaranteed to converge to the true posterior distributions.
+In this paper, we propose a novel MCMC algorithm that elegantly combines IBHC and MCMC methods for NRMM models. Our algorithm, called the tree-guided MCMC, utilizes the trees built from IBHC to proposes a good quality posterior samples efficiently. The trees contain useful information such as dissimilarities between clusters, so the errors in cluster assignments may be detected and corrected with less efforts. Moreover, designed as a MCMC methods, our algorithm is guaranteed to converge to the true posterior, which was not possible for IBHC. We demonstrate the efficiency and accuracy of our algorithm by comparing it to existing MCMC algorithms.
+
+2 Background
+Throughout this paper we use the following notations. Denote by [n] = {1, . . . , n} a set of indices and by X = {xi | i  [n]} a dataset. A partition [n] of [n] is a set of disjoint nonempty subsets of [n] whose union is [n]. Cluster c is an entry of [n], i.e., c  [n]. Data points in cluster c is denoted by Xc = {xi | i  c} for c  n. For the sake of simplicity, we often use i to represent a singleton {i} for i  [n]. In this section, we briefly review NRMM models, existing posterior inference methods such as MCMC and IBHC.
+
+2.1 Normalized random measure mixture models
+
+Let  be a homogeneous completely random measure (CRM) on measure space (, F) with Levy intensity  and base measure H, written as   CRM(H). We also assume that,
+
+
+(dw) = ,
+0
+
+
+(1 - e-w)(dw) < ,
+0
+
+(1)
+
+so
+
+that  has
+
+ j=1
+
+wj
+
+<
+
+infinitely many atoms and the total mass () is . A NRM is then formed by normalizing  by
+
+finite:  = its total mass
+
+ j=1
+
+wj
+
+j
+
+,
+
+() =
+
+(). For each index
+
+i  [n], we draw the corresponding atoms from NRM, i|  /(). Since  is discrete, the
+
+set {i|i  [n]} naturally form a partition of [n] with respect to the assigned atoms. We write the
+
+partition as a set of sets [n] whose elements are non-empty and non-overlapping subsets of [n],
+
+and the union of the elements is [n]. We index the elements (clusters) of [n] with the symbol c,
+
+and denote the unique atom assigned to c as c. Summarizing the set {i|i  [n]} as ([n], {c|c 
+
+[n]}), the posterior random measure is written as follows:
+
+Theorem 1. ([9]) Let ([n], {c|c  [n]}) be samples drawn from /() where   CRM(H). With an auxiliary variable u  Gamma(n, ()), the posterior random measure is written as
+
+where
+
+|u +
+
+wcc ,
+
+c[n]
+
+u(dw) := e-uw(dw), |u  CRM(uH), P (dwc)  wc|c|u(dwc).
+
+(2) (3)
+
+2
+
+Moreover, the marginal distribution is written as
+
+P ([n], {dc|c
+
+
+
+[n]}, du)
+
+=
+
+un-1e-(u)du (n)
+
+(|c|, u)H(dc),
+
+c[n]
+
+where
+
+
+
+(u) :=
+
+(1 - e-uw)(dw), (|c|, u) :=
+
+w|c|u(dw).
+
+00
+
+(4) (5)
+
+Using (4), the predictive distribution for the novel atom  is written as
+
+P
+
+(d|{i},
+
+u)
+
+
+
+(1,
+
+u)H (d)
+
++
+
+c[n]
+
+(|c| + (|c|,
+
+1, u) u)
+
+c
+
+(d).
+
+(6)
+
+The most general CRM may be used is the generalized Gamma [3], with Levy intensity (dw) =
+
+ (1-)
+
+w--1e-w
+
+dw.
+
+In
+
+NRMM
+
+models,
+
+the
+
+observed
+
+dataset
+
+X
+
+is
+
+assusmed
+
+to
+
+be
+
+generated
+
+from
+
+a likelihood P (dx|) with parameters {i} drawn from NRM. We focus on the conjugate case where
+
+H is conjugate to P (dx|), so that the integral P (dXc) :=  H(d) ic P (dxi|) is tractable.
+
+2.2 MCMC Inference for NRMM models
+
+The goal of posterior inference for NRMM models is to compute the posterior P ([n], {dc}, du|X) with the marginal likelihood P (dX).
+
+Marginal Gibbs Sampler: marginal Gibbs sampler is basesd on the predictive distribution (6).
+
+At each iteration, cluster assignments for each data point is sampled, where xi may join an exist-
+
+ing
+
+cluster
+
+c
+
+with
+
+probability
+
+proportional
+
+to
+
+ (|c|+1,u)  (|c|,u)
+
+P
+
+(dxi
+
+|Xc
+
+),
+
+or
+
+create
+
+a
+
+novel
+
+cluster
+
+with
+
+probability proportional to (1, u)P (dxi).
+
+Slice sampler: instead of marginalizing out , slice sampler explicitly sample the atoms and weights {wj, j} of . Since maintaining infinitely many atoms is infeasible, slice variables {si} are introduced for each data point, and atoms with masses larger than a threshold (usually set as mini[n] si) are kept and remaining atoms are added on the fly as the threshold changes. At each iteration, xi is assigned to the jth atom with probability 1[si < wj]P (dxi|j).
+
+Split-merge sampler: both marginal Gibbs and slice sampler alter a single cluster assignment at a time, so are prone to the local optima. Split-merge sampler, originally developed for DPM, is a marginal sampler that is based on (6). At each iteration, instead of changing individual cluster assignments, split-merge sampler splits or merges clusters to propose a new partition. The split or merged partition is proposed by a procedure called the restricted Gibbs sampling, which is Gibbs sampling restricted to the clusters to split or merge. The proposed partitions are accepted or rejected according to Metropolis-Hastings schemes. Split-merge samplers are reported to mix better than marginal Gibbs sampler.
+
+2.3 IBHC Inference for NRMM models
+Bayesian hierarchical clustering (BHC, [15]) is a probabilistic model-based agglomerative clustering, where the marginal likelihood of DPM is evaluated to measure the dissimilarity between nodes. Like the traditional agglomerative clustering algorithms, BHC repeatedly merges the pair of nodes with the smallest dissimilarities, and builds binary trees embedding the hierarchical cluster structure of datasets. BHC defines the generative probability of binary trees which is maximized during the construction of the tree, and the generative probability provides a lower bound on the marginal likelihood of DPM. For this reason, BHC is considered to be a posterior inference algorithm for DPM. Incremental BHC (IBHC, [14]) is an extension of BHC to (dependent) NRMM models. Like BHC is a deterministic posterior inference algorithm for DPM, IBHC serves as a deterministic posterior inference algorithms for NRMM models. Unlike the original BHC that greedily builds trees, IBHC sequentially insert data points into trees, yielding scalable algorithm that is well suited for online inference. We first explain the generative model of trees, and then explain the sequential algorithm of IBHC.
+
+3
+
+xi d(*, *) > 1
+
+{x1, . . . xi-1}
+
+l(c)r(c) i l(c) i r(c) l(c)r(c) i case 1 case 2 case 3
+
+ i
+
+i
+
+Figure 1: (Left) in IBHC, a new data point is inserted into one of the trees, or create a novel tree. (Middle)
+three possible cases in SeqInsert. (Right) after the insertion, the potential funcitons for the nodes in the blue bold path should be updated. If a updated d(*, *) > 1, the tree is split at that level.
+
+IBHC aims to maximize the joint probability of the data X and the auxiliary variable u:
+
+P (dX, du)
+
+=
+
+un-1e-(u)du (n)
+
+(|c|, u)P (dXc)
+
+[n] c[n]
+
+(7)
+
+Let tc be a binary tree whose leaf nodes consist of the indices in c. Let l(c) and r(c) denote the left and right child of the set c in tree, and thus the corresponding trees are denoted by tl(c) and tr(c). The generative probability of trees is described with the potential function [14], which is the unnormalized reformulation of the original definition [15]. The potential function of the data Xc given the tree tc is recursively defined as follows:
+
+(Xc|hc) := (|c|, u)P (dXc), (Xc|tc) = (Xc|hc) + (Xl(c)|tl(c))(Xr(c)|tr(c)).
+
+(8)
+
+Here, hc is the hypothesis that Xc was generated from a single cluster. The first therm (Xc|hc) is proportional to the probability that hc is true, and came from the term inside the product of (7). The
+second term is proportional to the probability that Xc was generated from more than two clusters embedded in the subtrees tl(c) and tr(c). The posterior probability of hc is then computed as
+
+P (hc|Xc, tc)
+
+=
+
+1
+
++
+
+1 d(l(c),
+
+r(c))
+
+,
+
+where
+
+d(l(c), r(c))
+
+:=
+
+(Xl(c)
+
+|tl(c))(Xr(c)|tr(c) (Xc|hc)
+
+)
+
+.
+
+(9)
+
+d(*, *) is defined to be the dissimilarity between l(c) and r(c). In the greedy construction, the pair of nodes with smallest d(*, *) are merged at each iteration. When the minimum dissimilarity exceeds one (P (hc|Xc, tc) < 0.5), hc is concluded to be false and the construction stops. This is an important mechanism of BHC (and IBHC) that naturally selects the proper number of clusters. In the
+perspective of the posterior inference, this stopping corresponds to selecting the MAP partition that maximizes P ([n]|X, u). If the tree is built and the potential function is computed for the entire dataset X, a lower bound on the joint likelihood (7) is obtained [15, 14]:
+
+un-1e-(u)du (n)
+
+(X |t[n] )
+
+
+
+P
+
+(dX,
+
+du).
+
+(10)
+
+Now we explain the sequential tree construction of IBHC. IBHC constructs a tree in an incremental
+manner by inserting a new data point into an appropriate position of the existing tree, without com-
+puting dissimilarities between every pair of nodes. The procedure, which comprises three steps, is
+elucidated in Fig. 1.
+Step 1 (left): Given {x1, . . . , xi-1}, suppose that trees are built by IBHC, yielding to a partition [i-1]. When a new data point xi arrives, this step assigns xi to a tree tc, which has the smallest distance, i.e., c = arg minc[i-1] d(i, c), or create a new tree ti if d(i, c) > 1.
+Step 2 (middle): Suppose that the tree chosen in Step 1 is tc. Then Step 2 determines an appropriate position of xi when it is inserted into the tree tc, and this is done by the procedure SeqInsert(c, i). SeqInsert(c, i) chooses the position of i among three cases (Fig. 1). Case 1 elucidates an option where xi is placed on the top of the tree tc. Case 2 and 3 show options where xi is added as a sibling of the subtree tl(c) or tr(c), respectively. Among these three cases, the one with the highest potential function (Xci|tci) is selected, which can easily be done by comparing d(l(c), r(c)), d(l(c), i) and d(r(c), i) [14]. If d(l(c), r(c)) is the smallest, then Case 1 is selected and the insertion terminates. Otherwise, if d(l(c), i) is the smallest, xi is inserted into tl(c) and SeqInsert(l(c), i) is recursively executed. The same procedure is applied to the case where d(r(c), i) is smallest.
+
+4
+
+c
+SampleSub
+l(c ) r(c )
+
+S StocInsert  l(c )r(c )
+
+QS  l(c )
+
+r(c )
+
+[n]
+
+(split)
+
+[n]
+
+tc M SampleSub
+
+c c1 c2 c3
+
+ c c1 c2 c3
+
+[n] (merge) [n]
+
+Q
+
+S StocInsert
+
+ c c1
+
+c2 c3
+
+(split)
+
+
+
+l(c )
+
+r(c )
+
+(merge) [n]
+
+S  c c1 c2 c3
+[n]
+
+Figure 2: Global moves of tgMCMC. Top row explains the way of proposing split partition [n] from partition [n], and explains the way to retain [n] from [n]. Bottom row shows the same things for merge case.
+
+Step 3 (right): After Step 1 and 2 are applied, the potential functions of tci should be computed again, starting from the subtree of tc to which xi is inserted, to the root tci. During this procedure, updated d(*, *) values may exceed 1. In such a case, we split the tree at the level where d(*, *) > 1, and re-insert all the split nodes.
+After having inserted all the data points in X, the auxiliary variable u and hyperparameters for (dw) are resampled, and the tree is reconstructed. This procedure is repeated several times and the trees with the highest potential functions are chosen as an output.
+
+3 Main results: A tree-guided MCMC procedure
+
+IBHC should reconstruct trees from the ground whenever u and hyperparameters are resampled, and this is obviously time consuming, and more importantly, converge is not guaranteed. Instead of completely reconstructing trees, we propose to refine the parts of existing trees with MCMC. Our algorithm, called tree-guided MCMC (tgMCMC), is a combination of deterministic tree-based inference and MCMC, where the trees constructed via IBHC guides MCMC to propose good-quality samples. tgMCMC initialize a chain with a single run of IBHC. Given a current partition [n] and trees {tc | c  [n]}, tgMCMC proposes a novel partition [n] by global and local moves. Global moves split or merges clusters to propose [n], and local moves alters cluster assignments of individual data points via Gibbs sampling. We first explain the two key operations used to modify tree structures, and then explain global and local moves. More details on the algorithm can be found in the supplementary material.
+
+3.1 Key operations
+
+SampleSub(c, p): given a tree tc, draw a subtree tc with probability  d(l(c ), r(c )) + . is added for leaf nodes whose d(*, *) = 0, and set to the maximum d(*, *) among all subtrees of tc. The drawn subtree is likely to contain errors to be corrected by splitting. The probability of drawing tc
+is multiplied to p, where p is usually set to transition probabilities.
+
+StocInsert(S, c, p): a stochastic version of IBHC. c may be inserted to c  S via
+
+SeqInsert(c , c) with probability 1+
+
+d-1(c ,c) c S d-1(c
+
+,c)
+
+,
+
+or
+
+may
+
+just
+
+be
+
+put
+
+into
+
+S
+
+(create
+
+a
+
+new
+
+cluster
+
+in S) with probability 1+
+
+c
+
+1 S d-1(c
+
+,c) .
+
+If
+
+c
+
+is
+
+inserted
+
+via
+
+SeqInsert,
+
+the
+
+potential
+
+functions
+
+are
+
+updated accordingly, but the trees are not split even if the update dissimilarities exceed 1. As in
+
+SampleSub, the probability is multiplied to p.
+
+3.2 Global moves
+The global moves of tgMCMC are tree-guided analogy to split-merge sampling. In split-merge sampling, a pair of data points are randomly selected, and split partition is proposed if they belong to the same cluster, or merged partition is proposed otherwise. Instead, tgMCMC finds the clusters that are highly likely to be split or merged using the dissimilarities between trees, which goes as follows in detail. First, we randomly pick a tree tc in uniform. Then, we compute d(c, c ) for
+
+5
+
+c  [n]\c, and put c in a set M with probability (1 + d(c, c ))-1 (the probability of merging
+
+c and c ).
+
+The transition probability q([n]|[n]) up to this step is
+
+1 |[n] |
+
+c
+
+.d(c,c )1[c /M]
+1+d(c,c )
+
+The
+
+set M contains candidate clusters to merge with c. If M is empty, which means that there are no
+
+candidates to merge with c, we propose [n] by splitting c. Otherwise, we propose [n] by merging
+
+c and clusters in M .
+
+Split case: we start splitting by drawing a subtree tc by SampleSub(c, q([n]|[n])) 1. Then we split c to S = {l(c ), r(c )}, destroy all the parents of tc and collect the split trees into a set Q (Fig. 2, top). Then we reconstruct the tree by StocInsert(S, c , q([n]|[n])) for all c  Q. After the reconstruction, S has at least two clusters since we split S = {l(c ), r(c )} before insertion. The split partition to propose is [n] = ([n]\c)  S. The reverse transition probability q([n]|[n]) is computed as follows. To obtain [n] from [n], we must merge the clusters in S to c. For this, we should pick a cluster c  S, and put other clusters in S\c into M . Since we can pick any c at first,
+the reverse transition probability is computed as a sum of all those possibilities:
+
+q([n]|[n])
+
+=
+
+c
+
+S
+
+1 |[n]|
+
+c
+
+[n] \c
+
+d(c , c )1[c 1 + d(c , c
+
+/S]
+)
+
+,
+
+(11)
+
+Merge as [n]
+
+case: suppose = ([n]\M )
+
+that we have M  cm+1, where
+
+= {c1, . . . cm+1 =
+
+,
+
+mic=m1}cm2..
+
+The merged partition to propose is given We construct the corresponding binary
+
+tree as a cascading tree, where we put c1, . . . cm on top of c in order (Fig. 2, bottom). To compute the reverse transition probability q([n]|[n]), we should compute the probability of splitting
+
+cm+1 back into c1, . . . , cm. For this, we should first choose cm+1 and put nothing into the set
+
+M
+
+to provoke splitting.
+
+q([n]|[n]) up to this step is
+
+1 |[n] |
+
+c
+
+.d(cm+1,c )
+1+d(cm+1,c )
+
+Then, we should
+
+sample the parent of c (the subtree connecting c and c1) via SampleSub(cm+1, q([n]|[n])), and
+
+this would result in S = {c, c1} and Q = {c2, . . . , cm}. Finally, we insert ci  Q into S via
+
+StocInsert(S, ci, q([n]|[n])) for i = 2, . . . , m, where we select each c(i) to create a new clus-
+
+ter in S. Corresponding update to q([n]|[n]) by StocInsert is,
+
+q([n]|[n])
+
+
+
+q([n]|[n])
+
+*
+
+m i=2
+
+1
+
++
+
+d-1(c,
+
+ci)
+
+1 +
+
+i-1 j=1
+
+d-1(cj
+
+,
+
+ci)
+
+.
+
+(12)
+
+Once we've proposed [n] and computed both q([n]|[n]) and q([n]|[n]), [n] is accepted with
+
+probability
+
+min{1, r}
+
+where
+
+r
+
+=
+
+.p(dX,du,[n] )q ([n] |[n] )
+p(dX,du,[n] )q ([n] |[n] )
+
+Ergodicity of the global moves: to show that the global moves are ergodic, it is enough to show that we can move an arbitrary point i from its current cluster c to any other cluster c in finite step. This can easily be done by a single split and merge moves, so the global moves are ergodic.
+
+Time complexity of the global moves: the time complexity of StocInsert(S, c, p) is O(|S| + h), where h is a height of the tree to insert c. The total time complexity of split proposal is mainly determined by the time to execute StocInsert(S, c, p). This procedure is usually efficient, especially when the trees are well balanced. The time complexity to propose merged partition is O(|[n]|+M ).
+
+3.3 Local moves
+In local moves, we resample cluster assignments of individual data points via Gibbs sampling. If a leaf node i is moved from c to c , we detach i from tc and run SeqInsert(c , i) 3. Here, instead of running Gibbs sampling for all data points, we run Gibbs sampling for a subset of data points S, which is formed as follows. For each c  [n], we draw a subtree tc by SampleSub. Then, we
+1Here, we restrict SampleSub to sample non-leaf nodes, since leaf nodes cannot be split. 2We assume that clusters are given their own indices (such as hash values) so that they can be ordered. 3We do not split even if the update dissimilarity exceed one, as in StocInsert.
+
+6
+
+Gibbs SM tgMCMC
+
+max log-lik
+-1730.4069 (64.6268) -1602.3353 (43.6904) -1577.7484 (0.2889)
+
+average log-likelihood average log-likelihood average log-likelihood average log-likelihood
+
+-1600
+
+-1700
+
+-1800
+
+-1900
+
+-2000
+
+-2100
+-2200
+-2300 0
+
+Gibbs SM tgMCMC
+
+2468
+time [sec]
+
+10
+
+ESS log r
+
+10.4644
+(9.2663) 7.6180
+(4.9166) 35.6452
+(22.6121)
+
+-
+-362.4405 (271.9865)
+-3.4844 (9.5959)
+
+-2000
+
+-2500
+
+-3000
+
+-3500 -4000
+
+Gibbs SM tgMCMC
+
+0 2 4 6 8 10
+time [sec]
+
+time /
+
+iter 0.0458
+(0.0062) 0.0702
+(0.0141) 0.0161
+(0.0088)
+
+Gibbs SM tgMCMC
+
+-1600 -1700 -1800 -1900 -2000 -2100 -2200 -2300 -2400
+0
+
+20 15 10 5 1
+20 40 60 80 100
+iteration
+
+max log-lik
+-1594.7382 (18.2228) -1588.5188 (1.1158) -1587.8633 (1.0423)
+
+ESS
+15.8512
+(7.1542) 36.2608
+(54.6962) 149.7197
+(82.3461)
+
+-1700
+
+-1800
+
+-1900
+
+-2000 -2100 -2200 -2300
+0
+
+0 1 2 3 4
+20 40 60 80 100
+iteration
+
+log r -
+-325.9407
+
+time /
+iter 0.0523
+(0.0067) 0.0698
+
+(233.2997) (0.0143)
+
+-2.6589
+
+0.0152
+
+(8.8980) (0.0088)
+
+Figure 3: Experimental results on toy dataset. (Top row) scatter plot of toy dataset, log-likelihoods of three samplers with DP, log-likelihoods with NGGP, log-likelihoods of tgMCMC with varying G and varying D.
+(Bottom row) The statistics of three samplers with DP and the statistics of three samplers with NGGP.
+
+average log-likelihood
+
+x 104 -7.5
+
+-8
+
+-8.5
+
+-9
+
+-9.5
+
+-10 0
+
+200
+
+Gibbs SM Gibbs_sub SM_sub tgMCMC
+400 600 800 1000
+time [sec]
+
+Gibbs SM Gibbs sub SM sub tgMCMC
+
+max log-lik
+-74476.4666
+(375.0498) -74400.0337
+(382.0060) -74618.3702
+(550.1106) -73880.5029
+(382.6170) -73364.2985
+(8.5847)
+
+ESS
+27.0464
+(7.6309) 24.9432
+(6.7474) 24.1818
+(5.5523) 20.0981
+(4.9512) 93.5509
+(23.5110)
+
+log r
+-
+-913.0825 (621.2756)
+-
+-918.2389 (623.9808)
+-8.7375 (21.9222)
+
+time /
+iter 10.7325
+(0.3971) 11.1163
+(0.4901) 0.2659
+(0.0124) 0.3467
+(0.0739) 0.4295
+(0.0833)
+
+Figure 4: Average log-likelihood plot and the statistics of the samplers for 10K dataset.
+
+draw a subtree of tc again by SampleSub. We repeat this subsampling for D times, and put the leaf nodes of the final subtree into S. Smaller D would result in more data points to resample, so we can control the tradeoff between iteration time and mixing rates.
+Cycling: at each iteration of tgMCMC, we cycle the global moves and local moves, as in split-merge sampling. We first run the global moves for G times, and run a single sweep of local moves. Setting G = 20 and D = 2 were the moderate choice for all data we've tested.
+
+4 Experiments
+
+In this section, we compare marginal Gibbs sampler (Gibbs), split-merge sampler (SM) and tgMCMC on synthetic and real datasets.
+
+4.1 Toy dataset
+
+We first compared the samplers on simple toy dataset that has 1,300 two-dimensional points with 13 clusters, sampled from the mixture of Gaussians with predefined means and covariances. Since the partition found by IBHC is almost perfect for this simple data, instead of initializing with IBHC, we initialized the binary tree (and partition) as follows. As in IBHC, we sequentially inserted data points into existing trees with a random order. However, instead of inserting them via SeqInsert, we just put data points on top of existing trees, so that no splitting would occur. tgMCMC was initialized with the tree constructed from this procedure, and Gibbs and SM were initialized with corresponding partition. We assumed the Gaussian-likelihood and Gaussian-Wishart base measure,
+
+H(d, d) = N (d|m, (r)-1)W(d|-1, ),
+
+(13)
+
+where r = 0.1,  = d+6, d is the dimensionality, m is the sample mean and  = /(10*det())1/d ( is the sample covariance). We compared the samplers using both DP and NGGP priors. For tgMCMC, we fixed the number of global moves G = 20 and the parameter for local moves D = 2,
+except for the cases where we controlled them explicitly. All the samplers were run for 10 seconds, and repeated 10 times. We compared the joint log-likelihood log p(dX, [n], du) of samples and the effective sample size (ESS) of the number of clusters found. For SM and tgMCMC, we compared the average log value of the acceptance ratio r. The results are summarized in Fig. 3. As shown in
+
+7
+
+average log-likelihood
+
+x 106 -4.25
+
+-4.26
+-4.27
+-4.28
+-4.29 0
+
+Gibbs SM Gibbs_sub SM_sub tgMCMC
+2000 4000 6000 8000 10000
+time [sec]
+
+Gibbs SM Gibbs sub SM sub tgMCMC
+
+max log-lik
+-4247895.5166
+(1527.0131) -4246689.8072
+(1656.2299) -4246878.3344
+(1391.1707) -4248034.0748
+(1703.6653) -4243009.3500
+(1101.0383)
+
+ESS
+18.1758
+(7.2028) 28.6608
+(18.1896) 13.8057
+(4.5723) 18.5764
+(18.6368) 3.1274
+(2.6610)
+
+log r
+-
+-3290.2988 (2617.6750)
+-
+-3488.9523 (3145.9786) -256.4831 (218.8061)
+
+time /
+iter 186.2020
+(2.9030) 186.9424
+(2.2014) 49.7875
+(0.9400) 49.9563
+(0.8667) 42.4176
+(2.0534)
+
+Figure 5: Average log-likelihood plot and the statistics of the samplers for NIPS corpus.
+
+the log-likelihood trace plot, tgMCMC quickly converged to the ground truth solution for both DP and NGGP cases. Also, tgMCMC mixed better than other two samplers in terms of ESS. Comparing the average log r values of SM and tgMCMC, we can see that the partitions proposed by tgMCMC is more often accepted. We also controlled the parameter G and D; as expected, higher G resulted in faster convergence. However, smaller D (more data points involved in local moves) did not necessarily mean faster convergence.
+4.2 Large-scale synthetic dataset
+We also compared the three samplers on larger dataset containing 10,000 points, which we will call as 10K dataset, generated from six-dimensional mixture of Gaussians with labels drawn from PY(3, 0.8). We used the same base measure and initialization with those of the toy datasets, and used the NGGP prior, We ran the samplers for 1,000 seconds and repeated 10 times. Gibbs and SM were too slow, so the number of samples produced in 1,000 seconds were too small. Hence, we also compared Gibbs sub and SM sub, where we uniformly sampled the subset of data points and ran Gibbs sweep only for those sampled points. We controlled the subset size to make their running time similar to that of tgMCMC. The results are summarized in Fig. 4. Again, tgMCMC outperformed other samplers both in terms of the log-likelihoods and ESS. Interestingly, SM was even worse than Gibbs, since most of the samples proposed by split or merge proposal were rejected. Gibbs sub and SM sub were better than Gibbs and SM, but still failed to reach the best state found by tgMCMC.
+4.3 NIPS corpus
+We also compared the samplers on NIPS corpus4, containing 1,500 documents with 12,419 words. We used the multinomial likelihood and symmetric Dirichlet base measure Dir(0.1), used NGGP prior, and initialized the samplers with normal IBHC. As for the 10K dataset, we compared Gibbs sub and SM sub along. We ran the samplers for 10,000 seconds and repeated 10 times. The results are summarized in Fig. 5. tgMCMC outperformed other samplers in terms of the loglikelihood; all the other samplers were trapped in local optima and failed to reach the states found by tgMCMC. However, ESS for tgMCMC were the lowest, meaning the poor mixing rates. We still argue that tgMCMC is a better option for this dataset, since we think that finding the better log-likelihood states is more important than mixing rates.
+5 Conclusion
+In this paper we have presented a novel inference algorithm for NRMM models. Our sampler, called tgMCMC, utilized the binary trees constructed by IBHC to propose good quality samples. tgMCMC explored the space of partitions via global and local moves which were guided by the potential functions of trees. tgMCMC was demonstrated to be outperform existing samplers in both synthetic and real world datasets.
+Acknowledgments: This work was supported by the IT R&D Program of MSIP/IITP (B010115-0307, Machine Learning Center), National Research Foundation (NRF) of Korea (NRF2013R1A2A2A01067464), and IITP-MSRA Creative ICT/SW Research Project.
+4https://archive.ics.uci.edu/ml/datasets/Bag+of+Words
+8
+
+References
+[1] T. S. Ferguson. A Bayesian analysis of some nonparametric problems. The Annals of Statistics, 1(2):209-230, 1973.
+[2] A. Lijoi, R. H. Mena, and I. Prunster. Hierarchical mixture modeling with normalized inverseGaussian priors. Journal of the American Statistical Association, 100(472):1278-1291, 2005.
+[3] A. Brix. Generalized Gamma measures and shot-noise Cox processes. Advances in Applied Probability, 31:929-953, 1999.
+[4] A. Lijoi, R. H. Mena, and I. Prunster. Controlling the reinforcement in Bayesian nonparametric mixture models. Journal of the Royal Statistical Society B, 69:715-740, 2007.
+[5] E. Regazzini, A. Lijoi, and I. Prunster. Distriubtional results for means of normalized random measures with independent increments. The Annals of Statistics, 31(2):560-585, 2003.
+[6] C. Chen, N. Ding, and W. Buntine. Dependent hierarchical normalized random measures for dynamic topic modeling. In Proceedings of the International Conference on Machine Learning (ICML), Edinburgh, UK, 2012.
+[7] C. Chen, V. Rao, W. Buntine, and Y. W. Teh. Dependent normalized random measures. In Proceedings of the International Conference on Machine Learning (ICML), Atlanta, Georgia, USA, 2013.
+[8] L. F. James. Bayesian Poisson process partition calculus with an application to Bayesian Levy moving averages. The Annals of Statistics, 33(4):1771-1799, 2005.
+[9] L. F. James, A. Lijoi, and I. Prunster. Posterior analysis for normalized random measures with independent increments. Scandinavian Journal of Statistics, 36(1):76-97, 2009.
+[10] S. Favaro and Y. W. Teh. MCMC for normalized random measure mixture models. Statistical Science, 28(3):335-359, 2013.
+[11] C. E. Antoniak. Mixtures of Dirichlet processes with applications to Bayesian nonparametric problems. The Annals of Statistics, 2(6):1152-1174, 1974.
+[12] S. Jain and R. M. Neal. A split-merge Markov chain Monte Carlo procedure for the Dirichlet process mixture model. Journal of Computational and Graphical Statistics, 13:158-182, 2000.
+[13] J. E. Griffin and S. G. Walkera. Posterior simulation of normalized random measure mixtures. Journal of Computational and Graphical Statistics, 20(1):241-259, 2011.
+[14] J. Lee and S. Choi. Incremental tree-based inference with dependent normalized random measures. In Proceedings of the International Conference on Artificial Intelligence and Statistics (AISTATS), Reykjavik, Iceland, 2014.
+[15] K. A. Heller and Z. Ghahrahmani. Bayesian hierarchical clustering. In Proceedings of the International Conference on Machine Learning (ICML), Bonn, Germany, 2005.
+9
+

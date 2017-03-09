@@ -1,0 +1,943 @@
+Learning Optimal Commitment to Overcome Insecurity
+
+Avrim Blum Carnegie Mellon University
+avrim@cs.cmu.edu
+
+Nika Haghtalab Carnegie Mellon University
+nika@cmu.edu
+
+Ariel D. Procaccia Carnegie Mellon University
+arielpro@cs.cmu.edu
+
+Abstract
+Game-theoretic algorithms for physical security have made an impressive realworld impact. These algorithms compute an optimal strategy for the defender to commit to in a Stackelberg game, where the attacker observes the defender's strategy and best-responds. In order to build the game model, though, the payoffs of potential attackers for various outcomes must be estimated; inaccurate estimates can lead to significant inefficiencies. We design an algorithm that optimizes the defender's strategy with no prior information, by observing the attacker's responses to randomized deployments of resources and learning his priorities. In contrast to previous work, our algorithm requires a number of queries that is polynomial in the representation of the game.
+1 Introduction
+The US Coast Guard, the Federal Air Marshal Service, the Los Angeles Airport Police, and other major security agencies are currently using game-theoretic algorithms, developed in the last decade, to deploy their resources on a regular basis [13]. This is perhaps the biggest practical success story of computational game theory -- and it is based on a very simple idea. The interaction between the defender and a potential attacker can be modeled as a Stackelberg game, in which the defender commits to a (possibly randomized) deployment of his resources, and the attacker responds in a way that maximizes his own payoff. The algorithmic challenge is to compute an optimal defender strategy -- one that would maximize the defender's payoff under the attacker's best response.
+While the foregoing model is elegant, implementing it requires a significant amount of information. Perhaps the most troubling assumption is that we can determine the attacker's payoffs for different outcomes. In deployed applications, these payoffs are estimated using expert analysis and historical data -- but an inaccurate estimate can lead to significant inefficiencies. The uncertainty about the attacker's payoffs can be encoded into the optimization problem itself, either through robust optimization techniques [12], or by representing payoffs as continuous distributions [5].
+Letchford et al. [8] take a different, learning-theoretic approach to dealing with uncertain attacker payoffs. Studying Stackelberg games more broadly (which are played by two players, a leader and a follower), they show that the leader can efficiently learn the follower's payoffs by iteratively committing to different strategies, and observing the attacker's sequence of responses. In the context of security games, this approach may be questionable when the attacker is a terrorist, but it is a perfectly reasonable way to calibrate the defender's strategy for routine security operations when the attacker is, say, a smuggler. And the learning-theoretic approach has two major advantages over modifying the defender's optimization problem. First, the learning-theoretic approach requires no prior information. Second, the optimization-based approach deals with uncertainty by inevitably degrading the quality of the solution, as, intuitively, the algorithm has to simultaneously optimize against a range of possible attackers; this problem is circumvented by the learning-theoretic approach.
+But let us revisit what we mean by "efficiently learn". The number of queries (i.e., observations of follower responses to leader strategies) required by the algorithm of Letchford et al. [8] is polynomial in the number of pure leader strategies. The main difficulty in applying their results to Stackelberg
+1
+
+security games is that even in the simplest security game, the number of pure defender strategies is exponential in the representation of the game. For example, if each of the defender's resources can protect one of two potential targets, there is an exponential number of ways in which resources can be assigned to targets. 1
+Our approach and results. We design an algorithm that learns an (additively) -optimal strategy for the defender with probability 1 - , by asking a number of queries that is polynomial in the representation of the security game, and logarithmic in 1/ and 1/. Our algorithm is completely different from that of Letchford et al. [8]. Its novel ingredients include:
+* We work in the space of feasible coverage probability vectors, i.e., we directly reason about the probability that each potential target is protected under a randomized defender strategy. Denoting the number of targets by n, this is an n-dimensional space. In contrast, Letchford et al. [8] study the exponential-dimensional space of randomized defender strategies. We observe that, in the space of feasible coverage probability vectors, the region associated with a specific best response for the attacker (i.e., a specific target being attacked) is convex.
+* To optimize within each of these convex regions, we leverage techniques -- developed by Tauman Kalai and Vempala [14] -- for optimizing a linear objective function in an unknown convex region using only membership queries. In our setting, it is straightforward to build a membership oracle, but it is quite nontrivial to satisfy a key assumption of the foregoing result: that the optimization process starts from an interior point of the convex region. We do this by constructing a hierarchy of nested convex regions, and using smaller regions to obtain interior points in larger regions.
+* We develop a method for efficiently discovering new regions. In contrast, Letchford et al. [8] find regions (in the high-dimensional space of randomized defender strategies) by sampling uniformly at random; their approach is inefficient when some regions are small.
+2 Preliminaries
+A Stackelberg security game is a two-player general-sum game between a defender (or the leader) and an attacker (or the follower). In this game, the defender commits to a randomized allocation of his security resources to defend potential targets. The attacker, in turn, observes this randomized allocation and attacks the target with the best expected payoff. The defender and the attacker receive payoffs that depend on the target that was attacked and whether or not it was defended. The defender's goal is to choose an allocation that leads to the best payoff.
+More precisely, a security game is defined by a 5-tuple (T, D, R, A, U ):
+* T = {1, . . . , n} is a set of n targets.
+* R is a set of resources. * D  2T is a collection of subsets of targets, each called a schedule, such that for every
+schedule D  D, targets in D can be simultaneously defended by one resource. It is natural to assume that if a resource is capable of covering schedule D, then it can also cover any subset of D. We call this property closure under the subset operation; it is also known as "subsets of schedules are schedules (SSAS)" [7]. * A : R  2D, called the assignment function, takes a resource as input and returns the set of all schedules that the resource is capable of defending. An allocation of resources is valid if every resource r is allocated to a schedule in A(r).
+* The payoffs of the players are given by functions Ud(t, pt) and Ua(t, pt), which return the expected payoffs of the defender and the attacker, respectively, when target t is attacked and it is covered with probability pt (as formally explained below). We make two assumptions that are common to all papers on security games. First, these utility functions are linear. Second, the attacker prefers it if the attacked target is not covered, and the defender prefers
+1Subsequent work by Marecki et al. [9] focuses on exploiting revealed information during the learning process -- via Monte Carlo Tree Search -- to optimize total leader payoff. While their method provably converges to the optimal leader strategy, no theoretical bounds on the rate of convergence are known.
+2
+
+it if the attacked target is covered, i.e., Ud(t, pt) and Ua(t, pt) are respectively increasing and decreasing in pt. We also assume w.l.o.g. that the utilities are normalized to have values in [-1, 1]. If the utility functions have coefficients that are rational with denominator
+at most a, then the game's (utility) representation length is L = n log n + n log a.
+
+A pure strategy of the defender is a valid assignment of resources to schedules. The set of pure
+
+strategies is determined by T , D, R, and A. Let there be m pure strategies; we use the following
+
+n x m, zero-one matrix M to represent the set of all pure strategies. Every row in M represents
+
+a target and every column represents a pure strategy. Mti = 1 if and only if target t is covered using some resource in the ith pure strategy. A mixed strategy (hereinafter, called strategy) is a
+
+distribution over the pure strategies. To represent a strategy the probability with which the ith strategy is played, and
+
+we use a
+
+m i=1
+
+si
+
+=
+
+1x 1.
+
+m
+
+vector
+
+s,
+
+such
+
+that
+
+si
+
+is
+
+Given a defender's strategy, the coverage probability of a target is the probability with which it is defended. Let s be a defender's strategy, then the coverage probability vector is pT = M sT , where
+pt is coverage probability of target t. We call a probability vector implementable if there exists a strategy that imposes that coverage probability on the targets.
+
+Let ps be the corresponding coverage probability vector of strategy s. The attacker's best response to s is defined by b(s) = arg maxt Ua(t, pst ). Since the attacker's best-response is determined by the coverage probability vector irrespective of the strategy, we slightly abuse notation by using b(ps) to denote the best-response, as well. We say that target t is "better" than t for the defender if the highest payoff he receives when t is attacked is more than the highest payoff he receives when t is
+attacked. We assume that if multiple targets are tied for the best-response, then ties are broken in
+favor of the "best" target.
+
+The defender's optimal strategy is defined as the strategy with highest expected payoff for the defender, i.e. arg maxs Ud(b(s), psb(s)). An optimal strategy p is called conservative if no other optimal
+strategy has a strictly lower sum of coverage probabilities. For two coverage probability vectors we
+use q p to denote that for all t, qt  pt.
+
+3 Problem Formulation and Technical Approach
+
+In this section, we give an overview of our approach for learning the defender's optimal strategy when Ua is not known. To do so, we first review how the optimal strategy is computed in the case where Ua is known.
+Computing the defender's optimal strategy, even when Ua(*) is known, is NP-Hard [6]. In practice the optimal strategy is computed using two formulations: Mixed Integer programming [11] and Multiple Linear Programs [1]; the latter provides some insight for our approach. The Multiple LP approach creates a separate LP for every t  T . This LP, as shown below, solves for the optimal defender strategy under the restriction that the strategy is valid (second and third constraints) and the attacker best-responds by attacking t (first constraint). Among these solutions, the optimal strategy is the one where the defender has the highest payoff.
+
+maximize s.t.
+
+Ud(t,
+
+si)
+
+i:Mti =1
+
+t = t, Ua(t ,
+
+si)  Ua(t,
+
+si)
+
+i:Mt i=1
+
+i:Mti =1
+
+i, si  0
+
+n
+
+si = 1
+
+i=1
+
+We make two changes to the above LP in preparation for finding the optimal strategy in polynomially many queries, when Ua is unknown. First, notice that when Ua is unknown, we do not have an explicit definition of the first constraint. However, implicitly we can determine whether t has a better payoff than t by observing the attacker's best-response to s. Second, the above LP has exponentially
+
+3
+
+many variables, one for each pure strategy. However, given the coverage probabilities, the attacker's actions are independent of the strategy that induces that coverage probability. So, we can restate the LP to use variables that represent the coverage probabilities and add a constraint that enforces the coverage probabilities to be implementable.
+
+maximize Ud(t, pt) s.t. t is attacked
+
+(1)
+
+p is implementable
+
+This formulation requires optimizing a linear function over a region of the space of coverage probabilities, by using membership queries. We do so by examining some of the characteristics of the above formulation and then leveraging an algorithm introduced by Tauman Kalai and Vempala [14] that optimizes over a convex set, using only an initial point and a membership oracle. Here, we restate their result in a slightly different form.
+
+Theorem 2.1 [14, restated]. For any convex set H  Rn that is contained in a ball of radius R,
+
+given a membership oracle, an initial point with margin r in H, and a linear function (*), with
+
+probability 1 -  we can find an -approximate optimal solution for
+
+in
+
+H,
+
+using
+
+O(n4.5
+
+log
+
+nR2 r
+
+)
+
+queries to the oracle.
+
+4 Main Result
+
+In this section, we design and analyze an algorithm that ( , )-learns the defender's optimal strategy
+
+in a number of best-response queries that is polynomial in the number of targets and the representa-
+
+tion,
+
+and
+
+logarithmic
+
+in
+
+1
+
+and
+
+1 
+
+.
+
+Our
+
+main
+
+result
+
+is:
+
+Theorem 1. Consider a security game with n targets and representation length L, such that for ev-
+
+ery target, the set of implementable coverage probability vectors that induce an attack on that target,
+
+if non-empty, contains a ball of radius 1/2L. For any ,  > 0, with probability 1 - , Algorithm 2
+
+finds a defender strategy that is optimal up to an additive term of
+
+,
+
+using
+
+O(n6.5(log
+
+n 
+
++
+
+L))
+
+best-response queries to the attacker.
+
+The main assumption in Theorem 1 is that the set of implementable coverage probabilities for which a given target is attacked is either empty or contains a ball of radius 1/2L. This implies that if it is possible to make the attacker prefer a target, then it is possible to do so with a small margin. This assumption is very mild in nature and its variations have appeared in many well-known algorithms. For example, interior point methods for linear optimization require an initial feasible solution that is within the region of optimization with a small margin [4]. Letchford et al. [8] make a similar assumption, but their result depends linearly, instead of logarithmically, on the minimum volume of a region (because they use uniformly random sampling to discover regions).
+To informally see why such an assumption is necessary, consider a security game with n targets, such that an attack on any target but target 1 is very harmful to the defender. The defender's goal is therefore to convince the attacker to attack target 1. The attacker, however, only attacks target 1 under a very specific coverage probability vector, i.e., the defender's randomized strategy has to be just so. In this case, the defender's optimal strategy is impossible to approximate.
+The remainder of this section is devoted to proving Theorem 1. We divide our intermediate results into sections based on the aspect of the problem that they address. The proofs of most lemmas are relegated to the appendix; here we mainly aim to provide the structure of the theorem's overall proof.
+
+4.1 Characteristics of the Optimization Region
+One of the requirements of Theorem 2.1 is that the optimization region is convex. Let P denote the space of implementable probability vectors, and let Pt = {p : p is implementable and b(p) = t}. The next lemma shows that Pt is indeed convex. Lemma 1. For all t  T , Pt is the intersection of a finitely many half-spaces.
+Proof. Pt is defined by the set of all p  [0, 1]n such that there is s that satisfies the LP with the following constraints. There are m half-spaces of the form si  0, 2 half-spaces i si  1 and
+
+4
+
+i si spaces
+
+ of
+
+1, 2n half-spaces of the form Ua(t, pt) -
+
+the form Ua(t , pt
+
+Ms )
+
+T - pT  0 0. Therefore,
+
+and M s T - p T  0, and n - 1 halfthe set of (s, p)  Rm+n such that p is
+
+implemented by strategy s and causes an attack on t is the intersection of 3n + m + 1 half-spaces. Pt
+
+is the reflection of this set on n dimensions; therefore, it is also the intersection of at most 3n+m+1
+
+half-spaces.
+
+Lemma 1, in particular, implies that Pt is convex. The Lemma's proof also suggests a method for finding the minimal half-space representation of P. Indeed, the set S = {(s, p)  Rm+n : Valid strategy s implements p} is given by its half-space representation. Using the Double Description Method [2, 10], we can compute the vertex representation of S. Since, P is a linear transformation of S, its vertex representation is the transformation of the vertex representation of S. Using the Double Description Method again, we can find the minimal half-space representation of P.
+Next, we establish some properties of P and the half-spaces that define it. The proofs of the following two lemmas appear in Appendices A.1 and A.2, respectively. Lemma 2. Let p  P. Then for any 0 q p, q  P. Lemma 3. Let A be a set of a positive volume that is the intersection of finitely many half-spaces. Then the following two statements are equivalent.
+1. For all p  A, p . And for all q p, q  A.
+2. A can be defined as the intersection of ei * p  for all i, and a set H of half-spaces, such that for any h * p  b in H, h 0, and b  - .
+Using Lemmas 2 and 3, we can refer to the set of half-spaces that define P by {(ei, 0) : for all i}  HP , where for all (h, b)  HP , h 0, and b  0.
+
+4.2 Finding Initial Points
+
+An important requirement for many optimization algorithms, including the one developed by Tauman Kalai and Vempala [14], is having a "well-centered" initial feasible point in the region of optimization. There are two challenges involved in discovering an initial feasible point in the interior of every region. First, establishing that a region is non-empty, possibly by finding a boundary point. Second, obtaining a point that has a significant margin from the boundary. We carry out these tasks by executing the optimization in a hierarchy of sets where at each level the optimization task only considers a subset of the targets and the feasibility space. We then show that optimization in one level of this hierarchy helps us find initial points in new regions that are well-centered in higher levels of the hierarchy.
+
+To this end, let us define restricted regions. These regions are obtained by first perturbing the defining half-spaces of P so that they conform to a given representation length, and then trimming
+the boundaries by a given width (See Figure 1).
+
+In
+
+the
+
+remainder
+
+of
+
+this
+
+paper,
+
+we
+
+use
+
+
+
+=
+
+1 (n+1)2L+1
+
+to
+
+denote
+
+the
+
+accuracy
+
+of
+
+the
+
+representation
+
+and the width of the trimming procedure for obtaining restricted regions. More precisely:
+
+Definition 1 (restricted regions). The set Rk  Rn is defined by the intersection the following half-
+
+spaces: For all i, (ei, k). For all (h, b)  HP , a half-space (h, b + k), such that h = 
+
+1 
+
+h
+
+and b = 
+
+1 
+
+b
+
+. Furthermore, for every t  T , define Rkt = Rk  Pt.
+
+The next Lemma, whose proof appears in Appendix A.3, shows that the restricted regions are subsets of the feasibility space, so, we can make best-response queries within them. Lemma 4. For any k  0, Rk  P.
+
+The next two lemmas, whose proofs are relegated to Appendices A.4 and A.5, show that in Rk one can reduce each coverage probability individually down to k, and the optimal conservative strategy in Rk indeed reduces the coverage probabilities of all targets outside the best-response set to k.
+Lemma 5. Let p  Rk, and let q such that k q p. Then q  Rk.
+Lemma 6. Let s and its corresponding coverage probability p be a conservative optimal strategy in Rk. Let t = b(s) and B = {t : Ua(t, pt) = Ua(t, pt )}. Then for any t / B, pt = k.
+
+5
+
+Target Attacker
+
+Defender
+
+1 0.5(1 - p1) -0.5(1 - p1)
+
+2
+
+(1 - p2)
+
+-(1 - p2)
+
+(a) Utilities of the game
+
+1
+
+The following Lemma, whose proof appears in
+
+Appendix A.6 shows that if every non-empty
+
+Pt contains a large enough ball, then Rnt = .
+
+Lemma 7. For any t and k  n such that Pt
+
+contains
+
+a
+
+ball
+
+of
+
+radius
+
+r
+
+>
+
+1 2L
+
+,
+
+Rkt
+
+=
+
+.
+
+0.9 P1 R11
+0.8
+
+Attack on Target 1 Attack on Target 2 Utility Halfspace Feasibility Halfspaces Optimal Strategy
+
+The next lemma provides the main insight behind our search for the region with the highestpaying optimal strategy. It implies that we can restrict our search to strategies that are optimal
+
+0.7 R21
+
+Optimal strategy
+
+for a subset of targets in Rk, if the attacker also agrees to play within that subset of targets. At
+
+p2
+
+0.6
+
+0.5(1-p
+
+)
+1
+
+=
+
+1-p
+
+2
+
+0.5
+
+0.4
+
+p 1 +p
+2 <= 1
+
+any point, if the attacker chooses a target outside the known regions, he is providing us with a point in a new region. Crucially, Lemma 8 requires that we optimize exactly inside each
+
+restricted region, and we show below (Algo-
+
+0.3 rithm 1 and Lemma 11) that this is indeed pos-
+
+sible.
+
+0.2 R1
+
+0.1
+
+R22
+
+2
+P2
+
+Lemma 8. Assume that for every t, if Pt is
+
+non-empty,
+
+then
+
+it
+
+contains
+
+a
+
+ball
+
+of
+
+radius
+
+1 2L
+
+.
+
+Given K  T and k  n, let p  Rk be
+
+0
+
+0
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 p1
+
+1 the coverage probability of the strategy that has
+
+(b) Regions
+
+k probability mass on targets in T \ K and is
+
+optimal if the attacker were to be restricted to
+
+Figure 1: A security game with one resource that can cover one of two targets. The attacker re-
+
+attacking targets in K. Let p be the optimal strategy in P. If b(p)  K then b(p)  K.
+
+ceives utility 0.5 from attacking target 1 and utility 1 from attacking target 2, when they are not defended; he receives 0 utility from attacking a target that is being defended. The defender's util-
+
+Proof. Assume on the contrary that b(p) = t / K. Since Pt = , by Lemma 7, there exists p  Rkt .
+
+ity is the zero-sum complement.
+
+For ease of exposition, replace p with its cor-
+
+responding conservative strategy in Rk. Let
+
+B be the set of targets that are tied for
+
+the attacker's best-response in p, i.e. B =
+
+arg maxtT Ua(t, pt). Since b(p)  K and ties are broken in favor of the "best" target, i.e. t, it must be that t / B. Then, for any t  B, Ua(t, pt) > Ua(t, k)  Ua(t, pt )  Ua(t, pt). Since Ua is decreasing in the coverage probability, for all t  B, pt > pt. Note that there is a positive gap between the attacker's payoff for attacking a best-response target versus another target, i.e.  = mint K\B,tB Ua(t, pt) - Ua(t , pt ) > 0, so
+it is possible to increase pt by a small amount without changing the best response. More precisely, since Ua is continuous and decreasing in the coverage probability, for every t  B, there exists  < pt - pt such that for all t  K \ B, Ua(t , pt ) < Ua(t, pt - ) < Ua(t, pt).
+
+Let q be such that for t  B, qt = pt -  and for t / B, qt = pt = k (by Lemma 6 and the fact that p was replaced by its conservative equivalent). By Lemma 5, q  Rk. Since for all t  B
+and t  K \ B, Ua(t, qt) > Ua(t , qt ), b(q)  B. Moreover, because Ud is increasing in the coverage probability for all t  B, Ud(t, qt) > Ud(t, pt). So, q has higher payoff for the defender when the attacker is restricted to attacking K. This contradicts the optimality of p in Rk. Therefore, b(p)  K.
+
+If the attacker attacks a target t outside the set of targets K whose regions we have already discov-
+
+ered, we can use the new feasible point in Rkt to obtain a well-centered point in Rkt -1, as the next lemma formally states.
+
+Lemma 9.
+
+For any k and t, let p be any strategy in Rkt .
+
+Define q such that qt
+
+= pt -
+
+ 2
+
+and for all
+
+i
+
+=
+
+t,
+
+qi
+
+=
+
+pi
+
++
+
+ 4n
+
+.
+
+Then,
+
+q
+
+
+
+Rtk-1
+
+and
+
+q
+
+has
+
+distance
+
+ 2n
+
+from
+
+the
+
+boundaries
+
+of
+
+Rkt -1.
+
+The lemma's proof is relegated to Appendix A.7.
+
+6
+
+4.3 An Oracle for the Convex Region
+We use a three-step procedure for defining a membership oracle for P or Rkt . Given a vector p, we first use the half-space representation of P (or Rk) described in Section 4.1 to determine whether p  P (or p  Rk). We then find a strategy s that implements p by solving a linear system with constraints M sT = pT , 0 s, and s 1 = 1. Lastly, we make a best-response query to the attacker for strategy s. If the attacker responds by attacking t, then p  Pt (or p  Rkt ), else p / Pt (or p / Rkt ).
+
+4.4 The Algorithms
+In this section, we define algorithms that use the results from previous sections to prove Theorem 1. First, we define Algorithm 1, which receives an approximately optimal strategy in Rkt as input, and finds the optimal strategy in Rkt . As noted above, obtaining exact optimal solutions in Rkt is required in order to apply Lemma 8, thereby ensuring that we discover new regions when lucrative undiscovered regions still exist.
+
+Algorithm 1 LATTICE-ROUNDING (approximately optimal strategy p)
+
+1. For all i = t, make best-response queries to binary search for the smallest pi  [k, pi] up
+
+to
+
+accuracy
+
+,1
+25n(L+1)
+
+such
+
+that
+
+t
+
+=
+
+b(p
+
+),
+
+where
+
+for
+
+all
+
+j
+
+=
+
+i,
+
+pj
+
+
+
+pj .
+
+2. For all i, set ri and qi respectively to the smallest and second smallest rational numbers
+
+with
+
+denominator
+
+at
+
+most
+
+22n(L+1),
+
+that
+
+are
+
+larger
+
+than
+
+pi
+
+-
+
+1 25n(L+1)
+
+.
+
+3.
+
+Define p such that
+
+[pt, pt
+
++
+
+).1
+24n(L+1)
+
+pt is the unique rational number with denominator (Refer to the proof for uniqueness), and for all i =
+
+at t,
+
+most 22n(L+1) pi  ri.
+
+in
+
+4. Query j  b(p).
+
+5. If j = t, let pj  qi. Go to step 4 6. Return p.
+
+The next two Lemmas, whose proofs appear in Appendices A.8 and A.9, establish the guarantees of Algorithm 1. The first is a variation of a well-known result in linear programming [3] that is adapted specifically for our problem setting.
+
+Lemma 10. Let p be a basic optimal strategy in Rkt , then for all i, pi is a rational number with denominator at most 22n(L+1).
+
+Lemma 11.
+
+For any k and t, let p be a
+
+1 26n(L+1)
+
+-approximate
+
+optimal
+
+strategy
+
+in
+
+Rkt .
+
+Algorithm 1
+
+finds the optimal strategy in Rkt in O(nL) best-response queries.
+
+At last, we are ready to prove our main result, which provides guarantees for Algorithm 2, given below.
+
+Theorem 1 (restated). Consider a security game with n targets and representation length L, such
+
+that for every target, the set of implementable coverage probability vectors that induce an attack
+
+on that target, if non-empty, contains a ball of radius 1/2L. For any ,  > 0, with probability
+
+1 - , Algorithm 2 finds a defender strategy that is optimal up to an additive term of , using
+
+O(n6.5(log
+
+n 
+
++ L))
+
+best-response
+
+queries
+
+to
+
+the
+
+attacker.
+
+Proof Sketch. For each K  T and k, the loop at step 5 of Algorithm 2 finds the optimal strategy if the attacker was restricted to attacking targets of K in Rk.
+
+Every time the IF clause at step 5a is satisfied, the algorithm expands the set K by a target t and
+
+adds xt to the set of initial points X, which is an interior point of Rkt -1 (by Lemma 9). Then the algorithm restarts the loop at step 5. Therefore every time the loop at step 5 is started, X is a set of
+
+initial
+
+points
+
+in
+
+K
+
+that
+
+have
+
+margin
+
+ 2n
+
+in
+
+Rk .
+
+This
+
+loop
+
+is
+
+restarted
+
+at
+
+most
+
+n
+
+-
+
+1
+
+times.
+
+We reach step 6 only when the best-response to the optimal strategy that only considers targets of K is in K. By Lemma 8, the optimal strategy is in Pt for some t  K. By applying Theorem 2.1 to K,
+
+7
+
+Algorithm 2 OPTIMIZE (accuracy , confidence )
+
+1.
+
+
+
+
+
+1 (n+1)2L+1
+
+,
+
+
+
+
+
+ n2
+
+,
+
+and
+
+k
+
+
+
+n.
+
+2. Use R, D, and A to compute oracles (half-spaces) for P, R0, . . . , Rn.
+
+3. Query t  b(k)
+
+4.
+
+K
+
+ {t}, X
+
+ {x t}, where xtt
+
+= k - /2 and for i = t, xti
+
+= k +
+
+ 4n
+
+.
+
+5. For t  K,
+
+(a) If during steps 5b to 5e a target t / K is attacked as a response to some strategy p:
+
+i.
+
+Let xtt
+
+ pt
+
+- /2 and for i = t , xti
+
+
+
+pi
+
++
+
+ 4n
+
+.
+
+ii. X  X  {xt }, K  K  {t }, and k  k - 1.
+
+iii. Restart the loop at step 5.
+
+(b) Use Theorem 2.1 with set of targets K. With probability 1 -  find a qt that is a
+
+1 26n(L+1)
+
+-approximate
+
+optimal
+
+strategy
+
+restricted
+
+to
+
+set
+
+K
+
+.
+
+(c) Use the Lattice Rounding on qt to find qt, that is the optimal strategy in Rkt restricted
+
+to K.
+
+(d) For all t / K, qtt  k. (e) Query qt.
+
+6. For all t  K, use Theorem 2.1 to find pt that is an -approximate strategy with probability 1 -  , in Pt.
+7. Return pt that has the highest payoff to the defender.
+
+with an oracle for P using the initial set of point X which has /2n margin in R0, we can find the -optimal strategy with probability 1- . There are at most n2 applications of Theorem 2.1 and each succeeds with probability 1- , so our overall procedure succeeds with probability 1-n2  1-.
+
+Regarding the number of queries, every time the loop at step 5 is restarted |K| increases by 1. So,
+
+this loop is restarted at most n - 1 times. In a successful run of the loop for set K, the loop makes
+
+|K| calls to call, X has by a sphere
+
+the algorithm initial points of radius n
+
+of Theorem with margin
+
+2.1
+
+2n
+
+to
+
+find
+
+a
+
+1 26n(L+1)
+
+-approximate
+
+optimal
+
+, and furthermore, the total feasibility
+
+solution. In each space is bounded
+
+(because
+
+of
+
+probability
+
+vectors),
+
+so
+
+each
+
+call
+
+makes
+
+O(n4.5(log
+
+n 
+
++
+
+L))
+
+queries. The last call looks for an
+
+-approximate solution,
+
+and will take
+
+another
+
+O(n4.5(log
+
+n 
+
++ L))
+
+queries. In addition, our the algorithm makes n2 calls to Algorithm 1 for a total of O(n3L) queries.
+
+In conclusion, our procedure makes a total of O(n6.5(log
+
+n 
+
++
+
+L))
+
+=
+
+poly(n, L, log
+
+1 
+
+)
+
+queries.
+
+5 Discussion
+
+Our main result focuses on the query complexity of our problem. We believe that, indeed, best response queries are our most scarce resource, and it is therefore encouraging that an (almost) optimal strategy can be learned with a polynomial number of queries.
+It is worth noting, though, that some steps in our algorithm are computationally inefficient. Specifically, our membership oracle needs to determine whether a given coverage probability vector is implementable. We also need to explicitly compute the feasibility half-spaces that define P. Informally speaking, (worst-case) computational inefficiency is inevitable, because computing an optimal strategy to commit to is computationally hard even in simple security games [6].
+Nevertheless, deployed security games algorithms build on integer programming techniques to achieve satisfactory runtime performance in practice [13]. While beyond the reach of theoretical analysis, a synthesis of these techniques with ours can yield truly practical learning algorithms for dealing with payoff uncertainty in security games.
+Acknowledgments. This material is based upon work supported by the National Science Foundation under grants CCF-1116892, CCF-1101215, CCF-1215883, and IIS-1350598.
+
+8
+
+References [1] V. Conitzer and T. Sandholm. Computing the optimal strategy to commit to. In Proceedings
+of the 7th ACM Conference on Electronic Commerce (EC), pages 82-90, 2006. [2] K. Fukuda and A. Prodon. Double description method revisited. In Combinatorics and com-
+puter science, pages 91-111. Springer, 1996. [3] P. Gacs and L. Lovasz. Khachiyan's algorithm for linear programming. Mathematical Pro-
+gramming Studies, 14:61-68, 1981. [4] M. Grotschel, L. Lovasz, and A. Schrijver. Geometric Algorithms and Combinatorial Opti-
+mization. Springer, 2nd edition, 1993. [5] C. Kiekintveld, J. Marecki, and M. Tambe. Approximation methods for infinite Bayesian
+Stackelberg games: Modeling distributional payoff uncertainty. In Proceedings of the 10th International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS), pages 1005-1012, 2011. [6] D. Korzhyk, V. Conitzer, and R. Parr. Complexity of computing optimal Stackelberg strategies in security resource allocation games. In Proceedings of the 24th AAAI Conference on Artificial Intelligence (AAAI), pages 805-810, 2010. [7] D. Korzhyk, Z. Yin, C. Kiekintveld, V. Conitzer, and M. Tambe. Stackelberg vs. Nash in security games: An extended investigation of interchangeability, equivalence, and uniqueness. Journal of Artificial Intelligence Research, 41:297-327, 2011. [8] J. Letchford, V. Conitzer, and K. Munagala. Learning and approximating the optimal strategy to commit to. In Proceedings of the 2nd International Symposium on Algorithmic Game Theory (SAGT), pages 250-262, 2009. [9] J. Marecki, G. Tesauro, and R. Segal. Playing repeated Stackelberg games with unknown opponents. In Proceedings of the 11th International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS), pages 821-828, 2012. [10] T. S. Motzkin, H. Raiffa, G. L. Thompson, and R. M. Thrall. The double description method. Annals of Mathematics Studies, 2(28):51-73, 1953. [11] P. Paruchuri, J. P. Pearce, J. Marecki, M. Tambe, F. F. Ordonez, and S. Kraus. Playing games for security: An efficient exact algorithm for solving Bayesian Stackelberg games. In Proceedings of the 7th International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS), pages 895-902, 2008. [12] J. Pita, M. Jain, M. Tambe, F. Ordonez, and S. Kraus. Robust solutions to Stackelberg games: Addressing bounded rationality and limited observations in human cognition. Artificial Intelligence, 174(15):1142-1171, 2010. [13] M. Tambe. Security and Game Theory: Algorithms, Deployed Systems, Lessons Learned. Cambridge University Press, 2012. [14] A. Tauman Kalai and S. Vempala. Simulated annealing for convex optimization. Mathematics of Operations Research, 31(2):253-266, 2006.
+9
+

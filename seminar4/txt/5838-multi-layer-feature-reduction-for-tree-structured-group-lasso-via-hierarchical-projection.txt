@@ -1,0 +1,930 @@
+Multi-Layer Feature Reduction for Tree Structured Group Lasso via Hierarchical Projection
+Jie Wang1, Jieping Ye1,2 1Computational Medicine and Bioinformatics 2Department of Electrical Engineering and Computer Science University of Michigan, Ann Arbor, MI 48109
+{jwangumi, jpye}@umich.edu
+Abstract
+Tree structured group Lasso (TGL) is a powerful technique in uncovering the tree structured sparsity over the features, where each node encodes a group of features. It has been applied successfully in many real-world applications. However, with extremely large feature dimensions, solving TGL remains a significant challenge due to its highly complicated regularizer. In this paper, we propose a novel MultiLayer Feature reduction method (MLFre) to quickly identify the inactive nodes (the groups of features with zero coefficients in the solution) hierarchically in a top-down fashion, which are guaranteed to be irrelevant to the response. Thus, we can remove the detected nodes from the optimization without sacrificing accuracy. The major challenge in developing such testing rules is due to the overlaps between the parents and their children nodes. By a novel hierarchical projection algorithm, MLFre is able to test the nodes independently from any of their ancestor nodes. Moreover, we can integrate MLFre--that has a low computational cost--with any existing solvers. Experiments on both synthetic and real data sets demonstrate that the speedup gained by MLFre can be orders of magnitude.
+1 Introduction
+Tree structured group Lasso (TGL) [13, 30] is a powerful regression technique in uncovering the hierarchical sparse patterns among the features. The key of TGL, i.e., the tree guided regularization, is based on a pre-defined tree structure and the group Lasso penalty [29], where each node represents a group of features. In recent years, TGL has achieved great success in many real-world applications such as brain image analysis [10, 18], gene data analysis [14], natural language processing [27, 28], and face recognition [12]. Many algorithms have been proposed to improve the efficiency of TGL [1, 6, 11, 7, 16]. However, the application of TGL to large-scale problems remains a challenge due to its highly complicated regularizer.
+As an emerging and promising technique in scaling large-scale problems, screening has received much attention in the past few years. Screening aims to identify the zero coefficients in the sparse solutions by simple testing rules such that the corresponding features can be removed from the optimization. Thus, the size of the data matrix can be significantly reduced, leading to substantial savings in computational cost and memory usage. Typical examples include TLFre [25], FLAMS [22], EDPP [24], Sasvi [17], DOME [26], SAFE [8], and strong rules [21]. We note that strong rules are inexact in the sense that features with nonzero coefficients may be mistakenly discarded, while the others are exact. Another important direction of screening is to detect the non-support vectors for support vector machine (SVM) and least absolute deviation (LAD) [23, 19]. Empirical studies have shown that the speedup gained by screening methods can be several orders of magnitude. Moreover, the exact screening methods improve the efficiency without sacrificing optimality.
+However, to the best of our knowledge, existing screening methods are only applicable to sparse models with simple structures such as Lasso, group Lasso, and sparse group Lasso. In this paper, we
+1
+
+propose a novel Multi-Layer Feature reduction method, called MLFre, for TGL. MLFre is exact and it tests the nodes hierarchically from the top level to the bottom level to quickly identify the inactive nodes (the groups of features with zero coefficients in the solution vector), which are guaranteed to be absent from the sparse representation. To the best of our knowledge, MLFre is the first screening method that is applicable to TGL with the highly complicated tree guided regularization.
+
+The major technical challenges in developing MLFre for TGL lie in two folds. The first is that most existing exact screening methods are based on evaluating the norm of the subgradients of the sparsity-inducing regularizers with respect to the variables or groups of variables of interests. However, for TGL, we only have access to a mixture of the subgradients due to the overlaps between parents and their children nodes. Therefore, our first major technical contribution is a novel hierarchical projection algorithm that is able to exactly and efficiently recover the subgradients with respect to every node from the mixture (Sections 3 and 4). The second technical challenge is that most existing exact screening methods need to estimate an upper bound involving the dual optimum. This turns out to be a complicated nonconvex optimization problem for TGL. Thus, our second major technical contribution is to show that this highly nontrivial nonconvex optimization problem admits closed form solutions (Section 5). Experiments on both synthetic and real data sets demonstrate that the speedup gained by MLFre can be orders of magnitude (Section 6). Please see supplements for detailed proofs of the results in the main text.
+Notation: Let * be the 2 norm, [p] = {1, . . . , p} for a positive integer p, G  [p], and G = [p]\G. For u  Rp, let ui be its ith component. For G  [p], we denote uG = [u]G = {v : vi = ui if i  G, vi = 0 otherwise} and HG = {u  Rp : uG = 0}. If G1, G2  [n] and G1  G2, we emphasize that G2 \ G1 = . For a set C, let int C, ri C, bd C, and rbd C be its interior, relative interior, boundary, and relative boundary, respectively [5]. If C is closed and convex, the projection operator is PC(z) := argminuC z - u , and its indicator function is IC(*), which is 0 on C and  elsewhere. Let 0(Rp) be the class of proper closed convex functions on Rp. For f  0(Rp), let f be its subdifferential and dom f := {z : f (z) < }. We denote by + = max(, 0).
+
+2 Basics
+
+We briefly review some basics of TGL. First, we introduce the so-called index tree.
+
+Definition 1. [16] For an index tree T of depth d, we denote the node(s) of depth i by Ti = {Gi1, . . . , Gini }, where n0 = 1, G01 = [p], Gij  [p], and ni  1,  i  [d]. We assume that (i): Gij1  Gij2 = ,  i  [d] and j1 = j2 (different nodes of the same depth do not overlap). (ii): If Gij is a parent node of Gi+1, then Gi+1  Gij.
+When the tree structure is available (see supplement for an example), the TGL problem is
+
+min
+
+
+1 2
+
+y - X
+
+2+
+
+d i=0
+
+ni j=1
+
+wji
+
+Gij
+
+,
+
+(TGL)
+
+where y  RN is the response vector, X  RNxp is the data matrix, Gij and wji are the coefficients
+vector and positive weight corresponding to node Gij, respectively, and  > 0 is the regularization parameter. We derive the Lagrangian dual problem of TGL as follows.
+
+Theorem 2. For the TGL problem, let () =
+
+d i=0
+
+ni j=1
+
+wji
+
+Gij
+
+. The following hold:
+
+(i): Let ij() = Gij and Bji = {  HGij :   wji }. We can write (0) as
+
+(0) =
+
+d i=0
+
+ni j=1
+
+wji ij (0)
+
+=
+
+d i=0
+
+ni j=1
+
+Bji
+
+.
+
+(1)
+
+(ii): Let F = { : XT   (0)}. The Lagrangian dual of TGL is
+
+sup
+
+1 2
+
+y
+
+2-
+
+1 2
+
+y 
+
+-
+
+2
+
+:F
+
+.
+
+
+
+(2)
+
+(iii): Let () and () be the optimal solution of problems (TGL) and (2), respectively. Then,
+
+y = X() + (),
+
+(3)
+
+XT () 
+
+d i=0
+
+ni j=1
+
+wji
+
+
+
+ij
+
+(
+
+
+
+()).
+
+(4)
+
+The dual problem of TGL in (2) is equivalent to a projection problem, i.e., () = PF (y/). This geometric property plays a fundamentally important role in developing MLFre (see Section 5).
+
+2
+
+3 Testing Dual Feasibility via Hierarchical Projection
+
+Although the dual problem in (2) has nice geometric properties, it is challenging to determine the
+feasibility of a given  due to the complex dual feasible set F. An alternative approach is to test if XT  = P(0)(XT ). Although (0) is very complicated, we show that P(0)(*) admits a
+closed form solution by hierarchically splitting P(0)(*) into a sum of projection operators with respect to a collection of simpler sets. We first introduce some notations. For an index tree T , let
+
+Aij =
+
+t,k Bkt : Gtk  Gij ,  i  0  [d], j  [ni],
+
+(5)
+
+Cji =
+
+t,k Bkt : Gtk  Gij ,  i  0  [d], j  [ni].
+
+(6)
+
+For a node Gij, the set Aij is the sum of Bkt corresponding to all its descendant nodes and itself, and the set Cji the sum excluding itself. Therefore, by the definitions of Aij, Bji , and Cji, we have
+
+(0) = A01, Aij = Bji + Cji,  non-leaf node Gij, Aij = Bji ,  leaf node Gij,
+
+(7)
+
+which implies that P(0)(*) = PA01 (*) = PB10+C10 (*). This motivates the first pillar of this paper, i.e., Lemma 3, which splits PB10+C10 (*) into the sum of two projections onto B10 and C10, respectively.
+Lemma 3. Let G  [p], B = {u  HG : u  } with  > 0, C  HG a nonempty closed convex set, and z an arbitrary point in HG. Then, the following hold:
+
+(i): [2] PB(z) = min{1, / z }z if z = 0. Otherwise, PB(z) = 0.
+
+(ii): IB+C(z) = IB(z - PC(z)), i.e., PC(z)  argminuC IB(z - u).
+
+(iii): PB+C(z) = PC(z) + PB(z - PC(z)).
+
+By part (iii) of Lemma 3, we can split PA01 (XT ) in the following form:
+
+PA01 (XT ) = PC10 (XT ) + PB10 (XT  - PC10 (XT )).
+
+(8)
+
+As PB10 (*) admits a closed form solution by part (i) of Lemma 3, we can compute PA01 (XT ) if we have PC10 (XT ) computed. By Eq. (5) and Eq. (6), for a non-leaf node Gij, we note that
+
+Cji =
+
+kIc(Gij) Aik+1, where Ic(Gij ) = {k : Gik+1  Gij }.
+
+(9)
+
+Inspired by (9), we have the following result.
+
+Lemma 4. Let {G  [p]} be a set of nonoverlapping index sets, {C  HG } be a set of nonempty closed convex sets, and C = C . Then, PC(z) = PC (zG ) for z  Rp.
+
+Remark 1. For Lemma 4, if all C are balls centered at 0, then PC(z) admits a closed form solution.
+
+By Lemma 4 and Eq. (9), we can further splits PC10 (XT ) in Eq. (8) in the following form.
+
+PC10 (XT ) =
+
+kIc(G01) PA1k ([XT ]G1k ), where Ic(G01) = {k : G1k  G01}.
+
+(10)
+
+Consider the right hand side of Eq. (10). If G1k is a leaf node, Eq. (7) implies that A1k = Bk1 and thus PA1k (*) admits a closed form solution by part (i) of Lemma 3. Otherwise, we continue to split PA1k (*) by Lemmas (3) and (4). This procedure will always terminate as we reach the leaf nodes
+[see the last equality in Eq. (7)]. Therefore, by a repeated application of Lemmas (3) and (4), the
+
+following algorithm computes the closed form solution of PA01 (*).
+
+Algorithm 1 Hierarchical Projection: PA01 (*).
+
+Input: z  Rp, the index tree T as in Definition 1, and positive weights wji for all nodes Gij in T . Output: u0 = PA01 (z), vi for  i  0  [d]. 1: Set ui  0  Rp,  i  0  [d + 1], vi  0  Rp,  i  0  [d].
+
+2: for i = d to 0 do
+
+/*hierarchical projection*/
+
+3: for j = 1 to ni do 4:
+
+vGi ij = PBji (zGij - uiG+ij1),
+
+(11)
+
+5: end for
+
+uiGij  uiG+ij1 + vGi ij .
+
+(12)
+
+6: end for
+
+3
+
+The time complexity of Algorithm 1 is similar to that of solving its proximal operator [16],
+
+i.e., O(
+
+d i=0
+
+ni j=1
+
+|Gij
+
+|),
+
+where
+
+|Gij |
+
+is
+
+the
+
+number
+
+of
+
+features
+
+contained
+
+in
+
+the
+
+node
+
+Gij .
+
+As
+
+ni j=1
+
+|Gij |
+
+
+
+p
+
+by
+
+Definition
+
+1,
+
+the
+
+time
+
+complexity
+
+of
+
+Algorithm
+
+1
+
+is
+
+O(pd),
+
+and
+
+thus
+
+O(p
+
+log
+
+p)
+
+for a balanced tree, where d = O(log p). The next result shows that u0 returned by Algorithm 1 is
+
+the projection of z onto A01. Indeed, we have more general results as follows.
+
+Theorem 5. For Algorithm 1, the following hold:
+
+(i): uiGij = PAij zGij ,  i  0  [d], j  [ni]. (ii): uiG+ij1 = PCji zGij , for any non-leaf node Gij .
+
+4 MLFre Inspired by the KKT Conditions and Hierarchical Projection
+
+In this section, we motivate MLFre via the KKT condition in Eq. (4) and the hierarchical projection in Algorithm 1. Note that for any node Gij, we have
+
+wji ij (()) =
+
+{  HGij :   wji },
+
+if [()]Gij = 0,
+
+wji [()]Gij / [()]Gij , otherwise.
+
+(13)
+
+Moreover, the KKT condition in Eq. (4) implies that
+
+ {ji  wji ij(()) :  i  0  [d], j  [ni]} such that XT () =
+
+d i=0
+
+ni j=1
+
+ji
+
+.
+
+(14)
+
+Thus, if ji < wji , we can see that [()]Gij = 0. However, we do not have direct access to ji
+even if () is known, because XT () is a mixture (sum) of all ji as shown in Eq. (14). Indeed, Algorithm 1 turns out to be much more useful than testing the feasibility of a given : it is able to split all ji  wji ij(()) from XT (). This will serve as a cornerstone in developing MLFre. Theorem 6 rigorously shows this property of Algorithm 1.
+
+Theorem 6. Let vi, i  0  [d] be the output of Algorithm 1 with input XT (), and {ji : i  0  [d], j  [ni]} be the set of vectors that satisfy Eq. (14). Then, the following hold.
+
+(i) If [()]Gij = 0, and [()]Glr = 0 for all Glr  Gij, then
+
+PAij [XT ()]Gij = {(k,t):GtkGij } kt . (ii) If Gij is a non-leaf node, and [()]Gij = 0, then
+
+PCji [XT ()]Gij = (iii) vGi ij  wji ij(()),  i  0  [d], j  [ni].
+
+{(k,t):GtkGij } kt .
+
+Combining Eq. (13) and part (iii) of Theorem 6, we can see that
+
+vGi ij < wji  [()]Gij = 0.
+
+By plugging Eq. (11) and part (ii) of Theorem 5 into (15), we have [()]Gij = 0 if
+
+(a): PBji [XT ()]Gij - PCji [XT ()]Gij
+
+< wji , if Gij is a non-leaf node,
+
+(b): PBji [XT ()]Gij < wji ,
+
+if Gij is a leaf node.
+
+(15)
+(R1) (R2)
+
+Moreover, the definition of PBji implies that we can simplify (R1) and (R2) to the following form: [XT ()]Gij - PCji [XT ()]Gij < wji  [()]Gij = 0, if Gij is a non-leaf node, (R1')
+
+[XT ()]Gij < wji  [()]Gij = 0,
+
+if Gij is a leaf node.
+
+(R2')
+
+However, (R1') and (R2') are not applicable to detect inactive nodes as they involve (). Inspired by SAFE [8], we first estimate a set  containing (). Let [XT ]Gij = {[XT ]Gij :   } and
+
+Sij (z) = zGij - PCji zGij .
+
+(16)
+
+4
+
+Then, we can relax (R1') and (R2') as
+
+sup Sij () : Gij  ij  [XT ]Gij < wji  [()]Gij = 0, if Gij is a non-leaf node, (R1)
+
+sup Gij : Gij  [XT ]Gij < wji  [()]Gij = 0,
+
+if Gij is a leaf node.
+
+(R2)
+
+In view of (R1) and (R2), we sketch the procedure to develop MLFre in the following three steps.
+
+Step 1 We estimate a set  that contains ().
+
+Step 2 We solve for the supreme values in (R1) and (R2), respectively.
+
+Step 3 We develop MLFre by plugging the supreme values obtained in Step 2 to (R1) and (R2).
+
+4.1 The Effective Interval of the Regularization Parameter 
+
+The geometric property of the dual problem in (2), i.e., () = PF (y/), implies that () = y/ if y/  F . Moreover, (R1) for the root node G01 leads to () = 0 if y/ is an interior point of F. Indeed, the following theorem presents stronger results.
+
+Theorem 7. For TGL, let max = max { : y/  F } and S01(*) be defined by Eq. (16). Then,
+
+(i): max = { : S01(XT y/) = w10}.
+
+(ii):
+
+y 
+
+
+
+F
+
+
+
+
+
+
+
+max
+
+
+
+()
+
+=
+
+y 
+
+
+
+()
+
+=
+
+0.
+
+For more discussions on max, please refer to Section H in the supplements.
+
+5 The Proposed Multi-Layer Feature Reduction Method for TGL
+
+We follow the three steps in Section 4 to develop MLFre. Specifically, we first present an accurate estimation of the dual optimum in Section 5.1, then we solve for the supreme values in (R1) and (R2) in Section 5.2, and finally we present the proposed MLFre in Section 5.3.
+
+5.1 Estimation of the Dual Optimum
+
+We estimate the dual optimum by the geometric properties of projection operators [recall that () = PF (y/)]. We first introduce a useful tool to characterize the projection operators.
+Definition 8. [2] For a closed convex set C and a point z0  C, the normal cone to C at z0 is NC(z0) = { : , z - z0  0,  z  C}.
+
+Theorem 7 implies that () is known with   max. Thus, we can estimate () in terms of a known (0). This leads to Theorem 9 that bounds the dual optimum by a small ball. Theorem 9. For TGL, suppose that (0) is known with 0  max. For   (0, 0), we define
+
+n(0) =
+
+y 0
+
+- (0),
+
+XS01
+
+XT y
+max
+
+,
+
+if 0 < max, if 0 = max,
+
+r(, 0)
+
+=
+
+y 
+
+-
+
+(0),
+
+r(, 0) = r(, 0) -
+
+r(,0 ),n(0 ) n(0) 2
+
+n(0).
+
+Then, the following hold:
+
+(i): n(0)  NF ((0)).
+
+(ii):
+
+()
+
+-
+
+((0)
+
++
+
+1 2
+
+r
+
+(,
+
+0
+
+))
+
+
+
+1 2
+
+r(, 0) .
+
+Theorem
+
+9
+
+indicates
+
+that
+
+()
+
+lies
+
+inside
+
+the
+
+ball
+
+of
+
+radius
+
+1 2
+
+r(, 0)
+
+centered at
+
+o(,
+
+0)
+
+=
+
+(0)
+
++
+
+1 2
+
+r
+
+(,
+
+0).
+
+5.2 Solving the Nonconvex Optimization Problems in (R1) and (R2)
+
+We solve for the supreme values in (R1) and (R2). For notational convenience, let
+
+ = { :
+
+ - o(, 0)
+
+
+
+1 2
+
+r(, 0) },
+
+(17)
+
+ij = { :   HGij ,  - [XT o(, 0)]Gij
+
+
+
+1 2
+
+r(, 0)
+
+XGij 2}.
+
+(18)
+
+Theorem 9 implies that ()  , and thus [XT ]Gij  ij for all non-leaf nodes Gij. To develop MLFre by (R1) and (R2), we need to solve the following optimization problems:
+
+sij(, 0) = sup { Sij() :   ij}, if Gij is a non-leaf node,
+
+(19)
+
+sij(, 0) = sup {  :   ij},
+
+if Gij is a leaf node.
+
+(20)
+
+5
+
+Before we solve problems (19) and (20), we first introduce some notations.
+Definition 10. For a non-leaf node Gij of an index tree T , let Ic(Gij) = {k : Gik+1  Gij}. If Gij \ kIc(Gij)Gik+1 = , we define a virtual child node of Gij by Gij+1 = Gij \ kIc(Gij)Gik+1 for j  {ni+1 + 1, ni+1 + 2, . . . , ni+1 + ni+1}, where ni+1 is the number of virtual nodes of depth i + 1. We set the weights wji = 0 for all virtual nodes Gij .
+
+Another useful concept is the so-called unique path between the nodes in the tree.
+
+Lemma 11. [16] For any non-root node Gij, we can find a unique path from Gij to the root G01. Let the nodes on this path be Glrl , where l  0  [i], r0 = 1, and ri = j. Then, the following hold:
+
+Gij  Glrl ,  l  0  [i - 1]. Gij  Glr = ,  r = rl, l  [i - 1], r  [ni].
+
+(21) (22)
+
+Solving Problem (19) We consider the following equivalent problem of (19).
+
+1 2
+
+(sij (,
+
+0))2
+
+=
+
+sup
+
+{
+
+1 2
+
+Sij () 2 :   ij },
+
+if Gij is a non-leaf node.
+
+(23)
+
+Although both the objective function and feasible set of problem (23) are convex, it is nonconvex as we need to find the supreme value. We derive the closed form solutions of (19) and (23) as follows.
+
+Theorem 12.
+
+Let c
+
+=
+
+[XT o(, 0)]Gij , 
+
+=
+
+1 2
+
+r(, 0)
+
+XGij 2, and vi, i  0  [d] be the
+
+output of Algorithm 1 with input XT o(, 0).
+
+(i): Suppose that c / Cji. Then, sij(, 0) = vGi ij + . (ii): Suppose that node Gij has a virtual child node. Then, for any c  Cji, sij(, 0) = . (iii): Suppose that node Gij has no virtual child node. Then, the following hold.
+(iii.a): If c  rbd Cji, then sij(, 0) = .
+(iii.b): If c  ri Cji, then, for any node Gtk  Gij, where t  {i + 1, . . . , d} and k  [nt + nt], let the nodes on the path from Gtk to Gij be Glrl , where l = i, . . . , t, ri = j, and rt = k, and
+
+(Gir+i+11 , Gtk) =
+
+t l=i+1
+
+wrl l -
+
+vl
+Glrl
+
+.
+
+(24)
+
+Then, sij(, 0) =
+
+ - min{(k,t):GtkGij } (Gir+i+11 , Gtk)
+
+.
++
+
+Solving Problem (20) We can solve problem (20) by the Cauchy-Schwarz inequality.
+
+Theorem 13. For problem (20), we have sij(, 0) =
+
+[XT o(, 0)]Gij
+
++
+
+1 2
+
+r(, 0)
+
+XGij 2.
+
+5.3 The Multi-Layer Screening Rule
+In real-world applications, the optimal parameter values are usually unknown. Commonly used approaches to determine an appropriate parameter value, such as cross validation and stability selection, solve TGL many times along a grid of parameter values. This process can be very time consuming. Motivated by this challenge, we present MLFre in the following theorem by plugging the supreme values found by Theorems 12 and 13 into (R1) and (R2), respectively.
+
+Theorem 14. For the TGL problem, suppose that we are given a sequence of parameter values max = 0 > 1 > * * * > K. For each integer k = 0, . . . , K - 1, we compute (k) from a given (k) via Eq. (3). Then, for i = 1, . . . , d, MLFre takes the form of
+
+sij (k+1, k) < wji  [()]Gij = 0,  j  [ni].
+
+(MLFre)
+
+Remark 2. We apply MLFre to identify inactive nodes hierarchically in a top-down fashion. Note that, we do not need to apply MLFre to node Gij if one of its ancestor nodes passes the rule.
+Remark 3. To simplify notations, we consider TGL with a single tree, in the proof. However, all major results are directly applicable to TGL with multiple trees, as they are independent from each other. We note that, many sparse models, such as Lasso, group Lasso, and sparse group Lasso, are special cases of TGL with multiple trees.
+
+6
+
+(a) synthetic 1, p = 20000
+
+(b) synthetic 1, p = 50000
+
+(c) synthetic 1, p = 100000
+
+(d) synthetic 2, p = 20000
+
+(e) synthetic 2, p = 50000
+
+(f) synthetic 2, p = 100000
+
+Figure 1: Rejection ratios of MLFre on two synthetic data sets with different feature dimensions.
+
+6 Experiments
+
+We evaluate MLFre on both synthetic and real data sets by two measurements. The first measure is
+
+the rejection ratios of MLFre for each level of the tree. Let p0 be the number of zero coefficients in the solution vector and Gi be the index set of the inactive nodes with depth i identified by MLFre.
+
+The rejection ratio of the ith layer of MLFre is defined by ri =
+
+,kGi |Gik|
+p0
+
+where
+
+|Gik |
+
+is
+
+the
+
+number of features contained in node Gik. The second measure is speedup, namely, the ratio of the
+
+running time of the solver without screening to the running time of solver with MLFre.
+
+For each data set, we run the solver combined with MLFre along a sequence of 100 parameter values
+equally spaced on the logarithmic scale of /max from 1.0 to 0.05. The solver for TGL is from the SLEP package [15]. It also provides an efficient routine to compute max.
+
+6.1 Simulation Studies
+
+We perform experiments on two synthetic data sets, named synthetic 1 and synthetic 2, which are commonly used in the literature [21, 31]. The true model is y = X + 0.01 ,  N (0, 1). For each of the data set, we fix N = 250 and select p = 20000, 50000, 100000. We create a tree with height 4, i.e., d = 3. The average sizes of the nodes with depth 1, 2 and
+
+Table 1: Running time (in seconds) for solving TGL along a sequence of 100 tuning parameter values of  equally spaced on the logarithmic scale of /max from 1.0 to 0.05 by (a): the solver [15] without screening (see the third column); (b): the solver with MLFre (see the fifth column).
+
+Dataset
+
+p solver MLFre MLFre+solver speedup
+
+3 are 50, 10, and 1, respectively. Thus, if
+
+20000 483.96 1.03
+
+30.17
+
+16.04
+
+p = 100000, we have roughly n1 = 2000, n2 = 10000, and n3 = 100000. For synthet-
+
+synthetic 1 50000 1175.91 2.95 100000 2391.43 6.57
+
+39.49 58.91
+
+29.78 40.60
+
+ic 1, the entries of the data matrix X are i.i.d.
+
+20000 470.54 1.19
+
+37.87
+
+12.43
+
+standard Gaussian with zero pair-wise correla-
+
+synthetic 2 50000 1122.30 3.13
+
+43.97
+
+25.53
+
+tion, i.e., corr (xi, xj) = 0 for the ith and jth
+
+100000 2244.06 6.18
+
+columns of X with i = j. For synthetic 2, ADNI+GMV 406262 20911.92 81.14
+
+60.96 492.08
+
+36.81 42.50
+
+the entries of X are drawn from standard Gaus- ADNI+WMV 406262 21855.03 80.83 556.19 39.29
+
+sian with pair-wise correlation corr (xi, xj ) = ADNI+WBV 406262 20812.06 82.10 564.36 36.88
+
+0.5|i-j|. To construct , we first randomly select 50% of the nodes with depth 1, and then ran-
+
+domly select 20% of the children nodes (with depth 2) of the remaining nodes with depth 1. The components of  corresponding to the remaining nodes are populated from a standard Gaussian,
+
+and the remaining ones are set to zero.
+
+7
+
+(a) ADNI+GMV
+
+(b) ADNI+WMV
+
+(c) ADNI+WBV
+
+Figure 2: Rejection ratios of MLFre on ADNI data set with grey matter volume (GMV), white mater
+
+volume (WMV), and whole brain volume (WBV) as response vectors, respectively.
+
+Fig. 1 shows the rejection ratios of all three layers of MLFre. We can see that MLFre identifies
+
+almost all of the inactive nodes, i.e.,
+
+3 i=1
+
+ri
+
+
+
+90%,
+
+and the first layer contributes the most.
+
+Moreover, Fig. 1 also indicates that, as the feature dimension (and the number of nodes in each level)
+
+increases, MLFre identifies more inactive nodes, i.e.,
+
+3 i=1
+
+ri
+
+
+
+100%.
+
+Thus,
+
+we
+
+can
+
+expect
+
+a
+
+more
+
+significant capability of MLFre in identifying inactive nodes on data sets with higher dimensions.
+
+Table 1 shows the running time of the solver with and without MLFre. We can observe significant speedups gained by MLFre, which are up to 40 times. Take synthetic 1 with p = 100000 for example. The solver without MLFre takes about 40 minutes to solve TGL at 100 parameter values. Combined with MLFre, the solver only needs less than one minute for the same task. Table 1 also shows that the computational cost of MLFre is very low--that is negligible compared to that of the solver without MLFre. Moreover, as MLFre identifies more inactive nodes with increasing feature dimensions, Table 1 shows that the speedup gained by MLFre becomes more significant as well.
+
+6.2 Experiments on ADNI data set
+
+We perform experiments on the Alzheimers Disease Neuroimaging Initiative (ADNI) data set
+
+(http://adni.loni.usc.edu/). The data set consists of 747 patients with 406262 single
+
+nucleotide polymorphisms (SNPs). We create the index tree such that n1 = 4567, n2 = 89332, and n3 = 406262. Fig. 2 presents the rejection ratios of MLFre on the ADNI data set with grey
+
+matter volume (GMV), white matter volume (WMV), and whole brain volume (WBV) as response,
+
+respectively. We can see that MLFre identifies almost all inactive nodes, i.e.,
+
+3 i=1
+
+ri
+
+
+
+100%.
+
+As
+
+a result, we observe significant speedups gained by MLFre--that are about 40 times--from Table
+
+1. Specifically, with GMV as response, the solver without MLFre takes about six hours to solve
+
+TGL at 100 parameter values. However, combined with MLFre, the solver only needs about eight
+
+minutes for the same task. Moreover, Table 1 also indicates that the computational cost of MLFre is
+
+very low--that is negligible compared to that of the solver without MLFre.
+
+7 Conclusion
+In this paper, we propose a novel multi-layer feature reduction (MLFre) method for TGL. Our major technical contributions lie in two folds. The first is the novel hierarchical projection algorithm that is able to exactly and efficiently recover the subgradients of the tree-guided regularizer with respect to each node from their mixture. The second is that we show a highly nontrivial nonconvex problem admits a closed form solution. To the best of our knowledge, MLFre is the first screening method that is applicable to TGL. An appealing feature of MLFre is that it is exact in the sense that the identified inactive nodes are guaranteed to be absent from the sparse representations. Experiments on both synthetic and real data sets demonstrate that MLFre is very effective in identifying inactive nodes, leading to substantial savings in computational cost and memory usage without sacrificing accuracy. Moreover, the capability of MLFre in identifying inactive nodes on higher dimensional data sets is more significant. We plan to generalize MLFre to more general and complicated sparse models, e.g., over-lapping group Lasso with logistic loss. In addition, we plan to apply MLFre to other applications, e.g., brain image analysis [10, 18] and natural language processing [27, 28].
+
+Acknowledgments
+This work is supported in part by research grants from NIH (R01 LM010730, U54 EB020403) and NSF (IIS- 0953662, III-1539991, III-1539722).
+
+8
+
+References
+[1] F. Bach, R. Jenatton, J. Mairal, and G. Obozinski. Optimization with sparsity-inducing penalties. Foundations and Trends in Machine Learning, 4(1):1-106, Jan. 2012.
+[2] H. H. Bauschke and P. L. Combettes. Convex Analysis and Monotone Operator Theory in Hilbert Spaces. Springer, 2011.
+[3] M. Bazaraa, H. Sherali, and C. Shetty. Nonlinear Programming: Theory and Algorithms. WileyInterscience, 2006.
+[4] J. Borwein and A. Lewis. Convex Analysis and Nonlinear Optimization, Second Edition. Canadian Mathematical Society, 2006.
+[5] S. Boyd and L. Vandenberghe. Convex Optimization. Cambridge University Press, 2004. [6] X. Chen, Q. Lin, S. Kim, J. Carbonell, and E. Xing. Smoothing proximal gradient method for general
+structured sparse regression. Annals of Applied Statistics, pages 719-752, 2012. [7] W. Deng, W. Yin, and Y. Zhang. Group sparse optimization by alternating direction method. Technical
+report, Rice CAAM Report TR11-06, 2011. [8] L. El Ghaoui, V. Viallon, and T. Rabbani. Safe feature elimination in sparse supervised learning. Pacific
+Journal of Optimization, 8:667-698, 2012. [9] J.-B. Hiriart-Urruty. From convex optimization to nonconvex optimization. necessary and sufficient con-
+ditions for global optimality. In Nonsmooth optimization and related topics. Springer, 1988. [10] R. Jenatton, A. Gramfort, V. Michel, G. Obozinski, E. Eger, F. Bach, and B. Thirion. Multiscale mining of
+fmri data with hierarchical structured sparsity. SIAM Journal on Imaging Science, pages 835-856, 2012. [11] R. Jenatton, J. Mairal, G. Obozinski, and F. Bach. Proximal methods for hierarchical sparse coding.
+Journal of Machine Learning Research, 12:2297-2334, 2011. [12] K. Jia, T. Chan, and Y. Ma. Robust and practical face recognition via structured sparsity. In European
+Conference on Computer Vision, 2012. [13] S. Kim and E. Xing. Tree-guided group lasso for multi-task regression with structured sparsity. In
+International Conference on Machine Learning, 2010. [14] S. Kim and E. Xing. Tree-guided group lasso for multi-response regression with structured sparsity, with
+an application to eqtl mapping. The Annals of Applied Statistics, 2012. [15] J. Liu, S. Ji, and J. Ye. SLEP: Sparse Learning with Efficient Projections. Arizona State University, 2009. [16] J. Liu and J. Ye. Moreau-Yosida regularization for grouped tree structure learning. In Advances in neural
+information processing systems, 2010. [17] J. Liu, Z. Zhao, J. Wang, and J. Ye. Safe screening with variational inequalities and its application to
+lasso. In International Conference on Machine Learning, 2014. [18] M. Liu, D. Zhang, P. Yap, and D. Shen. Tree-guided sparse coding for brain disease classification. In
+Medical Image Computing and Computer-Assisted Intervention, 2012. [19] K. Ogawa, Y. Suzuki, and I. Takeuchi. Safe screening of non-support vectors in pathwise SVM computa-
+tion. In ICML, 2013. [20] A. Ruszczynski. Nonlinear Optimization. Princeton University Press, 2006. [21] R. Tibshirani, J. Bien, J. Friedman, T. Hastie, N. Simon, J. Taylor, and R. Tibshirani. Strong rules for
+discarding predictors in lasso-type problems. Journal of the Royal Statistical Society Series B, 74:245- 266, 2012. [22] J. Wang, W. Fan, and J. Ye. Fused lasso screening rules via the monotonicity of subdifferentials. IEEE Transactions on Pattern Analysis and Machine Intelligence, PP(99):1-1, 2015. [23] J. Wang, P. Wonka, and J. Ye. Scaling svm and least absolute deviations via exact data reduction. In International Conference on Machine Learning, 2014. [24] J. Wang, P. Wonka, and J. Ye. Lasso screening rules via dual polytope projection. Journal of Machine Learning Research, 16:1063-1101, 2015. [25] J. Wang and J. Ye. Two-Layer feature reduction for sparse-group lasso via decomposition of convex sets. Advances in neural information processing systems, 2014. [26] Z. J. Xiang, H. Xu, and P. J. Ramadge. Learning sparse representation of high dimensional data on large scale dictionaries. In NIPS, 2011. [27] D. Yogatama, M. Faruqui, C. Dyer, and N. Smith. Learning word representations with hierarchical sparse coding. In International Conference on Machine Learning, 2015. [28] D. Yogatama and N. Smith. Linguistic structured sparsity in text categorization. In Proceedings of the Annual Meeting of the Association for Computational Linguistics, 2014. [29] M. Yuan and Y. Lin. Model selection and estimation in regression with grouped variables. Journal of the Royal Statistical Society Series B, 68:49-67, 2006. [30] P. Zhao, G. Rocha, and B. Yu. The composite absolute penalties family for grouped and hierarchical variable selection. Annals of Statistics, 2009. [31] H. Zou and T. Hastie. Regularization and variable selection via the elastic net. Journal of the Royal Statistical Society Series B, 67:301-320, 2005.
+9
+

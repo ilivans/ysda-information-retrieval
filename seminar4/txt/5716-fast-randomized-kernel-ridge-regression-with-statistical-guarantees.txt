@@ -1,0 +1,754 @@
+Fast Randomized Kernel Ridge Regression with Statistical Guarantees
+
+Ahmed El Alaoui 
+
+Michael W. Mahoney 
+
+ Electrical Engineering and Computer Sciences
+
+ Statistics and International Computer Science Institute
+
+University of California, Berkeley, Berkeley, CA 94720.
+
+{elalaoui@eecs,mmahoney@stat}.berkeley.edu
+
+Abstract
+One approach to improving the running time of kernel-based methods is to build a small sketch of the kernel matrix and use it in lieu of the full matrix in the machine learning task of interest. Here, we describe a version of this approach that comes with running time guarantees as well as improved guarantees on its statistical performance. By extending the notion of statistical leverage scores to the setting of kernel ridge regression, we are able to identify a sampling distribution that reduces the size of the sketch (i.e., the required number of columns to be sampled) to the effective dimensionality of the problem. This latter quantity is often much smaller than previous bounds that depend on the maximal degrees of freedom. We give an empirical evidence supporting this fact. Our second contribution is to present a fast algorithm to quickly compute coarse approximations to these scores in time linear in the number of samples. More precisely, the running time of the algorithm is O(np2) with p only depending on the trace of the kernel matrix and the regularization parameter. This is obtained via a variant of squared length sampling that we adapt to the kernel setting. Lastly, we discuss how this new notion of the leverage of a data point captures a fine notion of the difficulty of the learning problem.
+1 Introduction
+We consider the low-rank approximation of symmetric positive semi-definite (SPSD) matrices that arise in machine learning and data analysis, with an emphasis on obtaining good statistical guarantees. This is of interest primarily in connection with kernel-based machine learning methods. Recent work in this area has focused on one or the other of two very different perspectives: an algorithmic perspective, where the focus is on running time issues and worst-case quality-of-approximation guarantees, given a fixed input matrix; and a statistical perspective, where the goal is to obtain good inferential properties, under some hypothesized model, by using the low-rank approximation in place of the full kernel matrix. The recent results of Gittens and Mahoney [2] provide the strongest example of the former, and the recent results of Bach [3] are an excellent example of the latter. In this paper, we combine ideas from these two lines of work in order to obtain a fast randomized kernel method with statistical guarantees that are improved relative to the state-of-the-art.
+To understand our approach, recall that several papers have established the crucial importance-- from the algorithmic perspective--of the statistical leverage scores, as they capture structural nonuniformities of the input matrix and they can be used to obtain very sharp worst-case approximation guarantees. See, e.g., work on CUR matrix decompositions [5, 6], work on the the fast approximation of the statistical leverage scores [7], and the recent review [8] for more details. Here, we
+A technical report version of this conference paper is available at [1].
+1
+
+simply note that, when restricted to an n x n SPSD matrix K and a rank parameter k, the statistical leverage scores relative to the best rank-k approximation to K, call them i, for i  {1, . . . , n}, are the diagonal elements of the projection matrix onto the best rank-k approximation of K. That is, i = diag(KkKk)i, where Kk is the best rank k approximation of K and where Kk is the MoorePenrose inverse of Kk. The recent work by Gittens and Mahoney [2] showed that qualitatively improved worst-case bounds for the low-rank approximation of SPSD matrices could be obtained in one of two related ways: either compute (with the fast algorithm of [7]) approximations to the leverage scores, and use those approximations as an importance sampling distribution in a random sampling algorithm; or rotate (with a Gaussian-based or Hadamard-based random projection) to a random basis where those scores are uniformized, and sample randomly in that rotated basis.
+In this paper, we extend these ideas, and we show that--from the statistical perspective--we are able to obtain a low-rank approximation that comes with improved statistical guarantees by using a variant of this more traditional notion of statistical leverage. In particular, we improve the recent bounds of Bach [3], which provides the first known statistical convergence result when substituting the kernel matrix by its low-rank approximation. To understand the connection, recall that a key component of Bach's approach is the quantity dmof = n diag( K(K + nI)-1) , which he calls the maximal marginal degrees of freedom.1 Bach's main result is that by constructing a lowrank approximation of the original kernel matrix by sampling uniformly at random p = O(dmof/ ) columns, i.e., performing the vanilla Nystrom method, and then by using this low-rank approximation in a prediction task, the statistical performance is within a factor of 1 + of the performance when the entire kernel matrix is used. Here, we show that this uniform sampling is suboptimal. We do so by sampling with respect to a coarse but quickly-computable approximation of a variant to the statistical leverage scores, given in Definition 1 below, and we show that we can obtain similar 1 + guarantees by sampling only O(deff/ ) columns, where deff = Tr(K(K + nI)-1) < dmof. The quantity deff is called the effective dimensionality of the learning problem, and it can be interpreted as the implicit number of parameters in this nonparametric setting [9, 10].
+We expect that our results and insights will be useful much more generally. As an example of this, we can directly compare the Nystrom sampling method to a related divide-and-conquer approach, thereby answering an open problem of Zhang et al. [9]. Recall that the Zhang et al. divide-andconquer method consists of dividing the dataset {(xi, yi)}ni=1 into m random partitions of equal size, computing estimators on each partition in parallel, and then averaging the estimators. They prove the minimax optimality of their estimator, although their multiplicative constants are suboptimal; and, in terms of the number of kernel evaluations, their method requires m x (n/m)2, with m in the order of n/d2eff, which gives a total number of O(nd2eff) evaluations. They noticed that the scaling of their estimator was not directly comparable to that of the Nystrom sampling method (which was proven to only require O(ndmof) evaluations, if the sampling is uniform [3]), and they left it as an open problem to determine which if either method is fundamentally better than the other. Using our Theorem 3, we are able to put both results on a common ground for comparison. Indeed, the estimator obtained by our non-uniform Nystrom sampling requires only O(ndeff) kernel evaluations (compared to O(nd2eff) and O(ndmof)), and it obtains the same bound on the statistical predictive performance as in [3]. In this sense, our result combines "the best of both worlds," by having the reduced sample complexity of [9] and the sharp approximation bound of [3].
+
+2 Preliminaries and notation
+
+Let {(xi, yi)}ni=1 be n pairs of points in X x Y, where X is the input space and Y is the response space. The kernel-based learning problem can be cast as the following minimization problem:
+
+1n min f F n
+
+ (yi, f (xi)) + 2
+
+f
+
+2 F
+
+,
+
+i=1
+
+(1)
+
+where F is a reproducing kernel Hilbert space and : Y x Y  R is a loss function. We denote by k : X x X  R the positive definite kernel corresponding to F and by  : X  F a corresponding feature map. That is, k(x, x ) = (x), (x ) F for every x, x  X . The representer theorem
+[11, 12] allows us to reduce Problem (1) to a finite-dimensional optimization problem, in which
+
+1We will refer to it as the maximal degrees of freedom.
+
+2
+
+case Problem (1) boils down to finding the vector   Rn that solves
+
+1n
+
+
+
+min Rn n
+
+(yi, (K)i)
+
++
+
+ 2
+
+K,
+
+i=1
+
+(2)
+
+where Kij = k(xi, xj). We let U U be the eigenvalue decomposition of K, with  = Diag(1, * * * , n), 1  * * *  n  0, and U an orthogonal matrix. The underlying data model is
+yi = f (xi) + 2i i = 1, * * * , n
+with f   F , (xi)1in a deterministic sequence and i are i.i.d. standard normal random variables. We consider to be the squared loss, in which case we will be interested in the mean squared error as a measure of statistical risk: for any estimator f, let
+
+R(f) :=
+
+1 n E
+
+f - f 
+
+2 2
+
+(3)
+
+be the risk function of f where E denotes the expectation under the randomness induced by . In
+this setting the problem is called Kernel Ridge Regression (KRR). The solution to Problem (2) is  = (K + nI)-1y, and the estimate of f  at any training point xi is given by f(xi) = (K)i. We will use fK as a shorthand for the vector (f(xi))1in  Rn when the matrix K is used as a kernel matrix. This notation will be used accordingly for other kernel matrices (e.g. fL for a matrix L). Recall that the risk of the estimator fK can then be decomposed into a bias and variance term:
+
+R(fK ) =
+
+1 n E
+
+K(K + nI)-1(f  + 2) - f 
+
+2 2
+
+=
+
+1 n
+
+(K(K + nI)-1 - I)f 
+
+2 2
+
++
+
+2 n E
+
+K(K + nI)-1
+
+2 2
+
+= n2
+
+(K + nI)-1f 
+
+2 2
+
++
+
+2 n
+
+Tr(K 2 (K
+
++
+
+nI )-2 )
+
+:= bias(K)2 + variance(K).
+
+(4)
+
+Solving Problem (2), either by a direct method or by an optimization algorithm needs at least a quadratic and often cubic running time in n which is prohibitive in the large scale setting. The so-called Nytrom method approximates the solution to Problem (2) by substituting K with a lowrank approximation to K. In practice, this approximation is often not only fast to construct, but the resulting learning problem is also often easier to solve [13, 14, 15, 2]. The method operates as follows. A small number of columns K1, * * * , Kp are randomly sampled from K. If we let C = [K1, * * * , Kp]  Rnxp denote the matrix containing the sampled columns, W  Rpxp the overlap between C and C in K, then the Nystrom approximation of K is the matrix
+L = CWC .
+More generally, if we let S  Rnxp be an arbitrary sketching matrix, i.e., a tall and skinny matrix that, when left-multiplied by K, produces a "sketch" of K that preserves some desirable properties, then the Nystrom approximation associated with S is
+L = KS(S KS)S K.
+For instance, for random sampling algorithms, S would contain a non-zero entry at position (i, j) if the i-th column of K is chosen at the j-th trial of the sampling process. Alternatively, S could also be a random projection matrix; or S could be constructed with some other (perhaps deterministic) method, as long as it verifies some structural properties, depending on the application [8, 2, 6, 5].
+We will focus in this paper on analyzing this approximation in the statistical prediction context related to the estimation of f  by solving Problem (2). We proceed by revisiting and improving upon prior results from three different areas. The first result (Theorem 1) is on the behavior of the bias of fL, when L is constructed using a general sketching matrix S. This result underlies the statistical analysis of the Nystrom method. To see this, first, it is not hard to prove that L K in the sense of usual the order on the positive semi-definite cone. Second, one can prove that the variance is matrix-increasing, hence the variance will decrease when replacing K by L. On the other
+
+3
+
+hand, the bias (while not matrix monotone in general) can be proven to not increase too much when replacing K by L. This latter statement will be the main technical difficulty for obtaining a bound on R(fL) (see Appendix A). A form of this result is due to Bach [3] in the case where S is a uniform sampling matrix. The second result (Theorem 2) is a concentration bound for approximating matrix multiplication when the rank-one components of the product are sampled non uniformly. This result is derived from the matrix Bernstein inequality, and yields a sharp quantification of the deviation of the approximation from the true product. The third result (Definition 1) is an extension of the definition of the leverage scores to the context of kernel ridge regression. Whereas the notion of leverage is established as an algorithmic tool in randomized linear algebra, we introduce a natural counterpart of it to this statistical setting. By combining these contributions, we are able to give a sharp statistical statement on the behavior of the Nystrom method if one is allowed to sample non uniformly. All the proofs are deferred to the appendix (or see [1]).
+3 Revisiting prior work and new results
+
+3.1 A structural result
+
+We begin by stating a "structural" result that upper-bounds the bias of the estimator constructed using the approximation L. This result is deterministic: it only depends on the properties of the input data, and holds for any sketching matrix S that satisfies certain conditions. This way the randomness of the construction of S is decoupled from the rest of the analysis. We highlight the fact that this view offers a possible way of improving the current results since a better construction of S -whether deterministic or random- satisfying the data-related conditions would immediately lead to down stream algorithmic and statistical improvements in this setting.
+
+Theorem 1. Let S  Rnxp be a sketching matrix and L the corresponding Nystrom approximation. For  > 0, let  = ( + nI)-1. If the sketching matrix S satisfies max  -
+
+1/2U SS U 1/2
+
+
+
+t for t
+
+
+
+(0, 1) and 
+
+
+
+1 1-t
+
+S
+
+2 op
+
+*
+
+,max (K )
+n
+
+where
+
+max
+
+denotes
+
+the
+
+maximum eigenvalue and * op is the operator norm then
+
+bias(L) 
+
+1
+
++
+
+/ 1-t
+
+bias(K ).
+
+(5)
+
+In the special case where S contains one non zero entry equal to 1/pn in every column with p the number of sampled columns, the result and its proof can be found in [3] (appendix B.2), although we believe that their argument contains a problematic statement. We propose an alternative and complete proof in Appendix A. The subsequent analysis unfolds in two steps: (1) assuming the sketching matrix S satisfies the conditions stated in Theorem 1, we will have R(fL) R(fK), and (2) matrix concentration is used to show that an appropriate random construction of S satisfies the said conditions. We start by stating the concentration result that is the source of our improvement (section 3.2), define a notion of statistical leverage scores (section 3.3), and then state and prove the main statistical result (Theorem 3 section 3.4). We then present our main algorithmic result consisting of a fast approximation to this new notion of leverage scores (section 3.5).
+
+3.2 A concentration bound on matrix multiplication
+
+Next, we state our result for approximating matrix products of the form  when a few columns from  are sampled to form the approximate product I I where I contains the chosen columns. The proof relies on a matrix Bernstein inequality (see e.g. [16]) and is presented at the end of the paper (Appendix B).
+Theorem 2. Let n, m be positive integers. Consider a matrix   Rnxm and denote by i the ith column of . Let p  m and I = {i1, * * * , ip} be a subset of {1, * * * , m} formed by p elements chosen randomly with replacement, according to the distribution
+
+i  {1, * * * , m}
+
+Pr(choosing i) = pi  
+
+i
+
+2 2
+
+
+
+2 F
+
+(6)
+
+4
+
+for some   (0, 1]. Let S  Rnxp be a sketching matrix such that Sij = 1/p * pij only if i = ij and 0 elsewhere. Then
+
+-pt2/2
+
+Pr max  - SS 
+
+t
+
+ n exp
+
+max(
+
+)( 
+
+2 F
+
+/
+
++
+
+t/3)
+
+.
+
+(7)
+
+Remarks: 1. This result will be used for  = 1/2U , in conjunction with Theorem 1 to prove our main result in Theorem 3. Notice that  is a scaled version of the eigenvectors, with a scaling given by the diagonal matrix  = ( + nI)-1 which should be considered as "soft projection" matrix that smoothly selects the top part of the spectrum of K. The setting of Gittens et al. [2], in which  is a 0-1 diagonal is the closest analog of our setting.
+
+2. It is known that pi =
+
+i
+
+2 2
+
+
+
+2 F
+
+is the
+
+optimal sampling
+
+distribution
+
+in
+
+terms of minimizing the
+
+expected error E  - SS 
+
+2 F
+
+[17].
+
+The above result exhibits a robustness property by
+
+allowing the chosen sampling distribution to be different from the optimal one by a factor .2 The
+
+sub-optimality of such a distribution is reflected in the upper bound (7) by the amplification of the
+
+squared Frobenius norm of  by a factor 1/. For instance, if the sampling distribution is chosen
+
+to
+
+be
+
+uniform,
+
+i.e.
+
+pi
+
+=
+
+1/m,
+
+then
+
+the value of
+
+
+
+for
+
+which
+
+(6)
+
+is
+
+tight is
+
+
+
+2 F
+
+m maxi i
+
+2,
+2
+
+in which
+
+case we recover a concentration result proven by Bach [3]. Note that Theorem 2 is derived from
+
+one of the state-of-the-art bounds on matrix concentration, but it is one among many others in the
+
+literature; and while it constitutes the base of our improvement, it is possible that a concentration
+
+bound more tailored to the problem might yield sharper results.
+
+3.3 An extended definition of leverage
+
+We introduce an extended notion of leverage scores that is specifically tailored to the ridge regression problem, and that we call the -ridge leverage scores.
+
+Definition 1. For  > 0, the -ridge leverage scores associated with the kernel matrix K and the
+
+parameter  are
+
+i  {1, * * * , n},
+
+li()
+
+=
+
+n j=1
+
+j
+
+j +
+
+n
+
+Ui2j
+
+.
+
+(8)
+
+Note that li() is the ith diagonal entry of K(K + nI)-1. The quantities (li())1in are in this setting the analogs of the so-called leverage scores in the statistical literature, as they characterize the data points that "stick out", and consequently that most affect the result of a statistical procedure. They are classically defined as the row norms of the left singular matrix U of the input matrix, and they have been used in regression diagnostics for outlier detection [18], and more recently in randomized matrix algorithms as they often provide an optimal importance sampling distribution for constructing random sketches for low rank approximation [17, 19, 5, 6, 2] and least squares regression [20] when the input matrix is tall and skinny (n  m). In the case where the input matrix is square, this definition is vacuous as the row norms of U are all equal to 1. Recently, Gittens and Mahoney [2] used a truncated version of these scores (that they called leverage scores relative to the best rank-k space) to obtain the best algorithmic results known to date on low rank approximation of positive semi-definite matrices. Definition 1 is a weighted version of the classical leverage scores, where the weights depend on the spectrum of K and a regularization parameter . In this sense, it is an interpolation between Gittens' scores and the classical (tall-and-skinny) leverage scores, where the parameter  plays the role of a rank parameter. In addition, we point out that Bach's maximal degrees of freedom dmof is to the -ridge leverage scores what the coherence is to Gittens' leverage scores, i.e. their (scaled) maximum value: dmof/n = maxi li(); and that while the sum of Gittens' scores is the rank parameter k, the sum of the -ridge leverage scores is the effective dimensionality deff. We argue in the following that Definition 1 provides a relevant notion of leverage in the context of kernel ridge regression. It is the natural counterpart of the algorithmic notion of leverage in the prediction context. We use it in the next section to make a statistical statement on the performance of the Nystrom method.
+2In their work [17], Drineas et al. have a comparable robust statement for controlling the expected error. Our result is a robust quantification of the tail probability of the error, which is a much stronger statement.
+
+5
+
+3.4 Main statistical result: an error bound on approximate kernel ridge regression
+
+Now we are able to give an improved version of a theorem by Bach [3] that establishes a performance
+
+guaranty on the use of the Nystrom method in the context of kernel ridge regression. It is improved
+
+in the sense that the sufficient number of columns that should be sampled in order to incur no
+
+(or little) loss in the prediction performance is lower. This is due to a more data-sensitive way of
+
+sampling the columns of K (depending on the -ridge leverage scores) during the construction of the approximation L. The proof is in Appendix C.
+
+Theorem 3. Let , > 0,   (0, 1/2), n  2 and L be a Nystrom approximation of K by choosing
+
+p columns i  {1, * *
+
+randomly with replacement according to
+
+* , n}, pi   * li( )/
+
+n i=1
+
+li
+
+(
+
+)
+
+for
+
+a probability distribution (pi)1in some   (0, 1]. Let l  mini li( ).
+
+such If
+
+that
+
+p  8 deff + 1 log n
+
+and   2
+
+1 1+
+
+max(K) ,
+
+6
+
+
+
+ln
+
+with deff =
+
+n i=1
+
+li(
+
+)
+
+=
+
+Tr(K (K
+
++
+
+n
+
+I )-1 )
+
+then
+
+R(fL)  (1 + 2 )2R(fK )
+
+with probability at least 1 - 2, where (li)i are introduced in Definition 1 and R is defined in (3).
+
+Theorem 3 asserts that substituting the kernel matrix K by a Nystrom approximation of rank p in the
+KRR problem induces an arbitrarily small prediction loss, provided that p scales linearly with the effective dimensionality deff3 and that  is not too small4. The leverage-based sampling appears to be crucial for obtaining this dependence, as the -ridge leverage scores provide information on which
+columns -and hence which data points- capture most of the difficulty of the estimation problem.
+Also, as a sanity check, the smaller the target accuracy , the higher deff, and the more uniform the sampling distribution (li( ))i becomes. In the limit  0, p is in the order of n and the scores are uniform, and the method is essentially equivalent to using the entire matrix K. Moreover, if
+the sampling distribution (pi)i is a factor  away from optimal, a slight oversampling (i.e. increase p by 1/) achieves the same performance. In this sense, the above result shows robustness to the
+sampling distribution. This property is very beneficial from an implementation point of view, as
+the error bounds still hold when only an approximation of the leverage scores is available. If the
+columns are sampled uniformly, a worse lower bound on p that depends on dmof is obtained [3].
+
+3.5 Main algorithmic result: a fast approximation to the -ridge leverage scores
+
+Although the -ridge leverage scores can be naively computed using SVD, the exact computation is as costly as solving the original Problem (2). Therefore, the central role they play in the above result motivates the problem of a fast approximation, in a similar way the importance of the usual leverage scores has motivated Drineas et al. to approximate them is random projection time [7]. A success in this task will allow us to combine the running time benefits with the improved statistical guarantees we have provided.
+
+Algorithm:
+
+* Inputs: data points (xi)1in, probability vector (pi)1in, sampling parameter p  {1, 2, * * * },  > 0,  (0, 1/2).
+
+* Output: (li)1in -approximations to (li())1in.
+
+1. Sample p data points from (xi)1in with replacement with probabilities (pi)1in. 2. Compute the corresponding columns K1, * * * , Kp of the kernel matrix. 3. Construct C = [K1, * * * , Kp]  Rnxp and W  Rpxp as presented in Section 2. 4. Construct B  Rnxp such that BB = CW C .
+
+5. For every i  {1, * * * , n}, set
+
+li = Bi (B B + nI)-1Bi where Bi is the i-th row of B, and return it.
+
+(9)
+
+3Note that deff depends on the precision parameter , which is absent in the classical definition of the effective dimensionality [10, 9, 3] However, the following bound holds: deff  1 Tr(K(K + nI)-1).
+4This condition on  is not necessary if one constructs L as KS(S KS + n I)-1S K (see proof).
+
+6
+
+Running time: The running time of the above algorithm is dominated by steps 4 and 5. Indeed, constructing B can be done using a Cholesky factorization on W and then a multiplication of C by the inverse of the obtained Cholesky factor, which yields a running time of O(p3 +np2). Computing the approximate leverage scores (li)1in in step 5 also runs in O(p3 + np2). Thus, for p n, the overall algorithm runs in O(np2). Note that formula (9) only involves matrices and vectors of size p (everything is computed in the smaller dimension p), and the fact that this yields a correct approximation relies on the matrix inversion lemma (see proof in Appendix D). Also, only the relevant columns of K are computed and we never have to form the entire kernel matrix. This improves over earlier models [2] that require that all of K has to be written down in memory. The improved running time is obtained by considering the construction (9) which is quite different from the regular setting of approximating the leverage scores of a rectangular matrix [7]. We now give both additive and multiplicative error bounds on its approximation quality.
+Theorem 4. Let  (0, 1/2),   (0, 1) and  > 0. Let L be a Nystrom approximation of K by choosing p columns at random with probabilities pi = Kii/Tr(K), i = 1, * * * , n. If
+
+p8
+
+Tr(K) 1 +
+
+log
+
+n
+
+n 6
+
+
+
+then we have i  {1, * * * , n}
+
+(additive error bound) li() - 2  li  li()
+
+and (multiplicative error bound)
+with probability at least 1 - .
+
+n - n n + n
+
+li()  li  li()
+
+Remarks: 1. Theorem 4 states that if the columns of K are sampled proportionally to Kii then
+
+O(
+
+Tr(K ) n
+
+)
+
+is
+
+a
+
+sufficient
+
+number
+
+of
+
+samples.
+
+Recall
+
+that
+
+Kii
+
+=
+
+(xi)
+
+2 F
+
+,
+
+so
+
+our
+
+procedure
+
+is
+
+akin
+
+to sampling according to the squared lengths of the data vectors, which has been extensively used in
+
+different contexts of randomized matrix approximation [21, 17, 19, 8, 2].
+
+2. Due to how  is defined in eq. (1) the n in the denominator is artificial: n should be thought of as a "rescaled" regularization parameter  . In some settings, the  that yields the best generalization error scales like O(1/ n), hence p = O(Tr(K)/ n) is sufficient. On the other hand, if the columns are sampled uniformly, one would get p = O(dmof) = O(n maxi li()).
+
+4 Experiments
+
+We test our results based on several datasets: one synthetic regression problem from [3] to illus-
+trate the importance of the -ridge leverage scores, the Pumadyn family consisting of three datasets pumadyn-32fm, pumadyn-32fh and pumadyn-32nh 5 and the Gas Sensor Array Drift Dataset from the UCI database6. The synthetic case consists of a regression problem on the interval X = [0, 1]
+where, given a sequence (xi)1in and a sequence of noise ( i)1in, we observe the sequence
+
+yi = f (xi) + 2 i, i  {1, * * * , n}.
+
+The function f belongs to the RKHS F generated by the kernel k(x, y) =
+
+1 (2)!
+
+B2
+
+(x
+
+-
+
+y
+
+-
+
+x-y
+
+)
+
+where B2 is the 2-th Bernoulli polynomial [3]. One important feature of this regression problem
+
+is the distribution of the points (xi)1in on the interval X : if they are spread uniformly over the
+
+interval, the -ridge leverage scores (li())1in are uniform for every  > 0, and uniform column
+
+sampling is optimal in this case.
+
+In fact, if xi
+
+=
+
+i-1 n
+
+for i
+
+=
+
+1, * * * , n, the kernel matrix K is
+
+a circulant matrix [3], in which case, we can prove that the -ridge leverage scores are constant.
+
+Otherwise, if the data points are distributed asymmetrically on the interval, the -ridge leverage
+
+scores are non uniform, and importance sampling is beneficial (Figure 1). In this experiment, the
+
+data
+
+points
+
+xi
+
+
+
+(0, 1)
+
+have
+
+been
+
+generated
+
+with
+
+a
+
+distribution
+
+symmetric
+
+about
+
+1 2
+
+,
+
+having
+
+a
+
+high
+
+density on the borders of the interval (0, 1) and a low density on the center of the interval. The
+
+number of observations is n = 500. On Figure 1, we can see that there are few data points with
+
+5http://www.cs.toronto.edu/delve/data/pumadyn/desc.html 6https://archive.ics.uci.edu/ml/datasets/Gas+Sensor+Array+Drift+Dataset
+
+7
+
+Figure 1: The -ridge leverage scores for the synthetic Bernoulli data set described in the text (left) and the MSE risk vs. the number of sampled columns used to construct the Nystrom approximation for different sampling methods (right).
+
+high leverage, and those correspond to the region that is underrepresented in the data sample (i.e. the region close to the center of the interval since it is the one that has the lowest density of observations). The -ridge leverage scores are able to capture the importance of these data points, thus providing a way to detect them (e.g. with an analysis of outliers), had we not known their existence.
+
+For all datasets, we determine  and the band width of k by cross validation, and we compute the
+effective dimensionality deff and the maximal degrees of freedom dmof. Table 1 summarizes the experiments. It is often the case that deff dmof and R(fL)/R(fK ) 1, in agreement with Theorem 3.
+
+kernel dataset
+
+n nb. feat band width 
+
+deff dmof risk ratio R(fL)/R(fK)
+
+Bern Synth 500 -
+
+-
+
+1e-6 24 500
+
+1.01 (p = 2deff)
+
+Gas2 1244 128
+
+- 1e-3 126 1244 1.10 (p = 2deff)
+
+Gas3 1586 128
+
+- 1e-3 125 1586 1.09 (p = 2deff)
+
+Linear Pum-32fm 2000 32
+
+- 1e-3 31 2000 0.99 (p = 2deff)
+
+Pum-32fh 2000 32
+
+- 1e-3 31 2000 0.99 (p = 2deff)
+
+Pum-32nh 2000 32
+
+- 1e-3 32 2000 0.99 (p = 2deff)
+
+Gas2 1244 -
+
+1
+
+4.5e-4 1135 1244
+
+1.56 (p = deff)
+
+Gas3 1586 -
+
+1
+
+5e-4 1450 1586
+
+1.50 (p = deff)
+
+RBF Pum-32fm 2000 -
+
+5
+
+0.5 142 1897
+
+1.00 (p = deff)
+
+Pum-32fh 2000 -
+
+5
+
+5e-2 747 1989
+
+1.00 (p = deff)
+
+Pum-32nh 2000 -
+
+5
+
+1.3e-2 1337 1997
+
+0.99 (p = deff)
+
+Table 1: Parameters and quantities of interest for the different datasets and using different kernels: the synthetic dataset using the Bernoulli kernel (denoted by Synth), the Gas Sensor Array Drift Dataset (batches 2 and 3, denoted by Gas2 and Gas3) and the Pumadyn datasets (Pum-32fm, Pum-32fh, Pum-32nh) using linear and RBF kernels.
+5 Conclusion
+
+We showed in this paper that in the case of kernel ridge regression, the sampling complexity of the Nystrom method can be reduced to the effective dimensionality of the problem, hence bridging and improving upon different previous attempts that established weaker forms of this result. This was achieved by defining a natural analog to the notion of leverage scores in this statistical context, and using it as a column sampling distribution. We obtained this result by combining and improving upon results that have emerged from two different perspectives on low rank matrix approximation. We also present a way to approximate these scores that is computationally tractable, i.e. runs in time O(np2) with p depending only on the trace of the kernel matrix and the regularization parameter. One natural unanswered question is whether it is possible to further reduce the sampling complexity, or is the effective dimensionality also a lower bound on p? And as pointed out by previous work [22, 3], it is likely that the same results hold for smooth losses beyond the squared loss (e.g. logistic regression). However the situation is unclear for non-smooth losses (e.g. support vector regression).
+Acknowledgements: We thank Xixian Chen for pointing out a mistake in an earlier draft of this paper [1]. We thank Francis Bach for stimulating discussions and for contributing to a rectified proof of Theorem 1. We thank Jason Lee and Aaditya Ramdas for fruitful discussions regarding the proof of Theorem 1. We thank Yuchen Zhang for pointing out the connection to his work.
+
+8
+
+References
+[1] Ahmed El Alaoui and Michael W Mahoney. Fast randomized kernel methods with statistical guarantees. arXiv preprint arXiv:1411.0306, 2014.
+[2] Alex Gittens and Michael W Mahoney. Revisiting the Nystrom method for improved largescale machine learning. In Proceedings of The 30th International Conference on Machine Learning, pages 567-575, 2013.
+[3] Francis Bach. Sharp analysis of low-rank kernel matrix approximations. In Proceedings of The 26th Conference on Learning Theory, pages 185-209, 2013.
+[4] Francis Bach. Personal communication, October 2015.
+[5] Petros Drineas, Michael W Mahoney, and S Muthukrishnan. Relative-error CUR matrix decompositions. SIAM Journal on Matrix Analysis and Applications, 30(2):844-881, 2008.
+[6] Michael W Mahoney and Petros Drineas. CUR matrix decompositions for improved data analysis. Proceedings of the National Academy of Sciences, 106(3):697-702, 2009.
+[7] Petros Drineas, Malik Magdon-Ismail, Michael W Mahoney, and David P Woodruff. Fast approximation of matrix coherence and statistical leverage. The Journal of Machine Learning Research, 13(1):3475-3506, 2012.
+[8] Michael W Mahoney. Randomized algorithms for matrices and data. Foundations and Trends in Machine Learning, 3(2):123-224, 2011.
+[9] Yuchen Zhang, John Duchi, and Martin Wainwright. Divide and conquer kernel ridge regression. In Proceedings of The 26th Conference on Learning Theory, pages 592-617, 2013.
+[10] Jerome Friedman, Trevor Hastie, and Robert Tibshirani. The elements of statistical learning, volume 1. Springer series in statistics Springer, Berlin, 2001.
+[11] George Kimeldorf and Grace Wahba. Some results on Tchebycheffian spline functions. Journal of Mathematical Analysis and Applications, 33(1):82-95, 1971.
+[12] Bernhard Scholkopf, Ralf Herbrich, and Alex J Smola. A generalized representer theorem. In Computational Learning Theory, pages 416-426. Springer, 2001.
+[13] Shai Fine and Katya Scheinberg. Efficient SVM training using low-rank kernel representations. The Journal of Machine Learning Research, 2:243-264, 2002.
+[14] Christopher Williams and Matthias Seeger. Using the Nystrom method to speed up kernel machines. In Proceedings of the 14th Annual Conference on Neural Information Processing Systems, pages 682-688, 2001.
+[15] Sanjiv Kumar, Mehryar Mohri, and Ameet Talwalkar. Sampling techniques for the Nystrom method. In International Conference on Artificial Intelligence and Statistics, pages 304-311, 2009.
+[16] Joel A Tropp. User-friendly tail bounds for sums of random matrices. Foundations of Computational Mathematics, 12(4):389-434, 2012.
+[17] Petros Drineas, Ravi Kannan, and Michael W Mahoney. Fast monte carlo algorithms for matrices I: Approximating matrix multiplication. SIAM Journal on Computing, 36(1):132- 157, 2006.
+[18] Samprit Chatterjee and Ali S Hadi. Influential observations, high leverage points, and outliers in linear regression. Statistical Science, pages 379-393, 1986.
+[19] Petros Drineas, Ravi Kannan, and Michael W Mahoney. Fast monte carlo algorithms for matrices II: Computing a low-rank approximation to a matrix. SIAM Journal on Computing, 36(1):158-183, 2006.
+[20] Petros Drineas, Michael W Mahoney, S Muthukrishnan, and Tamas Sarlos. Faster least squares approximation. Numerische Mathematik, 117(2):219-249, 2011.
+[21] Alan Frieze, Ravi Kannan, and Santosh Vempala. Fast monte-carlo algorithms for finding low-rank approximations. Journal of the ACM (JACM), 51(6):1025-1041, 2004.
+[22] Francis Bach. Self-concordant analysis for logistic regression. Electronic Journal of Statistics, 4:384-414, 2010.
+9
+

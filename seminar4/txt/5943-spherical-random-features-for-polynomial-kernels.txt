@@ -1,0 +1,939 @@
+Spherical Random Features for Polynomial Kernels
+
+Jeffrey Pennington
+
+Felix X. Yu
+
+Sanjiv Kumar
+
+Google Research {jpennin, felixyu, sanjivk}@google.com
+
+Abstract
+Compact explicit feature maps provide a practical framework to scale kernel methods to large-scale learning, but deriving such maps for many types of kernels remains a challenging open problem. Among the commonly used kernels for nonlinear classification are polynomial kernels, for which low approximation error has thus far necessitated explicit feature maps of large dimensionality, especially for higher-order polynomials. Meanwhile, because polynomial kernels are unbounded, they are frequently applied to data that has been normalized to unit 2 norm. The question we address in this work is: if we know a priori that data is normalized, can we devise a more compact map? We show that a putative affirmative answer to this question based on Random Fourier Features is impossible in this setting, and introduce a new approximation paradigm, Spherical Random Fourier (SRF) features, which circumvents these issues and delivers a compact approximation to polynomial kernels for data on the unit sphere. Compared to prior work, SRF features are less rank-deficient, more compact, and achieve better kernel approximation, especially for higher-order polynomials. The resulting predictions have lower variance and typically yield better classification accuracy.
+1 Introduction
+Kernel methods such as nonlinear support vector machines (SVMs) [1] provide a powerful framework for nonlinear learning, but they often come with significant computational cost. Their training complexity varies from O(n2) to O(n3), which becomes prohibitive when the number of training examples, n, grows to the millions. Testing also tends to be slow, with an O(nd) complexity for d-dimensional vectors.
+Explicit kernel maps provide a practical alternative for large-scale applications since they rely on properties of linear methods, which can be trained in O(n) time [2, 3, 4] and applied in O(d) time, independent of n. The idea is to determine an explicit nonlinear map Z(*) : Rd  RD such that K(x, y)  Z(x), Z(y) , and to perform linear learning in the resulting feature space. This procedure can utilize the fast training and testing of linear methods while still preserving much of the expressive power of the nonlinear methods.
+Following this reasoning, Rahimi and Recht [5] proposed a procedure for generating such a nonlinear map, derived from the Monte Carlo integration of an inverse Fourier transform arising from Bochner's theorem [6]. Explicit nonlinear random feature maps have also been proposed for other types of kernels, such as intersection kernels [7], generalized RBF kernels [8], skewed multiplicative histogram kernels [9], additive kernels [10], and semigroup kernels [11].
+Another type of kernel that is used widely in many application domains is the polynomial kernel [12, 13], defined by K(x, y) = ( x, y + q)p, where q is the bias and p is the degree of the polynomial. Approximating polynomial kernels with explicit nonlinear maps is a challenging problem, but substantial progress has been made in this area recently. Kar and Karnick [14] catalyzed this line of
+1
+
+research by introducing the Random Maclaurin (RM) technique, which approximates x, y p by the
+
+product Another
+
+p i=1
+
+wi, x
+
+p i=1
+
+technique, Tensor
+
+wi, y Sketch
+
+, where wi is a vector consisting of Bernoulli random [15], offers further improvement by instead writing
+
+variables. x, y p as
+
+x(p), y(p) , where x(p) is the p-level tensor product of x, and then estimating this tensor product
+
+with a convolution of count sketches.
+
+Although these methods are applicable to any real-valued input data, in practice polynomial kernels are commonly used on 2-normalized input data [15] because they are otherwise unbounded. Moreover, much of the theoretical analysis developed in former work is based on normalized vectors [16], and it has been shown that utilizing norm information improves the estimates of random projections [17]. Therefore, a natural question to ask is, if we know a priori that data is 2-normalized, can we come up with a better nonlinear map?1 Answering this question is the main focus of this work and will lead us to the development of a new form of kernel approximation.
+Restricting the input domain to the unit sphere implies that x, y = 2-2||x-y||2 ,  x, y  Sd-1, so that a polynomial kernel can be viewed as a shift-invariant kernel in this restricted domain. As such, one might expect the random feature maps developed in [5] to be applicable in this case. Unfortunately, this expectation turns out to be false because Bochner's theorem cannot be applied in this setting. The obstruction is an inherent limitation of polynomial kernels and is examined extensively in Section 3.1. In Section 3.2, we propose an alternative formulation that overcomes these limitations by approximating the Fourier transform of the kernel function as the positive projection of an indefinite combination of Gaussians. We provide a bound on the approximation error of these Spherical Random Fourier (SRF) features in Section 4, and study their performance on a variety of standard datasets including a large-scale experiment on ImageNet in Section 5 and in the Supplementary Material.
+
+Compared to prior work, the SRF method is able to achieve lower kernel approximation error with compact nonlinear maps, especially for higher-order polynomials. The variance in kernel approximation error is much lower than that of existing techniques, leading to more stable predictions. In addition, it does not suffer from the rank deficiency problem seen in other methods. Before describing the SRF method in detail, we begin by reviewing the method of Random Fourier Features.
+
+2 Background: Random Fourier Features
+
+In [5], a method for the explicit construction of compact nonlinear randomized feature maps was
+
+presented. The technique relies on two important properties of the kernel: i) The kernel is shift-
+
+invariant, i.e. K(x, y) = K(z) where z = x-y and ii) The function K(z) is positive definite on Rd.
+
+Property (ii) guarantees that the Fourier transform of K(z), k(w)
+
+=
+
+1 (2)d/2
+
+ddz K(z) ei w,z ,
+
+admits an interpretation as a probability distribution. This fact follows from Bochner's celebrated
+
+characterization of positive definite functions,
+
+Theorem 1. (Bochner [6]) A function K  C(Rd) is positive definite on Rd if and only if it is the Fourier transform of a finite non-negative Borel measure on Rd.
+
+A consequence of Bochner's theorem is that the inverse Fourier transform of k(w) can be interpreted as the computation of an expectation, i.e.,
+
+1 K(z) = (2)d/2
+
+ddw k(w) e-i w,z
+
+= Ewp(w) e-i w,x-y
+
+= 2 E wp(w) cos( w, x + b) cos( w, y + b) ,
+bU (0,2)
+
+(1)
+
+where p(w) = (2)-d/2k(w) and U (0, 2) is the uniform distribution on [0, 2). If the above
+expectation is approximated using Monte Carlo with D random samples wi, then K(x, y)  Z(x), Z(y) with Z(x) = 2/D cos(w1T x + b1), ..., cos(wDT x + bD) T . This identification is
+
+1We are not claiming total generality of this setting; nevertheless, in cases where the vector length carries useful information and should be preserved, it could be added as an additional feature before normalization.
+
+2
+
+made possible by property (i), which guarantees that the functional dependence on x and y factorizes multiplicatively in frequency space.
+Such Random Fourier Features have been used to approximate different types of positive-definite shift-invariant kernels, including the Gaussian kernel, the Laplacian kernel, and the Cauchy kernel. However, they have not yet been applied to polynomial kernels, because this class of kernels does not satisfy the positive-definiteness prerequisite for the application of Bochner's theorem. This statement may seem counter-intuitive given the known result that polynomial kernels K(x, y) are positive definite kernels. The subtlety is that this statement does not necessarily imply that the associated single variable functions K(z) = K(x - y) are positive definite on Rd for all d. We will prove this fact in the next section, along with the construction of an efficient and effective modification of the Random Fourier method that can be applied to polynomial kernels defined on the unit sphere.
+
+3 Polynomial kernels on the unit sphere
+
+In this section, we consider approximating the polynomial kernel defined on Sd-1 x Sd-1,
+
+K(x, y) =
+
+1
+
+-
+
+||x
+
+- y||2 a2
+
+p
+=  (q + x, y )p
+
+with q = a2/2 - 1,  = (2/a2)p. We will restrict our attention to p  1, a  2.
+
+(2)
+
+The kernel is a shift-invariant radial function of the single variable z = x - y, which with a slight abuse of notation we write as K(x, y) = K(z) = K(z), with z = ||z||.2 In Section 3.1, we show that the Fourier transform of K(z) is not a non-negative function, so a straightforward application
+of Bochner's theorem to produce Random Fourier Features as in [5] is impossible in this case. Nevertheless, in Section 3.2, we propose a fast and accurate approximation of K(z) by a surrogate
+positive definite function which enables us to construct compact Fourier features.
+
+3.1 Obstructions to Random Fourier Features 
+Because z = ||x - y|| = 2 - 2 cos   2, the behavior of K(z) for z > 2 is undefined and arbitrary since it does not affect the original kernel function in eqn. (2). On the other hand, it should be specified in order to perform the Fourier transform, which requires an integration over all values of z. We first consider the natural choice of K(z) = 0 for z > 2 before showing that all other choices lead to the same conclusion.
+Lemma 1. The Fourier transform of {K(z), z  2; 0, z > 2} is not a non-negative function of w for any values of a, p, and d.
+
+Proof. (See the Supplementary Material for details). A direct calculation gives,
+
+p p!
+
+4 p-i 2 i 2 d/2+i
+
+k(w) = (p - i)! 1 - a2
+
+a2 w
+
+Jd/2+i(2w) ,
+
+i=0
+
+where J(z) is the Bessel function of the first kind. Expanding for large w yields,
+
+k(w)  1 w
+
+1-
+
+4 a2
+
+p
+
+2 w
+
+d/2
+cos
+
+(d + 1)  -2w
+
+4
+
+,
+
+which takes negative values for some w for all a > 2, p, and d.
+
+(3)
+
+So a Monte Carlo approximation of K(z) as in eqn. (1) is impossible in this case. However, there is still the possibility of defining the behavior of K(z) for z > 2 differently, and in such a way that the Fourier transform is positive and integrable on Rd. The latter condition should hold for all d, since the vector dimensionality d can vary arbitrarily depending on input data.
+We now show that such a function cannot exist. To this end, we first recall a theorem due to Schoenberg regarding completely monotone functions,
+2We also follow this practice in frequency space, i.e. if k(w) is radial, we also write k(w) = k(w).
+
+3
+
+Definition 1. A function f is said to be completely monotone on an interval [a, b]  R if it is continuous on the closed interval, f  C([a, b]), infinitely differentiable in its interior, f  C((a, b)), and (-1)lf (l)(x)  0 , x  (a, b), l = 0, 1, 2, . . .
+
+Theorem 2. (Schoenberg [18]) A function  is completely monotone on [0, ) if and only if   (|| * ||2) is positive definite and radial on Rd for all d.
+ Together with Theorem 1, Theorem 2 shows that (z) = K( z) must be completely monotone if k(w) is to be interpreted as a probability distribution. We now establish that (z) cannot be completely monotone and simultaneously satisfy (z) = K( z) for z  2.
+
+Proposition 1.
+
+The
+
+function
+
+(z)
+
+=
+
+ K( z)
+
+is
+
+completely
+
+monotone
+
+on
+
+[0,
+
+a2].
+
+Proof. From the definition of , (z) =
+
+1
+
+-
+
+z a2
+
+p,  is continuous on [0, a2], infinitely differen-
+
+tiable on (0, a2), and its derivatives vanish for l
+
+>
+
+p.
+
+They obey (-1)l(l)(z)
+
+=
+
+p! (z) (p-l)! (a2-z)l
+
+
+
+0,
+
+where the inequality follows since z < a2. Therefore  is completely monotone on [0, a2].
+
+Theorem 3. Suppose f is a completely monotone polynomial of degree n on the interval [0, c], c < , with f (c) = 0. Then there is no completely monotone function on [0, ) that agrees with f
+on [0, a] for any nonzero a < c.
+
+Proof. Let g  C([0, )) C((0, )) be a non-negative function that agrees with f on [0, a]
+
+and let h = g - f . We show that for all non-negative integers m there exists a point m satisfying a < m  c such that h(m)(m) > 0. For m = 0, the point 0 = c obeys h(0) = g(0)-f (0) = g(0) > 0 by the definition of g. Now, suppose there is a point m such that a < m  c and
+
+h(m)(m) > 0. The mean value theorem then guarantees the existence of a point m+1 such that
+
+a
+
+<
+
+m+1
+
+<
+
+m
+
+and h(m+1)(m+1)
+
+=
+
+h(m) (m )-h(m) (a) m -a
+
+=
+
+h(m) (m ) m -a
+
+>
+
+0, where we have utilized
+
+the fact that h(m)(a) = 0 and the induction hypothesis. Noting that f (m) = 0 for all m > n, this
+
+result implies that g(m)(m) > 0 for all m > n. Therefore g cannot be completely monotone.
+
+Corollary 1. There does not exist a finite non-negative Borel measure on Rd whose Fourier transform agrees with K(z) on [0, 2].
+
+3.2 Spherical Random Fourier features
+
+From the section above, we see that the Bochner's theorem cannot be directly applied to the polynomial kernel. In addition, it is impossible to construct a positive integrable k(w) whose inverse Fourier transform K (z) equals K(z) exactly on [0, 2]. Despite this result, it is nevertheless possible to find K (z) that is a good approximation of K(z) on [0, 2], which is all that is necessary given that we will be approximating K (z) by Monte Carlo integration anyway. We present our method of
+Spherical Random Fourier (SRF) features in this section.
+
+We recall a characterization of radial functions that are positive definite on Rd for all d due to Schoenberg.
+
+Theorem 4. (Schoenberg [18]) A continuous function f : [0, )  R is positive definite and
+
+radial on Rd for all d if and only if it is of the form f (r) =
+
+ 0
+
+e-r2t2 d(t),
+
+where
+
+
+
+is
+
+a
+
+finite
+
+non-negative Borel measure on [0, ).
+
+This characterization motivates an approximation for K(z) as a sum of N Gaussians, K (z) =
+
+N i=1
+
+cie-i2z2 .
+
+To
+
+increase
+
+the
+
+accuracy
+
+of
+
+the
+
+approximation,
+
+we
+
+allow
+
+the
+
+ci
+
+to
+
+take
+
+negative
+
+val-
+
+ues. Doing so enables its Fourier transform (which is also a sum of Gaussians) to become negative.
+
+We circumvent this problem by mapping those negative values to zero,
+
+k(w) = max
+
+0,
+
+N
+ci
+i=1
+
+1 2i
+
+d e-w2 /4i2
+
+,
+
+(4)
+
+and simply defining K (z) as its inverse Fourier transform. Owing to the max in eqn. (4), it is not possible to calculate an analytical expression for K (z). Thankfully, this isn't necessary since we
+
+4
+
+1
+
+Original
+
+1 x 10-3
+
+Approx
+
+0.5 0.5
+
+1
+
+Original
+
+1.5 x 10-3
+
+Approx
+
+1 0.5
+
+0.5
+
+K(z) p(w) K(z) p(w)
+
+0 0 0.5 1 1.5 2
+z
+
+0 0 20 40 60 80
+w
+
+0 0 0.5 1 1.5 2
+z
+
+0 0 20 40 60
+w
+
+(a) p = 10
+
+(b) p = 20
+
+Figure 1: K(z), its approximation K (z), and the corresponding pdf p(w) for d = 256, a = 2 for polynomial orders (a) 10 and (b) 20. Higher-order polynomials are approximated better, see eqn. (6).
+
+Algorithm 1 Spherical Random Fourier (SRF) Features
+
+Input: A polynomial kernel K(x, y) = K(z), z = ||x - y||2, ||x||2 = 1, ||y||2 = 1, with bias a  2,
+order p  1, input dimensionality d and feature dimensionality D. Output: A randomized feature map Z(*) : Rd  RD such that Z(x), Z(y)  K(x, y).
+
+1. Solve argminK
+
+2 0
+
+dz
+
+K(z) - K (z) 2 for k(w), where K (z) is the inverse Fourier transform of k(w),
+
+whose form is given in eqn. (4). Let p(w) = (2)-d/2k(w).
+
+2. Draw D iid samples w1, ..., wD from p(w). 3. Draw D iid samples b1, ..., bD  R from the uniform distribution on [0, 2].
+
+4. Z(x) =
+
+2 D
+
+cos(w1T x + b1), ..., cos(wDT x + bD) T
+
+can evaluate it numerically by performing a one dimensional numerical integral,
+
+
+
+K (z) =
+
+dw w k(w)(w/z)d/2-1Jd/2-1(wz) ,
+
+0
+
+which is well-approximated using a fixed-width grid in w and z, and can be computed via a single matrix multiplication. We then optimize the following cost function, which is just the MSE between K(z) and our approximation of it,
+
+1 L=
+
+2
+dz
+
+K(z) - K (z) 2 ,
+
+20
+
+(5)
+
+which defines an optimal probability distribution p(w) through eqn. (4) and the relation p(w) = (2)-d/2k(w). We can then follow the Random Fourier Feature [5] method to generate the nonlinear maps. The entire SRF process is summarized in Algorithm 1. Note that for any given of kernel parameters (a, p, d), p(w) can be pre-computed, independently of the data.
+
+4 Approximation error
+
+The total MSE comes from two sources: error approximating the function, i.e. L from eqn. (5), and error from Monte Carlo sampling. The expected MSE of Monte-Carlo converges at a rate of O(1/D) and a bound on the supremum of the absolute error was given in [5]. Therefore, we focus on analyzing the first type of error.
+
+We
+
+describe
+
+a
+
+simple
+
+method
+
+to
+
+obtain
+
+an
+
+upper
+
+bound
+
+on
+
+L.
+
+Consider
+
+the
+
+function
+
+K (z)
+
+=
+
+e-
+
+p a2
+
+z2 ,
+
+which is a special case of eqn. (4) obtained by setting N = 1, ci = 1, and 1 = p/a2. The MSE between K(z) and this function thus provides an upper bound to our approximation error,
+
+1 L=
+2 1 = 2 a = 4
+
+2 dz [K (z) - K(z)]2  1
+
+a
+dz [K (z) - K(z)]2
+
+0 20
+
+a
+dz
+0
+
+exp
+
+-
+
+2p a2
+
+z2
+
++
+
+1
+
+-
+
+z2 a2
+
+2p
+- 2 exp
+
+-
+
+p a2
+
+z2
+
+1
+
+-
+
+z2 a2
+
+p
+
+ erf (
+2p
+
+2p)
+
++
+
+a  (p + 
+4 (p +
+
+1)
+
+3 2
+
+)
+
+-
+
+a 
+2
+
+(p + (p +
+
+1)
+
+3 2
+
+)
+
+M
+
+(
+
+1 2
+
+,
+
+p
+
++
+
+3 2
+
+,
+
+-p) .
+
+5
+
+3 x 10-3 2 1
+
+5 x 10-3 RM TS 4 SRF
+3
+2
+1
+
+MSE
+
+8 x 10-3 RM TS SRF 6
+4
+2
+
+MSE
+
+0.025 RM TS 0.02 SRF
+0.015
+0.01
+0.005
+
+MSE
+
+RM TS SRF
+
+MSE
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+3 x 10-3
+
+RM
+
+TS
+
+2 SRF
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+6 x 10-3
+
+RM
+
+TS
+
+4 SRF
+
+0 9
+0.01 0.008 0.006
+
+10 11 12 13 14 log (Dimensionality)
+RM TS SRF
+
+0 9
+0.05 0.04 0.03
+
+10 11 12 13 14 log (Dimensionality)
+RM TS SRF
+
+MSE
+
+MSE
+
+MSE
+
+MSE
+
+0.004
+
+0.02
+
+12
+
+0.002
+
+0.01
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+
+5 x 10-3 4 3 2 1
+
+6 x 10-3 RM TS SRF 4
+2
+
+MSE
+
+5 x 10-3 RM TS 4 SRF
+3
+2
+1
+
+MSE
+
+0.025 RM TS 0.02 SRF
+0.015
+0.01
+0.005
+
+MSE
+
+RM TS SRF
+
+MSE
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+(a) p = 3
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+(b) p = 7
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+(c) p = 10
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+(d) p = 20
+
+Figure 2: Comparison of MSE of kernel approximation on different datasets with various polynomial orders (p) and feature map dimensionalities. The first to third rows show results of usps, gisette, adult, respectively. SRF gives better kernel approximation, especially for large p.
+
+In the first line we have used the fact that integrand is positive and a  2. The three terms on the second line are integrated using the standard integral definitions of the error function, beta function, and Kummer's confluent hypergeometric function [19], respectively. To expose the functional dependence of this result more clearly, we perform an expansion for large p. We use the asymptotic expansions of the error function and the Gamma function,
+
+erf (z )
+
+=
+
+1 - e-z2 z
+
+
+
+(-1)k
+
+(2k - 1)!! (2z2)k
+
+,
+
+k=0
+
+log (z) = z log z - z - 1 log z +  Bk z1-k ,
+
+2 2
+
+k(k - 1)
+
+k=2
+
+where Bk are Bernoulli numbers. For the third term, we write the series representation of M (a, b, z),
+
+(b)  (a + k) zk
+
+M (a, b, z) =
+
+,
+
+(a) (b + k) k!
+
+k=0
+
+expand each term for large p, and sum the result. All together, we obtain the following bound,
+
+L  105 4096
+
+a 2 p5/2 ,
+
+(6)
+
+which decays at a rate of O(p-2.5) and becomes negligible for higher-order polynomials. This is
+remarkable, as the approximation error of previous methods increases as a function of p. Figure 1 shows two kernel functions K(z), their approximations K (z), and the corresponding pdfs p(w).
+
+5 Experiments
+We compare the SRF method with Random Maclaurin (RM) [14] and Tensor Sketch (TS) [15], the other polynomial kernel approximation approaches. Throughout the experiments, we choose the number of Gaussians, N , to equal 10, though the specific number had negligible effect on the results. The bias term is set as a = 4. Other choices such as a = 2, 3 yield similar performance; results with a variety of parameter settings can be found in the Supplementary Material. The error bars and standard deviations are obtained by conducting experiments 10 times across the entire dataset.
+
+6
+
+Dataset usps p=3
+usps p=7
+usps p = 10
+usps p = 20
+gisette p=3
+gisette p=7
+gisette p = 10
+gisette p = 20
+
+Method RM TS SRF RM TS SRF RM TS SRF RM TS SRF RM TS SRF RM TS SRF RM TS SRF RM TS SRF
+
+D = 29
+87.29  0.87 89.85  0.35 90.91  0.32
+88.86  1.08 92.30  0.52 92.44  0.31
+88.95  0.60 92.41  0.48 92.63  0.46
+88.67  0.98 91.73  0.88 92.27  0.48
+89.53  1.43 93.52  0.60 91.72  0.92 89.44  1.44 92.89  0.66 92.75  1.01 89.91  0.58 92.48  0.62 92.42  0.85 89.40  0.98 90.49  1.07 92.12  0.62
+
+D = 210
+89.11  0.53 90.99  0.42 92.08  0.32
+91.01  0.44 93.59  0.20 93.85  0.32
+91.41  0.46 93.85  0.34 94.33  0.33
+91.09  0.42 93.92  0.28 94.30  0.46
+92.77  0.40 95.28  0.71 94.39  0.65 92.77  0.57 95.29  0.39 94.85  0.53 93.16  0.40 94.61  0.60 95.10  0.47
+92.46  0.67 92.88  0.42 94.22  0.45
+
+D = 211
+90.43  0.49 91.37  0.19 92.50  0.48
+92.70  0.38 94.53  0.20 94.79  0.19
+93.27  0.28 94.75  0.26 95.18  0.26
+93.22  0.39 94.68  0.28 95.48  0.39
+94.49  0.48 96.12  0.36 95.62  0.47 95.15  0.60 96.32  0.47 96.42  0.49
+94.94  0.72 95.72  0.53 96.35  0.42
+94.37  0.55 94.43  0.69 95.85  0.54
+
+D = 212
+91.09  0.44 91.68  0.19 93.10  0.26
+94.03  0.30 94.84  0.10 95.06  0.21
+94.29  0.34 95.31  0.28 95.60  0.27
+94.32  0.27 95.26  0.31 95.97  0.32
+95.90  0.31 96.76  0.40 96.50  0.40 96.37  0.46 96.66  0.34 97.07  0.30
+96.19  0.49 96.60  0.58 97.15  0.34
+95.67  0.43 95.41  0.71 96.94  0.29
+
+D = 213
+91.48  0.31 91.85  0.18 93.31  0.16
+94.54  0.30 95.06  0.23 95.37  0.12
+95.19  0.21 95.55  0.25 95.78  0.23
+95.24  0.27 95.90  0.20 96.18  0.23
+96.69  0.33 97.06  0.19 96.91  0.36 96.90  0.46 97.16  0.25 97.50  0.24
+96.88  0.23 96.99  0.28 97.57  0.23
+96.14  0.55 96.24  0.44 97.47  0.24
+
+D = 214
+91.78  0.32 91.90  0.23 93.28  0.24
+94.97  0.26 95.27  0.12 95.51  0.17
+95.53  0.25 95.91  0.17 95.85  0.16 95.62  0.24 96.07  0.19 96.28  0.15
+97.01  0.26 97.12  0.27 97.05  0.19 97.27  0.22 97.58  0.25 97.53  0.15 97.15  0.40 97.41  0.20 97.75  0.14
+96.63  0.40 96.97  0.28 97.75  0.32
+
+Exact 96.21 96.51 96.56 96.81 98.00 97.90 98.10 98.00
+
+Table 1: Comparison of classification accuracy (in %) on different datasets for different polynomial orders (p) and varying feature map dimensionality (D). The Exact column refers to the accuracy of exact polynomial kernel trained with libSVM. More results are given in the Supplementary Material.
+
+log (Eigenvalue Ratio) MSE
+Accuracy %
+
+0.5 0
+-0.5 -1
+-1.5 -2
+-2.5 0
+
+RM TS SRF CRAFT RM CRAFT TS CRAFT SRF
+200 400 600 800
+Eigenvalue Rank
+(a)
+
+1000
+
+7 x 10-3 6 5 4 3
+
+RM TS SRF CRAFT RM CRAFT TS CRAFT SRF
+
+2
+
+1
+
+0 9 10 11 12 13 14
+log (Dimensionality)
+(b)
+
+92
+91
+90 RM TS SRF
+89 CRAFT RM CRAFT TS CRAFT SRF
+88 9 10 11 12 13 14 log (Dimensionality)
+(c)
+
+Figure 3: Comparison of CRAFT features on usps dataset with polynomial order p = 10 and feature maps of dimension D = 212. (a) Logarithm of ratio of ith-leading eigenvalue of the ap-
+proximate kernel to that of the exact kernel, constructed using 1,000 points. CRAFT features are projected from 214 dimensional maps. (b) Mean squared error. (c) Classification accuracy.
+
+Kernel approximation. The main focus of this work is to improve the quality of kernel approximation, which we measure by computing the mean squared error (MSE) between the exact kernel and its approximation across the entire dataset. Figure 2 shows MSE as a function of the dimensionality (D) of the nonlinear maps. SRF provides lower MSE than other methods, especially for higher order polynomials. This observation is consistent with our theoretical analysis in Section 4. As a corollary, SRF provides more compact maps with the same kernel approximation error. Furthermore, SRF is stable in terms of the MSE, whereas TS and RM have relatively large variance.
+Classification with linear SVM. We train linear classifiers with liblinear [3] and evaluate classification accuracy on various datasets, two of which are summarized in Table 1; additional results are available in the Supplementary Material. As expected, accuracy improves with higher-dimensional nonlinear maps and higher-order polynomials. It is important to note that better kernel approximation does not necessarily lead to better classification performance because the original kernel might not be optimal for the task [20, 21]. Nevertheless, we observe that SRF features tend to yield better classification performance in most cases.
+Rank-Deficiency. Hamid et al. [16] observe that RM and TS produce nonlinear features that are rank deficient. Their approximation quality can be improved by first mapping the input to a higher dimensional feature space, and then randomly projecting it to a lower dimensional space. This method is known as CRAFT. Figure 3(a) shows the logarithm of the ratio of the ith eigenvalue
+
+7
+
+Time (sec) Time (sec) Top-1 Test Error (%)
+
+0.5 0.4 0.3 0.2 0.1
+0 1000
+
+RM TS SRF
+2000 3000 4000 Dimensionality
+(a) d = 1000
+
+5000
+
+5 RM
+4 TS SRF
+3
+2
+1
+0 1000 2000 3000 4000 5000
+Dimensionality
+(b) d = D
+
+Figure 4: Computational time to generate randomized feature map for 1,000 random samples on a fixed hardware with p = 3. (a) d = 1, 000. (b) d = D.
+
+54 SRF
+52 RFF
+50
+48
+46 5 10 15 20 25 Training Examples (M)
+Figure 5: Doubly stochastic gradient learning curves with RFF and SRF features on ImageNet.
+
+of the various approximate kernel matrices to that of the exact kernel. For a full-rank, accurate approximation, this value should be constant and equal to zero, which is close to the case for SRF. RM and TS deviate from zero significantly, demonstrating their rank-deficiency.
+Figures 3(b) and 3(c) show the effect of the CRAFT method on MSE and classification accuracy. CRAFT improves RM and TS but it has no or even a negative effect on SRF. These observations all indicate that the SRF is less rank-deficient than RM and TS.
+Computational Efficiency. Both RM and SRF have computational complexity O(ndD), whereas TS scales as O(np(d + D log D)), where D is the number of nonlinear maps, n is the number of samples, d is the original feature dimension, and p is the polynomial order. Therefore the scalability of TS is better than SRF when D is of the same order as d (O(D log D) vs. O(D2)). However, the computational cost of SRF does not depend on p, making SRF more efficient for higher-order polynomials. Moreover, there is little computational overhead involved in the SRF method, which enables it to outperform T S for practical values of D, even though it is asymptotically inferior. As shown in Figure 4(a), even for the low-order case (p = 3), SRF is more efficient than TS for a fixed d = 1000. In Figure 4(b), where d = D, SRF is still more efficient than TS up to D 4000.
+Large-scale Learning. We investigate the scalability of the SRF method on the ImageNet 2012 dataset, which consists of 1.3 million 256 x 256 color images from 1000 classes. We employ the doubly stochastic gradient method of Dai et al. [22], which utilizes two stochastic approximations -- one from random training points and the other from random features associated with the kernel. We use the same architecture and parameter settings as [22] (including the fixed convolutional neural network parameters), except we replace the RFF kernel layer with an 2 normalization step and an SRF kernel layer with parameters a = 4 and p = 10. The learning curves in Figure 5 suggest that SRF features may perform better than RFF features on this large-scale dataset. We also evaluate the model with multi-view testing, in which max-voting is performed on 10 transformations of the test set. We obtain Top-1 test error of 44.4%, which is comparable to the 44.5% error reported in [22]. These results demonstrate that the unit norm restriction does not have a negative impact on performance in this case, and that polynomial kernels can be successfully scaled to large datasets using the SRF method.
+
+6 Conclusion
+We have described a novel technique to generate compact nonlinear features for polynomial kernels applied to data on the unit sphere. It approximates the Fourier transform of kernel functions as the positive projection of an indefinite combination of Gaussians. It achieves more compact maps compared to the previous approaches, especially for higher-order polynomials. SRF also shows less feature redundancy, leading to lower kernel approximation error. Performance of SRF is also more stable than the previous approaches due to reduced variance. Moreover, the proposed approach could easily extend beyond polynomial kernels: the same techniques would apply equally well to any shift-invariant radial kernel function, positive definite or not. In the future, we would also like to explore adaptive sampling procedures tuned to the training data distribution in order to further improve the kernel approximation accuracy, especially when D is large, i.e. when the Monte-Carlo error is low and the kernel approximation error dominates.
+Acknowledgments. We thank the anonymous reviewers for their valuable feedback and Bo Xie for facilitating experiments with the doubly stochastic gradient method.
+
+8
+
+References
+[1] Corinna Cortes and Vladimir Vapnik. Support-vector networks. Machine Learning, 20(3):273-297, 1995.
+[2] T. Joachims. Training linear svms in linear time. In Proceedings of the 12th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, pages 217-226. ACM, 2006.
+[3] Rong-En Fan, Kai-Wei Chang, Cho-Jui Hsieh, Xiang-Rui Wang, and Chih-Jen Lin. Liblinear: A library for large linear classification. The Journal of Machine Learning Research, 9:1871-1874, 2008.
+[4] Shai Shalev-Shwartz, Yoram Singer, Nathan Srebro, and Andrew Cotter. Pegasos: Primal estimated subgradient solver for SVM. Mathematical Programming, 127(1):3-30, 2011.
+[5] Ali Rahimi and Benjamin Recht. Random features for large-scale kernel machines. In Advances in neural information processing systems, pages 1177-1184, 2007.
+[6] Salomon Bochner. Harmonic analysis and the theory of probability. Dover Publications, 1955.
+[7] Subhransu Maji and Alexander C Berg. Max-margin additive classifiers for detection. In International Conference on Computer Vision, pages 40-47. IEEE, 2009.
+[8] V Sreekanth, Andrea Vedaldi, Andrew Zisserman, and C Jawahar. Generalized RBF feature maps for efficient detection. In British Machine Vision Conference, 2010.
+[9] Fuxin Li, Catalin Ionescu, and Cristian Sminchisescu. Random fourier approximations for skewed multiplicative histogram kernels. In Pattern Recognition, pages 262-271. Springer, 2010.
+[10] A. Vedaldi and A. Zisserman. Efficient additive kernels via explicit feature maps. IEEE Transactions on Pattern Analysis and Machine Intelligence, 34(3):480-492, 2012.
+[11] Jiyan Yang, Vikas Sindhwani, Quanfu Fan, Haim Avron, and Michael Mahoney. Random laplace feature maps for semigroup kernels on histograms. In Computer Vision and Pattern Recognition (CVPR), pages 971-978. IEEE, 2014.
+[12] Hideki Isozaki and Hideto Kazawa. Efficient support vector classifiers for named entity recognition. In Proceedings of the 19th International Conference on Computational Linguistics-Volume 1, pages 1-7. Association for Computational Linguistics, 2002.
+[13] Kwang In Kim, Keechul Jung, and Hang Joon Kim. Face recognition using kernel principal component analysis. Signal Processing Letters, IEEE, 9(2):40-42, 2002.
+[14] Purushottam Kar and Harish Karnick. Random feature maps for dot product kernels. In International Conference on Artificial Intelligence and Statistics, pages 583-591, 2012.
+[15] Ninh Pham and Rasmus Pagh. Fast and scalable polynomial kernels via explicit feature maps. In Proceedings of the 19th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, pages 239-247. ACM, 2013.
+[16] Raffay Hamid, Ying Xiao, Alex Gittens, and Dennis Decoste. Compact random feature maps. In Proceedings of the 31st International Conference on Machine Learning (ICML-14), pages 19-27, 2014.
+[17] Ping Li, Trevor J Hastie, and Kenneth W Church. Improving random projections using marginal information. In Learning Theory, pages 635-649. Springer, 2006.
+[18] Isaac J Schoenberg. Metric spaces and completely monotone functions. Annals of Mathematics, pages 811-841, 1938.
+[19] EE Kummer. De integralibus quibusdam definitis et seriebus infinitis. Journal fur die reine und angewandte Mathematik, 17:228-242, 1837.
+[20] Felix X Yu, Sanjiv Kumar, Henry Rowley, and Shih-Fu Chang. Compact nonlinear maps and circulant extensions. arXiv preprint arXiv:1503.03893, 2015.
+[21] Dmitry Storcheus, Mehryar Mohri, and Afshin Rostamizadeh. Foundations of coupled nonlinear dimensionality reduction. arXiv preprint arXiv:1509.08880, 2015.
+[22] Bo Dai, Bo Xie, Niao He, Yingyu Liang, Anant Raj, Maria-Florina F Balcan, and Le Song. Scalable kernel methods via doubly stochastic gradients. In Advances in Neural Information Processing Systems, pages 3041-3049, 2014.
+9
+

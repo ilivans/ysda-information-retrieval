@@ -1,0 +1,1784 @@
+Gradient Estimation Using Stochastic Computation Graphs
+
+John Schulman1,2 joschu@eecs.berkeley.edu
+
+Nicolas Heess1 heess@google.com
+
+Theophane Weber1 theophane@google.com
+
+Pieter Abbeel2 pabbeel@eecs.berkeley.edu
+
+1 Google DeepMind
+
+2 University of California, Berkeley, EECS Department
+
+Abstract
+In a variety of problems originating in supervised, unsupervised, and reinforcement learning, the loss function is defined by an expectation over a collection of random variables, which might be part of a probabilistic model or the external world. Estimating the gradient of this loss function, using samples, lies at the core of gradient-based learning algorithms for these problems. We introduce the formalism of stochastic computation graphs--directed acyclic graphs that include both deterministic functions and conditional probability distributions--and describe how to easily and automatically derive an unbiased estimator of the loss function's gradient. The resulting algorithm for computing the gradient estimator is a simple modification of the standard backpropagation algorithm. The generic scheme we propose unifies estimators derived in variety of prior work, along with variance-reduction techniques therein. It could assist researchers in developing intricate models involving a combination of stochastic and deterministic operations, enabling, for example, attention, memory, and control actions.
+1 Introduction
+The great success of neural networks is due in part to the simplicity of the backpropagation algorithm, which allows one to efficiently compute the gradient of any loss function defined as a composition of differentiable functions. This simplicity has allowed researchers to search in the space of architectures for those that are both highly expressive and conducive to optimization; yielding, for example, convolutional neural networks in vision [12] and LSTMs for sequence data [9]. However, the backpropagation algorithm is only sufficient when the loss function is a deterministic, differentiable function of the parameter vector.
+A rich class of problems arising throughout machine learning requires optimizing loss functions that involve an expectation over random variables. Two broad categories of these problems are (1) likelihood maximization in probabilistic models with latent variables [17, 18], and (2) policy gradients in reinforcement learning [5, 23, 26]. Combining ideas from from those two perennial topics, recent models of attention [15] and memory [29] have used networks that involve a combination of stochastic and deterministic operations.
+In most of these problems, from probabilistic modeling to reinforcement learning, the loss functions and their gradients are intractable, as they involve either a sum over an exponential number of latent variable configurations, or high-dimensional integrals that have no analytic solution. Prior work (see Section 6) has provided problem-specific derivations of Monte-Carlo gradient estimators, however, to our knowledge, no previous work addresses the general case.
+Appendix C recalls several classic and recent techniques in variational inference [14, 10, 21] and reinforcement learning [23, 25, 15], where the loss functions can be straightforwardly described using
+1
+
+the formalism of stochastic computation graphs that we introduce. For these examples, the variancereduced gradient estimators derived in prior work are special cases of the results in Sections 3 and 4.
+The contributions of this work are as follows:
+* We introduce a formalism of stochastic computation graphs, and in this general setting, we derive unbiased estimators for the gradient of the expected loss.
+* We show how this estimator can be computed as the gradient of a certain differentiable function (which we call the surrogate loss), hence, it can be computed efficiently using the backpropagation algorithm. This observation enables a practitioner to write an efficient implementation using automatic differentiation software.
+* We describe variance reduction techniques that can be applied to the setting of stochastic computation graphs, generalizing prior work from reinforcement learning and variational inference.
+* We briefly describe how to generalize some other optimization techniques to this setting: majorization-minimization algorithms, by constructing an expression that bounds the loss function; and quasi-Newton / Hessian-free methods [13], by computing estimates of Hessian-vector products.
+The main practical result of this article is that to compute the gradient estimator, one just needs to make a simple modification to the backpropagation algorithm, where extra gradient signals are introduced at the stochastic nodes. Equivalently, the resulting algorithm is just the backpropagation algorithm, applied to the surrogate loss function, which has extra terms introduced at the stochastic nodes. The modified backpropagation algorithm is presented in Section 5.
+
+2 Preliminaries
+2.1 Gradient Estimators for a Single Random Variable
+
+This section will discuss computing the gradient of an expectation taken over a single random
+
+variable--the estimators described here will be the building blocks for more complex cases with
+
+multiple variables. Suppose that x is a random variable, f is a function (say, the cost), and we are
+
+xintceoruelsdtebdeinpacroammpeutetrinizgedinEtxe[rfm(sxo)]f.
+
+There are a few , which lead to
+
+different different
+
+ways that the process gradient estimators.
+
+for
+
+generating
+
+* We might be given a parameterized probability distribution x  p(*; ). In this case, we can use the score function (SF) estimator [3]:
+
+ 
+
+Ex
+
+[f
+
+(x)]
+
+=
+
+Ex
+
+f
+
+(x)
+
+ 
+
+log p(x;
+
+)
+
+.
+
+(1)
+
+This classic equation is derived as follows:
+
+ 
+
+Ex
+
+[f (x)]
+
+=
+
+ 
+
+dx p(x; )f (x) =
+
+dx
+
+ 
+
+p(x;
+
+)f (x)
+
+=
+
+dx
+
+p(x;
+
+)
+
+ 
+
+log p(x;
+
+)f (x)
+
+=
+
+Ex
+
+f
+
+(x)
+
+ 
+
+log p(x;
+
+)
+
+(2)
+
+This equation is valid if and only if p(x; ) is a continuous function of ; however, it does not need to be a continuous function of x [4].
+* x may be a deterministic, differentiable function of  and another random variable z, i.e., we can write x(z, ). Then, we can use the pathwise derivative (PD) estimator, defined as follows.
+
+ 
+
+Ez
+
+[f
+
+(x(z,
+
+))]
+
+=
+
+Ez
+
+ 
+
+f
+
+(x(z,
+
+))
+
+.
+
+(3)
+
+This equation, which merely swaps the derivative and expectation, is valid if and only if f (x(z, )) is a continuous function of  for all z [4]. 1 That is not true if, for example, f is a step function.
+
+1 Note that for the pathwise derivative estimator, f (x(z, )) merely needs to be a continuous function of --it is sufficient that this function is almost-everywhere differentiable. A similar statement can be made about p(x; ) and the score function estimator. See Glasserman [4] for a detailed discussion of the technical
+requirements for these gradient estimators to be valid.
+
+2
+
+* Finally  might appear both in the probability distribution and inside the expectation, e.g., in
+
+ 
+
+Ezp(*;
+
+)
+
+[f (x(z,
+
+))].
+
+Then
+
+the
+
+gradient
+
+estimator
+
+has
+
+two
+
+terms:
+
+ 
+
+Ezp(*;
+
+)
+
+[f (x(z,
+
+))]
+
+=
+
+Ezp(*;
+
+)
+
+ 
+
+f
+
+(x(z,
+
+))
+
++
+
+ 
+
+log
+
+p(z;
+
+)
+
+f (x(z, ))
+
+.
+
+(4)
+
+This formula can be derived by writing the expectation as an integral and differentiating, as in Equation (2).
+
+In some cases, it is possible to reparameterize a probabilistic model--moving  from the distribution to inside the expectation or vice versa. See [3] for a general discussion, and see [10, 21] for a recent application of this idea to variational inference.
+The SF and PD estimators are applicable in different scenarios and have different properties.
+
+1. SF is valid under more permissive mathematical conditions than PD. SF can be used if f is discontinuous, or if x is a discrete random variable.
+2. SF only requires sample values f (x), whereas PD requires the derivatives f (x). In the context of control (reinforcement learning), SF can be used to obtain unbiased policy gradient estimators in the "model-free" setting where we have no model of the dynamics, we only have access to sample trajectories.
+3. SF tends to have higher variance than PD, when both estimators are applicable (see for instance [3, 21]). The variance of SF increases (often linearly) with the dimensionality of the sampled variables. Hence, PD is usually preferable when x is high-dimensional. On the other hand, PD has high variance if the function f is rough, which occurs in many time-series problems due to an "exploding gradient problem" / "butterfly effect".
+4. PD allows for a deterministic limit, SF does not. This idea is exploited by the deterministic policy gradient algorithm [22].
+
+Nomenclature. The methods of estimating gradients of expectations have been independently proposed in several different fields, which use differing terminology. What we call the score function estimator (via [3]) is alternatively called the likelihood ratio estimator [5] and REINFORCE [26]. We chose this term because the score function is a well-known object in statistics. What we call the pathwise derivative estimator (from the mathematical finance literature [4] and reinforcement learning [16]) is alternatively called infinitesimal perturbation analysis and stochastic backpropagation [21]. We chose this term because pathwise derivative is evocative of propagating a derivative through a sample path.
+
+2.2 Stochastic Computation Graphs
+The results of this article will apply to stochastic computation graphs, which are defined as follows: Definition 1 (Stochastic Computation Graph). A directed, acyclic graph, with three types of nodes:
+1. Input nodes, which are set externally, including the parameters we differentiate with respect to.
+2. Deterministic nodes, which are functions of their parents. 3. Stochastic nodes, which are distributed conditionally on their parents.
+Each parent v of a non-input node w is connected to it by a directed edge (v, w).
+
+In the subsequent diagrams of this article, we will use circles to denote stochastic nodes and squares to denote deterministic nodes, as illustrated below. The structure of the graph fully specifies what estimator we will use: SF, PD, or a combination thereof. This graphical notation is shown below, along with the single-variable estimators from Section 2.1.
+
+3
+
+ Input node Deterministic node Stochastic node
+
+x Gives SF estimator
+
+f
+
+z
+ xf Gives PD estimator
+
+2.3 Simple Examples
+
+Several simple examples that illustrate the stochastic computation graph formalism are shown below. The gradient estimators can be described by writing the expectations as integrals and differentiating, as with the simpler estimators from Section 2.1. However, they are also implied by the general results that we will present in Section 3.
+
+Stochastic Computation Graph
+(1)  x y f
+
+Objective Ey [f (y)]
+
+Gradient Estimator
+
+x 
+
+ x
+
+log
+
+p(y
+
+|
+
+x)f (y)
+
+(2)  x y f
+
+Ex [f (y(x))]
+
+ 
+
+log
+
+p(x
+
+|
+
+)f
+
+(y(x))
+
+(3)  x y f
+
+x
+
+(4) 
+
+f
+
+y
+
+Ex,y [f (y)] Ex [f (x, y())]
+
+ 
+
+log
+
+p(x
+
+|
+
+)f
+
+(y)
+
+ 
+
+log
+
+p(x
+
+|
+
+)f
+
+(x,
+
+y())
+
++
+
+y 
+
+f y
+
+(5)  f1 f2
+x0 x1 x2
+
+Ex1,x2 [f1(x1) + f2(x2)]
+
+ 
+
+log
+
+p(x1
+
+|
+
+,
+
+x0)(f1(x1)
+
++
+
+f2(x2))
+
++
+
+ 
+
+log
+
+p(x2
+
+|
+
+,
+
+x1)f2(x2)
+
+Figure 1: Simple stochastic computation graphs
+
+These simple examples illustrate several important motifs, where stochastic and deterministic nodes are arranged in series or in parallel. For example, note that in (2) the derivative of y does not appear in the estimator, since the path from  to f is "blocked" by x. Similarly, in (3), p(y | x) does not
+appear (this type of behavior is particularly useful if we only have access to a simulator of a system, but not access to the actual likelihood function). On the other hand, (4) has a direct path from  to f , which contributes a term to the gradient estimator. (5) resembles a parameterized Markov reward process, and it illustrates that we'll obtain score function terms of the form grad log-probability x
+future costs.
+
+The examples above all have one input , but the formal-
+
+ism accommodates models with multiple inputs, for example a stochastic neural network with multiple layers of
+
+W1 b1 W2 b2
+
+y=label
+
+weights and biases, which may influence different sub-
+
+cross-
+
+sets of the stochastic and cost nodes. See Appendix C x
+
+h1
+
+h2
+
+softmax
+
+entropy loss
+
+for nontrivial examples with stochastic nodes and multi-
+
+ple inputs. The figure on the right shows a deterministic
+
+computation graph representing classification loss for a two-layer neural network, which has four
+
+parameters (W1, b1, W2, b2) (weights and biases). Of course, this deterministic computation graph
+
+is a special type of stochastic computation graph.
+
+4
+
+3 Main Results on Stochastic Computation Graphs
+
+3.1 Gradient Estimators
+
+This section will consider a general stochastic computation graph, in which a certain set of nodes are designated as costs, and we would like to compute the gradient of the sum of costs with respect to some input node .
+In brief, the main results of this section are as follows:
+
+1. We derive a gradient estimator for an expected sum of costs in a stochastic computation graph. This estimator contains two parts (1) a score function part, which is a sum of terms grad logprob of variable x sum of costs influenced by variable; and (2) a pathwise derivative term, that propagates the dependence through differentiable functions.
+2. This gradient estimator can be computed efficiently by differentiating an appropriate "surrogate" objective function.
+
+Let  denote the set of input nodes, D the set of deterministic nodes, and S the set of stochastic nodes. Further, we will designate a set of cost nodes C, which are scalar-valued and deterministic. (Note that there is no loss of generality in assuming that the costs are deterministic--if a cost is
+stochastic, we can simply append a deterministic node that applies the identity function to it.) We will use  to denote an input node (  ) that we differentiate with respect to. In the context of machine learning, we will usually be most concerned with differentiating with respect to a parameter vector (or tensor), however, the theory we present does not make any assumptions about what  represents.
+
+For the results that follow, we need to define the
+
+notion of "influence", for which we will introduce
+
+two relations  and D. The relation v  w Notation Glossary
+
+("v influences w") means that there exists a se-
+quence of nodes a1, a2, . . . , aK , with K  0, such that (v, a1), (a1, a2), . . . , (aK-1, aK ), (aK , w) are edges in the graph. The relation v D w ("v deter-
+
+: Input nodes D: Deterministic nodes S: Stochastic nodes
+
+ministically influences w") is defined similarly, except that now we require that each ak is a deterministic node. For example, in Figure 1, diagram (5) above,  influences {x1, x2, f1, f2}, but it only deterministically influences {x1, x2}.
+Next, we will establish a condition that is sufficient for the existence of the gradient. Namely, we will
+
+C: Cost nodes v  w: v influences w v D w: v deterministically influences w
+DEPSv: "dependencies", {w    S | w D v}
+Qv: sum of cost nodes influenced by v.
+
+stipulate that every edge (v, w) with w lying in the "influenced" set of  corresponds to a differentiable
+
+v: denotes the sampled value of the node v.
+
+dependency: if w is deterministic, then the Jacobian
+
+w v
+
+must
+
+exist;
+
+if
+
+w
+
+is
+
+stochastic,
+
+then
+
+the
+
+probability
+
+mass
+
+function
+
+p(w
+
+|
+
+v, . . . )
+
+must
+
+be
+
+differen-
+
+tiable with respect to v.
+
+More formally:
+
+Condition 1 (Differentiability Requirements). Given input node   , for all edges (v, w)
+
+which satisfy  D v and  D w, then the following condition holds: if w is deterministic,
+
+Jacobian
+
+w v
+
+exists,
+
+and
+
+if
+
+w
+
+is
+
+stochastic,
+
+then
+
+the
+
+derivative
+
+of
+
+the
+
+probability
+
+mass
+
+function
+
+ v
+
+p(w
+
+|
+
+PARENT
+
+Sw
+
+)
+
+exists.
+
+Note that Condition 1 does not require that all the functions in the graph are differentiable. If the path from an input  to deterministic node v is blocked by stochastic nodes, then v may be a nondifferentiable function of its parents. If a path from input  to stochastic node v is blocked by other stochastic nodes, the likelihood of v given its parents need not be differentiable; in fact, it does not need to be known2.
+2This fact is particularly important for reinforcement learning, allowing us to compute policy gradient estimates despite having a discontinuous dynamics function or reward function.
+
+5
+
+We need a few more definitions to state the main theorems. Let DEPSv := {w    S | w D v}, the "dependencies" of node v, i.e., the set of nodes that deterministically influence it. Note the following:
+* If v  S, the probability mass function of v is a function of DEPSv, i.e., we can write p(v | DEPSv). * If v  D, v is a deterministic function of DEPSv, so we can write v(DEPSv).
+Let Qv := c v, c, i.e., the sum of costs downstream of node v. These costs will be treated as
+cC
+constant, fixed to the values obtained during sampling. In general, we will use the hat symbol v to denote a sample value of variable v, which will be treated as constant in the gradient formulae.
+Now we can write down a general expression for the gradient of the expected sum of costs in a stochastic computation graph:
+
+Theorem 1. Suppose that    satisfies Condition 1. Then the following two equivalent equations hold:
+
+
+ 
+
+E
+
+c
+cC
+
+=
+
+E
+
+ 
+
+
+wS ,
+
+D w
+
+
+
+ 
+
+log
+
+p(w
+
+|
+
+DEPSw)
+
+Qw +
+
+ 
+
+c(DE
+
+P
+
+Sc
+
+) 
+
+cC
+
+D c
+
+
+
+(5)
+
+=
+
+E
+
+ 
+
+c
+
+
+cC
+
+wc,
+
+ 
+
+log p(w | DEPSw) +
+
+cC,
+
+ 
+
+c(DE
+
+P
+
+Sc
+
+) 
+
+D w
+
+D c
+
+Proof: See Appendix A.
+
+(6)
+
+The estimator expressions above have two terms. The first term is due to the influence of  on probability distributions. The second term is due to the influence of  on the cost variables through a chain of differentiable functions. The distribution term involves a sum of gradients times "downstream"
+costs. The first term in Equation (5) involves a sum of gradients times "downstream" costs, whereas
+the first term in Equation (6) has a sum of costs times "upstream" gradients.
+
+3.2 Surrogate Loss Functions
+
+The next corollary lets us write down a "surrogate" objective L,
+
+which is a function of the inputs that we can differentiate to obtain
+
+an unbiased gradient estimator.
+
+Corollary 1. Let L(, S) := w log p(w | DEPSw)Qw +
+
+cC c(DEPSc). Then differentiation of L gives us an unbiased gra-
+
+dient
+
+estimate:
+
+ 
+
+E
+
+cC c
+
+=E
+
+ 
+
+L(,
+
+S
+
+)
+
+.
+
+One practical consequence of this result is that we can apply a standard automatic differentiation procedure to L to obtain an unbiased gradient estimator. In other words, we convert the stochastic computation graph into a deterministic computation graph, to which we can apply the backpropagation algorithm.
+
+Surrogate Loss Computation Graph
+
+(1) 
+
+x
+
+log p(y|x)f
+
+(2) 
+
+log p(x; )f
+
+(3)  (4)  (5) 
+
+log p(x; )f log p(x; )f
+y
+
+f
+
+There are several alternative ways to define the surrogate objective
+
+function that give the same gradient as L from Corollary 1. We
+
+could also write L(, S) :=
+
+w
+
+p(w
+
+| DEPSw Pv
+
+)
+
+Qw
+
++
+
+cC c(DEPSc),
+
+where Pw is the probability p(w|DEPSw) obtained during sampling,
+
+which is viewed as a constant.
+
+x0
+
+log p(x1|x0; ) (f1 + f2)
+
+log p(x2|x1; )f2
+
+Figure 2: Deterministic computation graphs obtained as surrogate loss functions of stochas-
+
+The surrogate objective from Corollary 1 is actually an upper bound on the true objective in the case that (1) all costs c  C are negative,
+
+tic computation graphs from Figure 1.
+
+(2) the the costs are not deterministically influenced by the parameters . This construction al-
+
+lows from majorization-minimization algorithms (similar to EM) to be applied to general stochastic
+
+computation graphs. See Appendix B for details.
+
+6
+
+3.3 Higher-Order Derivatives.
+The gradient estimator for a stochastic computation graph is itself a stochastic computation graph. Hence, it is possible to compute the gradient yet again (for each component of the gradient vector), and get an estimator of the Hessian. For most problems of interest, it is not efficient to compute this dense Hessian. On the other hand, one can also differentiate the gradient-vector product to get a Hessian-vector product--this computation is usually not much more expensive than the gradient computation itself. The Hessian-vector product can be used to implement a quasi-Newton algorithm via the conjugate gradient algorithm [28]. A variant of this technique, called Hessian-free optimization [13], has been used to train large neural networks.
+
+4 Variance Reduction
+
+Consider
+
+estimating
+
+ 
+
+Exp(*;
+
+)
+
+[f (x)].
+
+Clearly
+
+this
+
+expectation
+
+is
+
+unaffected
+
+by
+
+subtracting
+
+a
+
+con-
+
+stant
+
+b
+
+from
+
+the
+
+integrand,
+
+which
+
+gives
+
+ 
+
+Exp(*;
+
+)
+
+[f (x)
+
+-
+
+b].
+
+Taking
+
+the
+
+score
+
+function
+
+estimator,
+
+we
+
+get
+
+ 
+
+Exp(*;
+
+)
+
+[f
+
+(x)]
+
+=
+
+Exp(*; )
+
+ 
+
+log p(x;
+
+)(f (x) - b)
+
+.
+
+Taking
+
+b
+
+=
+
+Ex [f (x)]
+
+gener-
+
+ally leads to substantial variance reduction--b is often called a baseline3 (see [6] for a more thorough
+
+discussion of baselines and their variance reduction properties).
+
+We can make a general statement for the case of stochastic computation graphs--that we can add a baseline to every stochastic node, which depends all of the nodes it doesn't influence. Let NONINFLUENCED(v) := {w | v  w}.
+
+Theorem 2.
+
+
+
+ 
+
+E
+
+c = E 
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+(Qv - b(NONINFLUENCED(v)) +
+
+ 
+
+c 
+
+cC vS
+
+cC 
+
+v
+
+Proof: See Appendix A.
+
+5 Algorithms
+
+As shown in Section 3, the gradient estimator can be obtained by differentiating a surrogate objective function L. Hence, this derivative can be computed by performing the backpropagation algorithm on L. That is likely to be the most practical and efficient method, and can be facilitated by automatic
+differentiation software.
+
+Algorithm 1 shows explicitly how to compute the gradient estimator in a backwards pass through
+
+the
+
+stochastic
+
+computation
+
+graph.
+
+The
+
+algorithm
+
+will
+
+recursively
+
+compute
+
+gv
+
+:=
+
+ v
+
+E
+
+every deterministic and input node v.
+
+cC c at
+vc
+
+6 Related Work
+
+As discussed in Section 2, the score function and pathwise derivative estimators have been used in a variety of different fields, under different names. See [3] for a review of gradient estimation, mostly from the simulation optimization literature. Glasserman's textbook provides an extensive treatment of various gradient estimators and Monte Carlo estimators in general. Griewank and Walther's textbook [8] is a comprehensive reference on computation graphs and automatic differentiation (of deterministic programs.) The notation and nomenclature we use is inspired by Bayes nets and influence diagrams [19]. (In fact, a stochastic computation graph is a type of Bayes network; where the deterministic nodes correspond to degenerate probability distributions.)
+
+The topic of gradient estimation has drawn significant recent interest in machine learning. Gradients for networks with stochastic units was investigated in Bengio et al. [2], though they are concerned
+
+3The optimal baseline for scalar  is in fact the weighted expectation
+
+Ex[f (x)s(x)2] Ex [s(x)2 ]
+
+where s(x)
+
+=
+
+ 
+
+log p(x;
+
+).
+
+7
+
+Algorithm 1 Compute Gradient Estimator for Stochastic Computation Graph
+
+for v  Graph do
+
+Initialization at output nodes
+
+gv =
+
+1dim v 0dim v
+
+if v  C otherwise
+
+end for Compute Qw for all nodes w  Graph
+
+for v in REVERSETOPOLOGICALSORT(NONINPUTS) do
+
+for w  PARENTSv do
+
+if not ISSTOCHASTIC(w) then
+
+if ISSTOCHASTIC(v) then
+
+gw
+
++=
+
+(
+
+ w
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv ))Q w
+
+else
+
+gw
+
++=
+
+(
+
+v w
+
+)T
+
+gv
+
+end if
+
+Reverse traversal
+
+end if
+
+end for
+
+end for return [g]
+
+with differentiating through individual units and layers; not how to deal with arbitrarily structured models and loss functions. Kingma and Welling [11] consider a similar framework, although only with continuous latent variables, and point out that reparameterization can be used to to convert hierarchical Bayesian models into neural networks, which can then be trained by backpropagation.
+The score function method is used to perform variational inference in general models (in the context of probabilistic programming) in Wingate and Weber [27], and similarly in Ranganath et al. [20]; both papers mostly focus on mean-field approximations without amortized inference. It is used to train generative models using neural networks with discrete stochastic units in Mnih and Gregor [14] and Gregor et al. in [7]; both amortize inference by using an inference network.
+Generative models with continuous valued latent variables networks are trained (again using an inference network) with the reparametrization method by Rezende, Mohamed, and Wierstra [21] and by Kingma and Welling [10]. Rezende et al. also provide a detailed discussion of reparameterization, including a discussion comparing the variance of the SF and PD estimators.
+Bengio, Leonard, and Courville [2] have recently written a paper about gradient estimation in neural networks with stochastic units or non-differentiable activation functions--including Monte Carlo estimators and heuristic approximations. The notion that policy gradients can be computed in multiple ways was pointed out in early work on policy gradients by Williams [26]. However, all of this prior work deals with specific structures of the stochastic computation graph and does not address the general case.
+7 Conclusion
+We have developed a framework for describing a computation with stochastic and deterministic operations, called a stochastic computation graph. Given a stochastic computation graph, we can automatically obtain a gradient estimator, given that the graph satisfies the appropriate conditions on differentiability of the functions at its nodes. The gradient can be computed efficiently in a backwards traversal through the graph: one approach is to apply the standard backpropagation algorithm to one of the surrogate loss functions from Section 3; another approach (which is roughly equivalent) is to apply a modified backpropagation procedure shown in Algorithm 1. The results we have presented are sufficiently general to automatically reproduce a variety of gradient estimators that have been derived in prior work in reinforcement learning and probabilistic modeling, as we show in Appendix C. We hope that this work will facilitate further development of interesting and expressive models.
+8 Acknowledgements
+We would like to thank Shakir Mohamed, Dave Silver, Yuval Tassa, Andriy Mnih, and others at DeepMind for insightful comments.
+
+8
+
+References
+[1] J. Baxter and P. L. Bartlett. Infinite-horizon policy-gradient estimation. Journal of Artificial Intelligence Research, pages 319-350, 2001.
+[2] Y. Bengio, N. Leonard, and A. Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432, 2013.
+[3] M. C. Fu. Gradient estimation. Handbooks in operations research and management science, 13:575-616, 2006.
+[4] P. Glasserman. Monte Carlo methods in financial engineering, volume 53. Springer Science & Business Media, 2003.
+[5] P. W. Glynn. Likelihood ratio gradient estimation for stochastic systems. Communications of the ACM, 33(10):75-84, 1990.
+[6] E. Greensmith, P. L. Bartlett, and J. Baxter. Variance reduction techniques for gradient estimates in reinforcement learning. The Journal of Machine Learning Research, 5:1471-1530, 2004.
+[7] K. Gregor, I. Danihelka, A. Mnih, C. Blundell, and D. Wierstra. Deep autoregressive networks. arXiv preprint arXiv:1310.8499, 2013.
+[8] A. Griewank and A. Walther. Evaluating derivatives: principles and techniques of algorithmic differentiation. Siam, 2008.
+[9] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural computation, 9(8):1735-1780, 1997.
+[10] D. P. Kingma and M. Welling. Auto-encoding variational Bayes. arXiv:1312.6114, 2013.
+[11] D. P. Kingma and M. Welling. Efficient gradient-based inference through transformations between bayes nets and neural nets. arXiv preprint arXiv:1402.0480, 2014.
+[12] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11):2278-2324, 1998.
+[13] J. Martens. Deep learning via Hessian-free optimization. In Proceedings of the 27th International Conference on Machine Learning (ICML-10), pages 735-742, 2010.
+[14] A. Mnih and K. Gregor. Neural variational inference and learning in belief networks. arXiv:1402.0030, 2014.
+[15] V. Mnih, N. Heess, A. Graves, and K. Kavukcuoglu. Recurrent models of visual attention. In Advances in Neural Information Processing Systems, pages 2204-2212, 2014.
+[16] R. Munos. Policy gradient in continuous time. The Journal of Machine Learning Research, 7:771-791, 2006.
+[17] R. M. Neal. Learning stochastic feedforward networks. Department of Computer Science, University of Toronto, 1990.
+[18] R. M. Neal and G. E. Hinton. A view of the em algorithm that justifies incremental, sparse, and other variants. In Learning in graphical models, pages 355-368. Springer, 1998.
+[19] J. Pearl. Probabilistic reasoning in intelligent systems: networks of plausible inference. Morgan Kaufmann, 2014.
+[20] R. Ranganath, S. Gerrish, and D. M. Blei. Black box variational inference. arXiv preprint arXiv:1401.0118, 2013.
+[21] D. J. Rezende, S. Mohamed, and D. Wierstra. Stochastic backpropagation and approximate inference in deep generative models. arXiv:1401.4082, 2014.
+[22] D. Silver, G. Lever, N. Heess, T. Degris, D. Wierstra, and M. Riedmiller. Deterministic policy gradient algorithms. In ICML, 2014.
+[23] R. S. Sutton, D. A. McAllester, S. P. Singh, Y. Mansour, et al. Policy gradient methods for reinforcement learning with function approximation. In NIPS, volume 99, pages 1057-1063. Citeseer, 1999.
+[24] N. Vlassis, M. Toussaint, G. Kontes, and S. Piperidis. Learning model-free robot control by a Monte Carlo EM algorithm. Autonomous Robots, 27(2):123-130, 2009.
+[25] D. Wierstra, A. Forster, J. Peters, and J. Schmidhuber. Recurrent policy gradients. Logic Journal of IGPL, 18(5):620-634, 2010.
+[26] R. J. Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning, 8(3-4):229-256, 1992.
+[27] D. Wingate and T. Weber. Automated variational inference in probabilistic programming. arXiv preprint arXiv:1301.1299, 2013.
+[28] S. J. Wright and J. Nocedal. Numerical optimization, volume 2. Springer New York, 1999.
+[29] W. Zaremba and I. Sutskever. Reinforcement learning neural Turing machines. arXiv preprint arXiv:1505.00521, 2015.
+9
+
+A Proofs
+
+Theorem 1
+
+We will consider the case that all of the random variables are continuous-valued, thus the expectations can be written as integrals. For discrete random variables, the integrals should be changed to sums.
+
+Recall
+
+that
+
+we
+
+seek
+
+to
+
+compute
+
+ 
+
+E
+
+cC c . We will differentiate the expectation of a single cost
+
+term; summing over these terms yields Equation (6).
+
+EvS, [c] =
+vc
+
+p(v | DEPSv)dv c(DEPSc)
+vS , vc
+
+ 
+
+EvS,
+vc
+
+[c]
+
+=
+
+ 
+
+p(v | DEPSv)dv c(DEPSc)
+vS , vc
+
+(7) (8)
+
+=
+
+p(v | DEPSv)dv
+
+vS ,
+
+vS ,
+
+ 
+
+p(v
+
+p(v |
+
+| DEPSv DEPSv)
+
+)
+
+c(DEP
+
+Sc
+
+)
+
++
+
+ 
+
+c(D
+
+EPSc)
+
+vc
+
+vc
+
+(9)
+
+=
+
+p(v | DEPSv)dv
+
+ 
+
+log
+
+p(v
+
+|
+
+DEPSv)
+
+c(DEPSc)
+
++
+
+ 
+
+c(DEPSc)
+
+vS ,
+
+vS ,
+
+vc
+
+vc
+
+(10)
+
+= EvS,
+vc
+
+ 
+
+log
+
+p(v
+
+|
+
+DEPSv)c +
+
+ 
+
+c(DEPSc)
+
+(11)
+
+Equation (9) requires that the integrand is differentiable, which is satisfied if all of the PDFs and c(DEPSc) are differentiable. Equation (6) follows by summing over all costs c  C. Equation (5) follows from rearrangement of the terms in this equation.
+
+Theorem 2
+
+It suffices to show that for a particular node v  S, the following expectation (taken over all variables) vanishes
+
+E
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+b(NONINFLUENCED(v))
+
+.
+
+(12)
+
+Analogously to NONINFLUENCED(v), define INFLUENCED(v) := {w | w v}. Note that the nodes can be ordered so that NONINFLUENCED(v) all come before v in the ordering. Thus, we can
+write
+
+E ENONINFLUENCED(v) INFLUENCED(v)
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+b(NONINFLUENCED(v))
+
+(13)
+
+= E ENONINFLUENCED(v) INFLUENCED(v)
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+= ENONINFLUENCED(v) [0 * b(NONINFLUENCED(v))] =0
+
+b(NONINFLUENCED(v))
+(14) (15) (16)
+
+where we used EINFLUENCED(v)
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+= Ev
+
+ 
+
+log
+
+p(v
+
+|
+
+PA R E N T Sv )
+
+= 0.
+
+B Surrogate as an Upper Bound, and MM Algorithms
+L has additional significance besides allowing us to estimate the gradient of the expected sum of costs. Under certain conditions, L is a upper bound on on the true objective (plus a constant).
+We shall make two restrictions on the stochastic computation graph: (1) first, that all costs c  C are negative. (2) the the costs are not deterministically influenced by the parameters . First, let
+
+10
+
+us use importance sampling to write down the expectation of a given cost node, when the sampling
+distribution is different from the distribution we are evaluating: for parameter   ,  = old is used for sampling, but we are evaluating at  = new.
+
+
+
+Evc | new [c] = Evc | old c 
+vc,
+
+Pv(v | DEPSv\, new) 
+
+Pv (v
+
+|
+
+D E P Sv \,
+
+old)
+
+ 
+
+D v
+
+ 
+
+ 
+
+(17)
+
+ Evc | old clog  
+vc,
+
+Pv (v Pv (v
+
+| |
+
+DEPSv\, new) DEPSv\, old)
+
+  
+
++
+
+1 
+
+D v
+
+(18)
+
+where the second line used the inequality x  log x + 1, and the sign is reversed since c is negative. Summing over c  C and rearranging we get
+
+ES | new
+
+c
+cC
+
+ ES | old
+
+c + log
+cC vS
+
+p(v | DEPSv\, new) p(v | DEPSv\, old)
+
+Qv
+
+(19)
+
+= ES | old
+
+log p(v | DEPSv\, new)Qv + const
+
+vS
+
+(20)
+
+Equation (20) allows for majorization-minimization algorithms (like the EM algorithm) to be used to optimize with respect to . In fact, similar equations have been derived by interpreting rewards (negative costs) as probabilities, and then taking the variational lower bound on log-probability (e.g.,
+[24]).
+
+C Examples
+C.1 Generalized EM Algorithm and Variational Inference.
+
+The generalized EM algorithm maximizes likelihood in a probabilistic model with latent variables
+[18]. Suppose the probabilistic model defines a probability distribution p(x, z; ) where x is observed, z is a latent variable, and  is a parameter of the distribution. The generalized EM algorithm maximizes the variational lower bound, which is defined by an expectation over q:
+
+L(, q) = Ezq
+
+log
+
+p(x, z; ) q(z)
+
+.
+
+(21)
+
+The generalized EM algorithm can take many different forms, leading to different gradient estimation problems.
+
+Neural variational inference. [14] propose a general-
+
+ized EM algorithm for multi-layered latent variable models such as sigmoidal belief networks that employs an in- x h1 h2 h3
+
+ference network, an explicit parameterization of q as a
+
+function of the observed data x, to allow for fast approx-
+
+imate inference. The generative model and inference net-
+
+r1
+
+r2
+
+r3
+
+work take the form
+
+p(x) =
+
+p1 (x|h1)p2 (h1|h2)p3 (h2|h3)p3 (h3)
+
+h1 ,h2
+
+1
+
+2
+
+3
+
+q(h1, h2|x) = q1 (h1|x)q2 (h2|h1)q3 (h3|h2),
+
+and thus
+
+
+
+1 2 3
+
+
+L(,
+
+)
+
+=
+
+Ehq
+
+ log 
+
+
+p1 (x|h1) q1 (h1|x)
+
++
+
+log
+
+p2 (h1|h2) q2 (h2|h1)
+
++
+
+log
+
+p3 (h2|h3)p3 (h3) q3 (h3|h2)
+
+   
+
+.
+
+=r1
+
+=r2
+
+=r3
+
+11
+
+Given a sample h  q an unbiased estimate of the gradient is obtained
+
+L 
+
+
+
+ 
+
+log p1 (x|h1)
+
++
+
+ 
+
+log p2 (h1|h2)
+
++
+
+ 
+
+log p3 (h2)
+
+(22)
+
+L 
+
+
+
+ 
+
+log q1 (h1|x)(Q1
+
+- b1(x))
+
++
+
+ 
+
+log q2 (h2|h1)(Q2
+
+-
+
+b2(h1)) +
+
+ 
+
+log q3 (h3|h2)(Q3
+
+-
+
+b3(h2))
+
+(23)
+
+where Q1 = r1 + r2 + r3; Q2 = r2 + r3; and Q3 = r3. Eq. (22) uses the PD estimator to estimate the gradientwith respect to the model parameters ; eq. (23) is an application of the SF estimator to
+the gradient with respect to the parameters  of the inference network; b1, b2, b3 are baselines.
+
+Variational Autoencoder, Deep Latent Gaussian Mod-
+
+els and Reparameterization. [10, 21] consider a sim-
+
+ilar formulation to [14] but have continuous latent vari-
+
+ables and can thus re-parameterize their inference net-
+
+work to enable the use of the PD estimator:
+
+Lorig(, ) = Ehq
+
+log
+
+p (x|h)p (h) q(h|x)
+
+x
+(24)
+
+Lre(, ) = E  [log p(x|h( , x)) + log p(h( , x))]
+
++ H[q(*|x)]
+
+(25)
+
+ h1 z h2
+ Reparameterization
+
+where the second term, the entropy of q can be computed analytically for the parametric forms of q consid-
+
+
+
+
+
+ered in the paper (Gaussians). For q being condition-
+
+ally Gaussian, i.e. q(h|x) = N (h|(x), (x)) reparameterizing leads e.g. to h = h( ; x) = (x) +
+
+x
+
+h1
+
+z
+
+h2
+
+(x).
+
+Given   an estimate of the gradient is obtained as
+
+Lre 
+
+
+
+ 
+
+[log p(x|h(
+
+, x)) + log p(h(
+
+, x))] ,
+
+Lre 
+
+
+
+ h
+
+log p(x|h(
+
+, x)) +
+
+ h
+
+log p(h(
+
+, x))
+
+h 
+
++
+
+ 
+
+H
+
+[q(*|x)]
+
+x L
+x L
+(26) (27)
+
+C.2 Policy Gradients in Reinforcement Learning.
+
+In reinforcement learning, an agent interacts with an environment according to its policy  and receives a reward. The goal is to maximize the expected sum of rewards, the return, under the trajectory distribution that is specified jointly by the environment dynamics and the policy. Policy gradient methods seek to directly estimate the gradient of expected return with respect to the policy parameters [26, 1, 23]. The RL case is especially interesting as we typically assume that the environment dynamics are not available analytically and can only be sampled, which has implication for gradient estimation. Below we distinguish two important cases: Markov decision processes (MDP) and partially observable Markov decision processes (POMDP).
+
+MDPs: In the MDP case, the expectation is taken with respect to the distribution over state (s) and action (a) sequences
+
+
+
+T
+
+L() = Ep
+
+r(st, at) ,
+
+t=1
+
+(28)
+
+where  = (s1, a1, s2, a2, . . . ) are trajectories and the distribution over trajectories is defined in terms of the environment dynamics pE(st+1|st, at) and the policy : p( ) = pE(s1) t (at|st)pE(st+1|st, at). r are rewards (negative costs in the terminology of the rest of
+
+s1 a1 r1
+
+s2 . . . a2 . . . r2 . . .
+
+sT aT rT
+
+12
+
+the paper). The classic REINFORCE [26] estimate of the gradient is given by
+
+ 
+
+L
+
+=
+
+E p
+
+T
+
+ 
+
+log
+
+ (at |st )
+
+T
+r(st , at ) - bt(st)
+
+t=1 t =t
+
+,
+
+(29)
+
+where bt(st) is an arbitrary baseline which is often chosen to be Vt(st) = Ep
+
+T t
+
+=t
+
+r(st
+
+, at )
+
+,
+
+i.e. the well-known state-value function. (Equation (29)) corresponds to an application of the SF
+
+estimator at the stochastic nodes at. It is worth noting that a Monte Carlo estimate of (Equation (29))
+
+only requires simulating from the environment by running trajectories forward according to the cur-
+
+rent policy. This is due to the property of the SF estimator which only requires evaluation (sampling
+
+in the stochastic case) of the nodes downstream of the stochastic node at
+
+POMDPs.
+
+POMDPs differ from MDPs in that the state st of the environment is not observed directly but, as in latent-variable
+time series models, only through stochastic observations ot, which depend on the latent states st via pE(ot|st). The policy therefore has to be a function of the history of past observations (at|o1 . . . ot). For instance it can take the form of a recurrent neural network (RNN) [25, 15]. A
+REINFORCE gradient estimate is then given by
+
+s1 o1
+
+ s2 . . . o2 . . .
+
+sT oT
+
+ 
+
+L
+
+=
+
+E p
+
+T
+
+ 
+
+log
+
+ (at |o1
+
+.
+
+.
+
+.
+
+ot))
+
+t=1
+
+m1 m2 . . . mT
+
+T
+
+r(st , at ) - bt(o1 . . . ot) . (30)
+
+a1
+
+a2
+
+...
+
+aT
+
+t =t
+
+Note that, at the stochastic
+
+each node
+
+time at is
+
+step
+
+t,
+
+the
+
+gradient
+
+ 
+
+log 
+
+at
+
+estimated using the SF estimator,
+
+and then backpropagated in the RNN via chain-rule in the
+
+usual manner. As before, bt is a baseline, which is written here as a function of the observation history up to time t
+
+and, as the policy, which can be parameterized through
+
+another RNN.
+
+r1
+
+r2 . . .
+
+rT
+
+13
+

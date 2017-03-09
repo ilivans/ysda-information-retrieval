@@ -1,0 +1,1163 @@
+Convergence rates of sub-sampled Newton methods
+
+Murat A. Erdogdu Department of Statistics
+Stanford University erdogdu@stanford.edu
+
+Andrea Montanari Department of Statistics and Electrical Engineering
+Stanford University montanari@stanford.edu
+
+Abstract
+We consider the problem of minimizing a sum of n functions via projected iterations onto a convex parameter set C  Rp, where n p 1. In this regime, algorithms which utilize sub-sampling techniques are known to be effective. In this paper, we use sub-sampling techniques together with low-rank approximation to design a new randomized batch algorithm which possesses comparable convergence rate to Newton's method, yet has much smaller per-iteration cost. The proposed algorithm is robust in terms of starting point and step size, and enjoys a composite convergence rate, namely, quadratic convergence at start and linear convergence when the iterate is close to the minimizer. We develop its theoretical analysis which also allows us to select near-optimal algorithm parameters. Our theoretical results can be used to obtain convergence rates of previously proposed sub-sampling based algorithms as well. We demonstrate how our results apply to well-known machine learning problems. Lastly, we evaluate the performance of our algorithm on several datasets under various scenarios.
+
+1 Introduction
+
+We focus on the following minimization problem,
+
+minimize
+
+f ()
+
+:=
+
+1 n
+
+Xn fi(),
+
+i=1
+
+(1.1)
+
+where fi : Rp ! R. Most machine learning models can be expressed as above, where each function fi corresponds to an observation. Examples include logistic regression, support vector machines,
+
+neural networks and graphical models.
+
+Many optimization algorithms have been developed to solve the above minimization problem
+
+[Bis95, BV04, Nes04]. For a given convex set C  Rp, we denote the Euclidean projection onto this
+
+set by PC. We consider the updates of the form
+
+
+
+t+1 = PC t tQtrf (t) ,
+
+(1.2)
+
+where t is the step size and Qt is a suitable scaling matrix that provides curvature information. Updates of the form Eq. (1.2) have been extensively studied in the optimization literature (for sim-
+
+plicity, we assume C = Rp throughout the introduction). The case where Qt is equal to identity matrix corresponds to Gradient Descent (GD) which, under smoothness assumptions, achieves lin-
+
+ear convergence rate with O(np) per-iteration cost. More precisely, GD with ideal step size yields
+
+kt+1
+
+k2  1t,GDkt
+
+k2 , where, as limt!1 1t,GD = 1
+
+( p/ 1), and
+
+ i
+
+is
+
+the
+
+i-th
+
+largest
+
+eigenvalue of the Hessian of f () at minimizer .
+
+Second order methods such as Newton's Method (NM) and Natural Gradient Descent (NGD) [Ama98] can be recovered by taking Qt to be the inverse Hessian and the Fisher information evaluated at the current iterate, respectively. Such methods may achieve quadratic convergence rates with
+
+1
+
+O(np2 + p3) per-iteration cost [Bis95, Nes04]. In particular, for t large enough, Newton's method
+
+yields kt+1 k2 However, when the
+
+num2b,eNrMokfstampleks22,garonwd sitliasrgines,ecnosmitipvuetitnogthQetcboencdoitmioens
+
+number of extremely
+
+the Hessian. expensive.
+
+A popular line of research tries to construct the matrix Qt in a way that the update is computationally feasible, yet still provides sufficient second order information. Such attempts resulted in Quasi-Newton methods, in which only gradients and iterates are utilized, resulting in an efficient update on Qt. A celebrated Quasi-Newton method is the Broyden-Fletcher-Goldfarb-Shanno (BFGS) algorithm which requires O(np + p2) per-iteration cost [Bis95, Nes04].
+
+An alternative approach is to use sub-sampling techniques, where scaling matrix Qt is based on randomly selected set of data points [Mar10, BCNN11, VP12, Erd15]. Sub-sampling is widely used in the first order methods, but is not as well studied for approximating the scaling matrix. In particular, theoretical guarantees are still missing.
+
+A key challenge is that the sub-sampled Hessian is close to the actual Hessian along the directions corresponding to large eigenvalues (large curvature directions in f ()), but is a poor approximation in the directions corresponding to small eigenvalues (flatter directions in f ()). In order to overcome this problem, we use low-rank approximation. More precisely, we treat all the eigenvalues below the r-th as if they were equal to the (r + 1)-th. This yields the desired stability with respect to the sub-sample: we call our algorithm NewSamp. In this paper, we establish the following:
+
+1. NewSamp has a composite convergence rate: quadratic at start and linear near the mini-
+
+mizer, as illustrated in Figure 1. Formally, we prove a bound of the form kt+1 k2 
+
+fr1tokmtdata).k2 + 2t kt k22 with coefficient that are explicitly given (and are computable
+
+2.
+
+The asymptiotic behavior of the
+
+(
+
+p/
+
+ r+1
+
+)
+
++
+
+, for
+
+small. The
+
+linear convergence condition number (
+
+coefficient is
+
+ 1
+
+/
+
+p) which
+
+limt!1 controls
+
+th1t e
+
+=1 conver-
+
+gence of features,
+
+GD, has this can
+
+bbeeeanlarergpelaicmedprboyvethmeemnti,ldasers(horw+n1
+
+/ in
+
+Fp)ig. uFroer
+
+datasets 1.
+
+with
+
+strong
+
+spectral
+
+3. The above results are achived without tuning the step-size, in particular, by setting t = 1. 4. The complexity per iteration of NewSamp is O(np + |S|p2) with |S| the sample size.
+
+5. Our theoretical results can be used to obtain convergence rates of previously proposed sub-
+
+sampling algorithms.
+
+The rest of the paper is organized as follows: Section 1.1 surveys the related work. In Section 2, we describe the proposed algorithm and provide the intuition behind it. Next, we present our theoretical results in Section 3, i.e., convergence rates corresponding to different sub-sampling schemes, followed by a discussion on how to choose the algorithm parameters. Two applications of the algorithm are discussed in Section 4. We compare our algorithm with several existing methods on various datasets in Section 5. Finally, in Section 6, we conclude with a brief discussion.
+
+1.1 Related Work
+Even a synthetic review of optimization algorithms for large-scale machine learning would go beyond the page limits of this paper. Here, we emphasize that the method of choice depends crucially on the amount of data to be used, and their dimensionality (i.e., respectively, on the parameters n and p). In this paper, we focus on a regime in which n and p are large but not so large as to make gradient computations (of order np) and matrix manipulations (of order p3) prohibitive. Online algorithms are the option of choice for very large n since the computation per update is independent of n. In the case of Stochastic Gradient Descent (SGD), the descent direction is formed by a randomly selected gradient. Improvements to SGD have been developed by incorporating the previous gradient directions in the current update equation [SRB13, Bot10, DHS11]. Batch algorithms, on the other hand, can achieve faster convergence and exploit second order information. They are competitive for intermediate n. Several methods in this category aim at quadratic, or at least super-linear convergence rates. In particular, Quasi-Newton methods have proven effective [Bis95, Nes04]. Another approach towards the same goal is to utilize sub-sampling to form an approximate Hessian [Mar10, BCNN11, VP12, Erd15]. If the sub-sampled Hessian is close to the true Hessian, these methods can approach NM in terms of convergence rate, nevertheless, they enjoy
+
+2
+
+Algorithm 1 NewSamp
+
+Input: 0, r, , {t}t, t = 0.
+
+1.
+
+Define:
+
+PC() = [Uk, k]
+
+a=rgTmruinnca02teCdkSVDk0(kH2 )isisthreanEku-cklitdrueanncapterodjeScVtiDonoofnHto
+
+C, with
+
+ii
+
+=
+
+i.
+
+2. while kt+1 tk2   do
+
+Sub-sample Let HSt =
+
+|aS1ts|ePt oif2iSntdrice2sfSi(tt),
+
+[n]. and
+
+[Ur+1, r+1] = TruncatedSVDr+1(HSt ),
+
+Qt = r+11Ip + Ur r 1
+
+1
+r+1
+
+Ir
+
+UTr ,
+
+t+1 = PC t tQtrf (t) ,
+
+t t + 1.
+
+3. end while
+
+Output: t.
+
+much smaller complexity per update. No convergence rate analysis is available for these methods: this analysis is the main contribution of our paper. To the best of our knowledge, the best result in this direction is proven in [BCNN11] that estabilishes asymptotic convergence without quantitative bounds (exploiting general theory from [GNS09]). On the further improvements of the sub-sampling algorithms, a common approach is to use Conjugate Gradient (CG) methods and/or Krylov sub-spaces [Mar10, BCNN11, VP12]. Lastly, there are various hybrid algorithms that combine two or more techniques to increase the performance. Examples include, sub-sampling and Quasi-Newton [BHNS14], SGD and GD [FS12], NGD and NM [LRF10], NGD and low-rank approximation [LRMB08].
+
+2 NewSamp : Newton-Sampling method via rank thresholding
+
+In the regime we consider, n p, there are two main drawbacks associated with the classical second order methods such as Newton's method. The dominant issue is the computation of the Hessian matrix, which requires O(np2) operations, and the other issue is inverting the Hessian, which requires O(p3) computation. Sub-sampling is an effective and efficient way of tackling the first issue. Recent empirical studies show that sub-sampling the Hessian provides significant improvement in terms of computational cost, yet preserves the fast convergence rate of second order methods [Mar10, VP12]. If a uniform sub-sample is used, the sub-sampled Hessian will be a random matrix with expected value at the true Hessian, which can be considered as a sample estimator to the mean. Recent advances in statistics have shown that the performance of various estimators can be significantly improved by simple procedures such as shrinkage and/or thresholding [CCS10, DGJ13]. To this extent, we use low-rank approximation as the important second order information is generally contained in the largest few eigenvalues/vectors of the Hessian.
+
+NewSamp is presented as Algorithm 1. At iteration step t, the sub-sampled set of indices, its size and
+
+ttSihhsVeektDhfc2ueonarbRrcneetdkissoptenokirsgnawefdnniikin'tv-shgakaltsurhaueeepbcpd-cosreonaocrvmxroeeimpmxslp,peaeoodtiinsgoHdientiien,nosvgnsia.ielkacu.no,eeiistinsagockedifendetsvnehe.oeHctsetToSydhtrmsbeamyUosSepkitetnr,ri2pca|uStmitRto|anapatnrnTdikxdr.urHHenTtcSSuhattritsn,earsdpreeSrstohnpVceoeDecndltk-aiunv(rrgeHeegelysSar.etttiqA)vkues=i.serueiTgsm[heUOeinnrvke(ga,kflotpuhr2ekaes)t], computation [HMT11]. Operator PC projects the current iterate to the feasible set C using Euclidean projection. We assume that this projection can be done efficiently. To construct the curvature matrix
+
+[Qt] 1, instead of using the basic rank-r approximation, we fill its 0 eigenvalues with the (r + 1)-th
+
+eigenvalue of the sub-sampled Hessian which is the largest eigenvalue below the threshold. If we
+
+compute a truncated SVD with k = r + 1 and ii = i, the described operation results in
+
+Qt =
+
+1 r+1
+
+Ip
+
++
+
+Ur
+
+r 1
+
+r+11Ir UTr ,
+
+(2.1)
+
+which is simply the sum of a scaled identity matrix and a rank-r matrix. Note that the low-rank
+
+approximation that is suggested to improve the curvature estimation has been further utilized to
+
+reduce the cost of computing the inverse matrix. Final per-iteration cost of NewSamp will be
+
+O np + (|St| + r)p2  O np + |St|p2 . NewSamp takes the parameters {t, |St|}t and r as inputs. We discuss in Section 3.4, how to choose them optimally, based on the theory in Section 3.
+
+3
+
+Convergence Rate
+0
+
+Convergence Coefficients
+
+-1 0.25 -2
+
+log(Error)
+Value
+
+-3 0.20
+
+-4
+
+Sub-sample size NewSamp : St = 100
+
+NewSamp : St = 200
+
+-5 NewSamp : St = 500
+
+0 200 400
+Iterations
+
+Coefficient 1 : linear
+0.15 2 : quadratic
+
+600 0
+
+20
+Rank
+
+40
+
+Figure 1: Left plot demonstrates convergence rate of NewSamp , which starts with a quadratic rate and transitions into linear convergence near the true minimizer. The right plot shows the effect of eigenvalue thresholding on the convergence coefficients up to a scaling constant. x-axis shows the number of kept eigenvalues. Plots are obtained using Covertype dataset.
+
+By the construction of Qt, NewSamp will always be a descent algorithm. It enjoys a quadratic convergence rate at start which transitions into a linear rate in the neighborhood of the minimizer. This behavior can be observed in Figure 1. The left plot in Figure 1 shows the convergence behavior of NewSamp over different sub-sample sizes. We observe that large sub-samples result in better convergence rates as expected. As the sub-sample size increases, slope of the linear phase decreases, getting closer to that of quadratic phase. We will explain this phenomenon in Section 3, by Theorems 3.2 and 3.3. The right plot in Figure 1 demonstrates how the coefficients of two phases depend on the thresholded rank. Coefficient of the quadratic phase increases with the rank threshold, whereas for the linear phase, relation is reversed.
+
+3 Theoretical results
+In this section, we provide the convergence analysis of NewSamp based on two different subsampling schemes:
+S1: Independent sub-sampling: At each iteration t, St is uniformly sampled from [n] = {1, 2, ..., n}, independently from the sets {S }<t, with or without replacement.
+S2: Sequentially dependent sub-sampling: At each iteration t, St is sampled from [n], based on a distribution which might depend on the previous sets {S }<t, but not on any randomness in the data.
+
+The first sub-sampling scheme is simple and commonly used in optimization. One drawback is that the sub-sampled set at the current iteration is independent of the previous sub-samples, hence does not consider which of the samples were previously used to form the approximate curvature information. In order to prevent cycles and obtain better performance near the optimum, one might want to increase the sample size as the iteration advances [Mar10], including previously unused samples. This process results in a sequence of dependent sub-samples which falls into the subsampling scheme S2. In our theoretical analysis, we make the following assumptions:
+
+Assumption 1 (Lipschitz continuity). For any subset S  [n], 9M|S| depending on the size of S,
+
+such that 8, 0 2 C,
+
+kHS() HS(0)k2  M|S| k 0k2.
+
+Assumption 2 (Bounded Hessian). 8i 2 [n], r2fi() is upper bounded by a constant K, i.e.,
+
+3.1 Independent sub-sampling
+
+max
+in
+
+r2 fi ()
+
+2  K.
+
+In this section, we assume that St  [n] is sampled according to the sub-sampling scheme S1. In
+
+fact, many stochastic algorithms assume that St is a uniform subset of [n], because in this case the
+
+sub-sampled Hessian is an unbiased estimator of the full Hessian. H[n](), where the expectation is over the randomness in St. We
+
+That next
+
+is, 8 show
+
+2C that
+
+,E for
+
+[aHnySts(ca)l]in=g
+
+matrix Qt that is formed by the sub-samples St, iterations of the form Eq. (1.2) will have a composite
+
+convergence rate, i.e., combination of a linear and a quadratic phases.
+
+4
+
+Lemma 3.1. Assume that the parameter set C is convex and St  [n] is based on sub-sampling scheme S1 and sufficiently large. Further, let the Assumptions 1 and 2 hold and  2 C. Then, for an absolute constant c > 0, with probability at least 1 2/p, the updates of the form Eq. (1.2) satisfy
+
+kt+1 k2  1t kt k2 + 2t kt
+
+for coefficients 1t and 2t defined as
+
+s
+
+1t = I
+
+tQtHSt (t)
+
++ tcK
+2
+
+Qt 2
+
+log(p) |St|
+
+,
+
+k22,
+
+2t
+
+=
+
+t
+
+Mn 2
+
+Qt 2 .
+
+Remark 1. If the initial point 0 is close to , the algorithm will start with a quadratic rate of convergence which will transform into linear rate later in the close neighborhood of the optimum.
+
+TbocaonhnueknbQadebtfoakorv2rbeit=thlreeamr1si/mliymatpspmhlweoahlsldleusrwbe-fhsoiarctpmhaipnsmlyetihdgmehHatstebmrislxsoailwaQlensuttm.peeIbintgohetophndavor.atfilIcutnhueeltahocrif,sotiechffaefiwscseeiu,ebtcnh-htsesoa.ocmIosnpeelfteQfihdectiHfeo=neltslsosHiwa1tSnint.1ag,nN,dwwoete2etowdtbheitlaapltiensnedtpea how NewSamp remedies this issue.
+
+Theorem 3.2. Let the assumptions in Lemma 3.1 hold. Denote by
+
+t i
+
+,
+
+the
+
+i-th
+
+eigenvalue
+
+of
+
+HSt
+
+(t
+
+)
+
+where t is given by NewSamp at iteration step t. If the step size satisfies
+
+t  1 +
+
+2
+
+t p
+
+/
+
+t,
+r+1
+
+(3.1)
+
+then we have, with probability at least 1 2/p,
+
+kt+1 k2  1t kt k2 + 2t kt k22,
+
+for an absolute constant c > 0, for the coeffiscients 1t and 2t are defined as
+
+1t = 1
+
+t
+
+t p t
+
++ t
+
+cK
+t
+
+r+1
+
+r+1
+
+log(p) |St|
+
+,
+
+2t
+
+=
+
+t
+
+Mn
+
+2
+
+t r+1
+
+.
+
+NewSamp has a quadratic terms,
+
+croesmppeoctsiivteelcyo(nSveeergtehnecreigrhattepwlohteirneFi1tgaunred
+
+1)2t.
+
+are the coefficients of the linear and the We observe that the sub-sampling size
+
+has a significant effect on the linear term, whereas the quadratic term is governed by the Lipschitz
+
+constant. We emphasize that the case t = 1 is feasible for the conditions of Theorem 3.2. 3.2 Sequentially dependent sub-sampling
+
+Here, we assume that the sub-sampling scheme S2 is used to generate {S } 1. Distribution of sub-sampled sets may depend on each other, but not on any randomness in the dataset. Examples include fixed sub-samples as well as sub-samples of increasing size, sequentially covering unused data. In addition to Assumptions 1-2, we assume the following.
+
+Assumption 3 (i.i.d. observations). Let z1, z2, ..., zn 2 Z be i.i.d. observations from a distribution
+
+D. for
+
+For a some
+
+fixed  2 Rp and 8i function ' : Z  Rp
+
+2 [n], ! R.
+
+we
+
+assume
+
+that
+
+the
+
+functions
+
+{fi}ni=1
+
+satisfy
+
+fi()
+
+=
+
+'(zi,
+
+),
+
+Most statistical learning algorithms can be formulated as above, e.g., in classification problems, one
+
+has and
+
+access to i.i.d. samples {(yi, ' measures the classification
+
+xerir)o}rni=(S1 ewe hSeercetiyoina4ndfoxr iexdaemnoptleesth).e
+
+class label and the covariate, For sub-sampling scheme S2,
+
+an analogue of Lemma 3.1 is stated in Appendix as Lemma B.1, which leads to the following result.
+
+Theorem 3.3. Assume that the parameter set C is convex and St  [n] is based on the sub-sampling scheme S2. Further, let the Assumptions 1, 2 and 3 hold, almost surely. Conditioned on the event
+
+E = { 2 C}, if the step size satisfies Eq. 3.1, then for t given by NewSamp at iteration t, with probability at least 1 cE e p for cE = c/P(E), we have
+
+kt+1 k2  1t kt k2 + 2t kt k22,
+
+for the 1t = 1
+
+coefficients 1t and 2t
+
+t
+
+t
+
+p t
+
++ t
+
+c0K
+t
+
+r+1
+
+r+1
+
+defined as s
+
+p |St|
+
+log
+
+
+
+diam(C
+
+)2
+
+Mn + M|St| K2
+
+2
+
+|St|
+
+ ,
+
+2t =
+
+t
+
+Mn
+
+2
+
+t r+1
+
+,
+
+where c, c0 > 0 are absolute constants and
+
+t i
+
+denotes
+
+the
+
+i-th
+
+eigenvalue
+
+of
+
+HSt (t).
+
+5
+
+Compared to the Theorem 3.2, we observe that the coefficient of the quadratic term does not change. This is due to Assumption 1. However, the bound on the linear term is worse, since we use the uniform bound over the convex parameter set C.
+
+3.3 Dependence of coefficients on t and convergence guarantees
+
+Traisethstteuhhleectsooj.ep-Hfttfihiomcweiueiegmnvetsenwrv,ha1ttilhcuaehensdeaorfce2otfdundelselfit-panHneeentdssdsbcioyaannnsitbamhetepwiltyee.lrrlaeFatpoiplorapnctrhiosnetxgeispmawktjaetwheidoictfhhbsyiismtjhapiennliiructhaintendyia,erlswodirgeeafiuboenlnsietliyao1sncpa,oenwncdsthioed2rfeertehtvthehaeelaulbacaotattevsedeer where the functions  ! fi() are quadratic.
+
+Theorem 3.4. Assume that the functions fi() are quadratic, St is based on scheme S1 and t = 1.
+
+Let the full Hessian at  be lower bounded by k. Then for sufficiently large |St| and absolute
+
+constants c1, c2, with probability 1 2/p
+
+p
+
+1t
+
+1
+
+ c1K lpog(p)/|St| k k c2K log(p)/|St|
+
+:=
+
+.
+
+Tarhoeuonrdem1.3.G4einmerpalliiezsintghatth,ewahbeonveththeeosurebm-satmo pnloinn-gqusaizderaitsicsfuufnficctiieonntslyislasrtgraei,ght1tfowrwilal rcdo, nincewnthriacthe
+
+case, one would get additional terms involving the difference kt k2. In the case of scheme S2,
+
+if one uses fixed gives a sufficient
+
+sub-samples, condition for
+
+tchoennvtehregecnoceeffi. cAiednetta1tileddoedsisncoutsdsieopnenodn
+
+on t. The following corollary the number of iterations until
+
+convergence and further local convergence properties can be found in [Erd15, EM15].
+
+Corollary 3.5. Assume that 1t and 2t are well-approximated by 1 and 2 with an error bound of
+
+co, ni.vee.,rgiet nceiis +
+
+for i = 1, 2, as in Theorem 3.4. For the initial point 0, a sufficient condition for
+
+k0
+
+k2
+
+<
+
+1
+
+1 2 +
+
+.
+
+3.4 Choosing the algorithm parameters
+
+Step size: Let = O(log(p)/|St|). We suggest the following step size for NewSamp at iteration t,
+
+t( ) = 1 +
+
+2
+
+tp/
+
+t r+1
+
++
+
+.
+
+(3.2)
+
+Note that t(0) is the upper bound in Theorems 3.2 and 3.3 and it minimizes the first component
+
+otofwa1tr.dTs h1e.
+
+other terms Contrary to
+
+imnos1tt
+
+aanlgdori2tthlimnes,arolpytidmepalenstdeponsizte.
+
+To compensate of NewSamp is
+
+for that, we shrink t(0) larger than 1. A rigorous
+
+derivation of Eq. 3.2 can be found in [EM15].
+
+Sample size: By Theorem 3.2, a sub-sample of size O((K/ p)2 log(p)) should be sufficient to obtain a small coefficient for the linear phase. Also note that sub-sample size |St| scales quadratically with the condition number.
+
+Rank threshold: For a full-Hessian with effective rank R (trace divided by the largest eigenvalue), it suffices to use O(R log(p)) samples [Ver10]. Effective rank is upper bounded by the dimension p. Hence, one can use p log(p) samples to approximate the full-Hessian and choose a rank threshold which retains the important curvature information.
+
+4 Examples
+4.1 Generalized Linear Models (GLM)
+
+Maximum likelihood estimation in a GLM setting is equivalent to minimizing the negative log-
+
+likelihood (),
+
+minimize
+2C
+
+f ()
+
+=
+
+1 n
+
+Xn [
+
+(hxi, i)
+
+yihxi, i] ,
+
+i=1
+
+(4.1)
+
+where is the cumulant generating function, xi 2 Rp denote the rows of design matrix X 2 Rnp, and  2 Rp is the coefficient vector. Here, hx, i denotes the inner product between the vectors x, . The function defines the type of GLM, i.e., (z) = z2 gives ordinary least squares (OLS) and
+(z) = log(1 + ez) gives logistic regression (LR). Using the results from Section 3, we perform a convergence analysis of our algorithm on a GLM problem.
+
+6
+
+Corollary 4.1. Let St  [n] be a uniform sub-sample, and C = Rp be the parameter set. Assume
+
+that the second derivative of the cumulant generating function, (2) is bounded by 1, and it is
+
+LinipascbhailtlzocfornatdiniuusopusRwxi,thi.eL.ipmsachxiit2z[nc]oknxstiakn2tL.pFRuxrt.hTehr,ena,ssfourmet
+
+that the covariates given by NewSamp
+
+are contained with constant
+
+step size t = 1 at iteration t, with probability at least 1 2/p, we have
+
+kt+1 k2  1t kt k2 + 2t kt
+
+for constants 1t and 2t defined as
+
+s
+
+1t =1
+
+t i t
+
++
+
+cRx
+t
+
+r+1
+
+r+1
+
+log(p) |St|
+
+,
+
+k22,
+
+2t
+
+=
+
+LRx3/2
+
+2
+
+t r+1
+
+,
+
+where c > 0 is an absolute constant and
+
+t i
+
+is
+
+the
+
+ith
+
+eigenvalue
+
+of
+
+HSt (t).
+
+4.2 Support Vector Machines (SVM)
+
+A linear SVM provides a separating hyperplane which maximizes the margin, i.e., the distance
+
+between the hyperplane and the support vectors. Although the vast majority of the literature focuses
+
+on the dual problem [SS02], SVMs can be trained using the primal as well. Since the dual problem
+
+does not scale well with the number of data points (some approaches get O(n3) complexity) the
+
+primal might be better-suited for optimization of linear SVMs [Cha07]. The primal problem for the
+
+linear
+
+SVM
+
+can
+
+be
+
+written as minimize
+2C
+
+f ()
+
+=
+
+1 2
+
+kk22
+
++
+
+1 2
+
+C
+
+Xn (yi, h, xii)
+
+i=1
+
+(4.2)
+
+where (yi, xi) denote the data samples,  defines the separating hyperplane, C > 0 and  could be any loss function. The most commonly used loss functions include Hinge-p loss, Huber loss
+
+and their smoothed versions [Cha07]. Smoothing or approximating such losses with more stable
+
+functions is sometimes crucial in optimization. In the case of NewSamp which requires the loss
+
+function to be twice differentiable (almost everywhere), we suggest either smoothed Huber loss, or
+
+Hinge-2 loss [Cha07]. In the case of Hinge-2 loss, i.e., (y, h, xi) = max {0, 1 yh, xi}2, by
+
+combining the offset and the normal vector of the hyperplane into a single parameter vector , and
+
+denoting by SVt the set of indices of all the support vectors at iteration t, we may write the Hessian,
+
+r2f ()
+
+=
+
+1 |SVt
+
+|
+
+n I
+
++
+
+C
+
+X
+i2SVt
+
+o xixTi ,
+
+where
+
+SVt = {i : yiht, xii < 1}.
+
+When |SVt| is large, the problem falls into our setup and can be solved efficiently using NewSamp. Note that unlike the GLM setting, Lipschitz condition of our Theorems do not apply here. However, we empirically demonstrate that NewSamp works regardless of such assumptions.
+
+5 Experiments
+In this section, we validate the performance of NewSamp through numerical studies. We experimented on two optimization problems, namely, Logistic Regression (LR) and SVM. LR minimizes Eq. 4.1 for the logistic function, whereas SVM minimizes Eq. 4.2 for the Hinge-2 loss. In the following, we briefly describe the algorithms that are used in the experiments:
+1. Gradient Descent (GD), at each iteration, takes a step proportional to negative of the full gradient evaluated at the current iterate. Under certain regularity conditions, GD exhibits a linear convergence rate.
+2. Accelerated Gradient Descent (AGD) is proposed by Nesterov [Nes83], which improves over the gradient descent by using a momentum term.
+3. Newton's Method (NM) achieves a quadratic convergence rate by utilizing the inverse Hessian evaluated at the current iterate.
+4. Broyden-Fletcher-Goldfarb-Shanno (BFGS) is the most popular and stable Quasi-Newton method. Qt is formed by accumulating the information from iterates and gradients.
+5. Limited Memory BFGS (L-BFGS) is a variant of BFGS, which uses only the recent iterates and gradients to construct Qt, providing improvement in terms of memory usage.
+6. Stochastic Gradient Descent (SGD) is a simplified version of GD where, at each iteration, a randomly selected gradient is used. We follow the guidelines of [Bot10] for the step size.
+
+7
+
+Dataset:)
+
+Synthe'c)
+
+Logistic Regression, rank=3
+
+CT)Slices)
+1 Logistic Regression, rank=60
+
+MSD)
+1 Logistic Regression, rank=60
+
+log(Error)
+
+0
+
+-2
+
+Method NewSamp
+
+BFGS
+
+LBFGS
+
+Newton
+
+GD
+
+AGD
+
+-4 SGD
+
+AdaGrad
+
+0 10
+
+1 0
+
+20 30
+Time(sec)
+SVM, rank=3
+
+40
+
+0
+
+log(Error)
+
+-1 Method
+-2 NewSamp BFGS LBFGS Newton
+-3 GD AGD SGD AdaGrad
+50 -4 0
+2
+
+5 10
+Time(sec)
+SVM, rank=60
+
+0
+
+log(Error)
+
+-1
+
+Method
+
+-2 NewSamp
+
+BFGS
+
+LBFGS
+
+Newton
+
+-3 GD
+
+AGD
+
+SGD
+
+AdaGrad
+
+15 -4 0
+
+10
+
+2
+
+20 30
+Time(sec)
+SVM, rank=60
+
+40
+
+50
+
+log(Error)
+
+log(Error)
+
+log(Error)
+
+-1
+
+Method
+
+-2 NewSamp BFGS
+
+LBFGS
+
+-3
+
+Newton GD
+
+AGD
+
+SGD
+
+-4 AdaGrad
+
+0 25
+
+50
+Time(sec)
+
+75
+
+0
+
+Method
+
+NewSamp
+
+BFGS
+
+-2
+
+LBFGS Newton
+
+GD
+
+AGD
+
+SGD
+
+AdaGrad
+
+100 -4 0
+
+10 20
+Time(sec)
+
+0
+
+Method
+
+NewSamp
+
+BFGS
+
+-2
+
+LBFGS Newton
+
+GD
+
+AGD
+
+SGD
+
+AdaGrad
+
+30 -4 0
+
+30
+
+60
+Time(sec)
+
+90
+
+120
+
+Figure 2: Performance of several algorithms on different datasets. NewSamp is represented with red color .
+
+7. Adaptive Gradient Scaling (AdaGrad) uses an adaptive learning rate based on the previous gradients. AdaGrad significantly improves the performance and stability of SGD [DHS11].
+For batch algorithms, we used constant step size and for all the algorithms, the step size that provides the fastest convergence is chosen. For stochastic algorithms, we optimized over the parameters that define the step size. Parameters of NewSamp are selected following the guidelines in Section 3.4. We experimented over various datasets that are given in Table 1. Each dataset consists of a design matrix X 2 Rnp and the corresponding observations (classes) y 2 Rn. Synthetic data is generated through a multivariate Gaussian distribution. As a methodological choice, we selected moderate values of p, for which Newton's method can still be implemented, and nevertheless we can demonstrate an improvement. For larger values of p, comparison is even more favorable to our approach. The effects of sub-sampling size |St| and rank threshold are demonstrated in Figure 1. A thorough comparison of the aforementioned optimization techniques is presented in Figure 2. In the case of LR, we observe that stochastic methods enjoy fast convergence at start, but slows down after several epochs. The algorithm that comes close to NewSamp in terms of performance is BFGS. In the case obanfetStienVriMttiha,alNnpMtohianitstotchfleoGscDelot[soNesetthsa0el4go]op. rtTiitmhhemumctooniNsdiertiewoqSnuaifrmoerdps.u[DpNeMort-e7li7nth]e.aatrTtrhhaetiesglicosobPnadltictkioonntvecragneknb2cee<roaf1reBlFyfoGsrSawtiihssfiinceohdt, in practice, which also affects the performance of other second order methods. For NewSamp, even though rank thresholding provides a level of robustness, we found that initial point is still an important factor. Details about Figure 2 and additional experiments can be found in Appendix C.
+
+Dataset CT slices Covertype MSD Synthetic
+
+n pr
+
+Reference
+
+53500 386 60 [GKS+11, Lic13]
+
+581012 54 20
+
+[BD99, Lic13]
+
+515345 90 60 [MEWL, Lic13]
+
+500000 300 3
+
+-
+
+6 Conclusion
+
+Table 1: Datasets used in the experiments.
+
+In this paper, we proposed a sub-sampling based second order method utilizing low-rank Hessian estimation. The proposed method has the target regime n p and has O np + |S|p2 complexity per-iteration. We showed that the convergence rate of NewSamp is composite for two widely used sub-sampling schemes, i.e., starts as quadratic convergence and transforms to linear convergence near the optimum. Convergence behavior under other sub-sampling schemes is an interesting line of research. Numerical experiments demonstrate the performance of the proposed algorithm which we compared to the classical optimization methods.
+
+8
+
+References
+
+[Ama98] Shun-Ichi Amari, Natural gradient works efficiently in learning, Neural computation 10 (1998).
+
+[BCNN11] Richard H Byrd, Gillian M Chin, Will Neveitt, and Jorge Nocedal, On the use of stochastic hessian information in optimization methods for machine learning, SIAM Journal on Optimization (2011).
+
+[BD99]
+
+Jock A Blackard and Denis J Dean, Comparative accuracies of artificial neural networks and discriminant analysis in predicting forest cover types from cartographic variables, Compag (1999).
+
+[BHNS14] Richard H Byrd, SL Hansen, Jorge Nocedal, and Yoram Singer, A stochastic quasi-newton method for large-scale optimization, arXiv preprint arXiv:1401.7020 (2014).
+
+[Bis95] Christopher M. Bishop, Neural networks for pattern recognition, Oxford University Press, 1995.
+
+[Bot10] Leon Bottou, Large-scale machine learning with stochastic gradient descent, COMPSTAT, 2010.
+
+[BV04] Stephen Boyd and Lieven Vandenberghe, Convex optimization, Cambridge University Press, 2004.
+
+[CCS10] Jian-Feng Cai, Emmanuel J Candes, and Zuowei Shen, A singular value thresholding algorithm for matrix completion, SIAM Journal on Optimization 20 (2010), no. 4, 1956-1982.
+
+[Cha07] Olivier Chapelle, Training a support vector machine in the primal, Neural Computation (2007).
+
+[DE15]
+
+Lee H Dicker and Murat A Erdogdu, Flexible results for quadratic forms with applications to variance components estimation, arXiv preprint arXiv:1509.04388 (2015).
+
+[DGJ13] David L Donoho, Matan Gavish, and Iain M Johnstone, Optimal shrinkage of eigenvalues in the spiked covariance model, arXiv preprint arXiv:1311.0851 (2013).
+
+[DHS11] John Duchi, Elad Hazan, and Yoram Singer, Adaptive subgradient methods for online learning and stochastic optimization, J. Mach. Learn. Res. 12 (2011), 2121-2159.
+
+[DM77] John E Dennis, Jr and Jorge J More, Quasi-newton methods, motivation and theory, SIAM review 19 (1977), 46-89.
+
+[EM15]
+
+Murat A Erdogdu and Andrea Montanari, Convergence rates of sub-sampled Newton methods, arXiv preprint arXiv:1508.02810 (2015).
+
+[Erd15]
+
+Murat A. Erdogdu, Newton-Stein Method: A second order method for GLMs via Stein's lemma, NIPS, 2015.
+
+[FS12]
+
+Michael P Friedlander and Mark Schmidt, Hybrid deterministic-stochastic methods for data fitting, SIAM Journal on Scientific Computing 34 (2012), no. 3, A1380-A1405.
+
+[GKS+11] Franz Graf, Hans-Peter Kriegel, Matthias Schubert, Sebastian Polsterl, and Alexander Cavallaro, 2d image registration in ct images using radial image descriptors, MICCAI 2011, Springer, 2011.
+
+[GN10]
+
+David Gross and Vincent Nesme, Note on sampling without replacing from a finite collection of matrices, arXiv preprint arXiv:1001.2738 (2010).
+
+[GNS09] Igor Griva, Stephen G Nash, and Ariela Sofer, Linear and nonlinear optimization, Siam, 2009.
+
+[HMT11] Nathan Halko, Per-Gunnar Martinsson, and Joel A Tropp, Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions, no. 2, 217-288.
+
+[Lic13] M. Lichman, UCI machine learning repository, 2013.
+
+[LRF10] Nicolas Le Roux and Andrew W Fitzgibbon, A fast natural newton method, ICML, 2010.
+
+[LRMB08] Nicolas Le Roux, Pierre-A Manzagol, and Yoshua Bengio, Topmoumoute online natural gradient algorithm, NIPS, 2008.
+
+[Mar10] James Martens, Deep learning via hessian-free optimization, ICML, 2010, pp. 735-742.
+
+[MEWL] Thierry B. Mahieux, Daniel P.W. Ellis, Brian Whitman, and Paul Lamere, The million song dataset, ISMIR-11.
+
+[Nes83] Yurii Nesterov, A method for unconstrained convex minimization problem with the rate of convergence o (1/k2), Doklady AN SSSR, vol. 269, 1983, pp. 543-547.
+
+[Nes04]
+
+, Introductory lectures on convex optimization: A basic course, vol. 87, Springer, 2004.
+
+[SRB13] Mark Schmidt, Nicolas Le Roux, and Francis Bach, Minimizing finite sums with the stochastic average gradient, arXiv preprint arXiv:1309.2388 (2013).
+
+[SS02]
+
+Bernhard Scholkopf and Alexander J Smola, Learning with kernels: support vector machines, regularization, optimization, and beyond, MIT press, 2002.
+
+[Tro12]
+
+Joel A Tropp, User-friendly tail bounds for sums of random matrices, Foundations of Computational Mathematics (2012).
+
+[Ver10]
+
+Roman Vershynin, Introduction to the non-asymptotic analysis of random matrices, arXiv:1011.3027 (2010).
+
+[VP12] Oriol Vinyals and Daniel Povey, Krylov Subspace Descent for Deep Learning, AISTATS, 2012.
+
+9
+

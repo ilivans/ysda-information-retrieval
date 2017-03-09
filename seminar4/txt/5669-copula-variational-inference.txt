@@ -1,0 +1,546 @@
+Copula variational inference
+
+Dustin Tran Harvard University
+
+David M. Blei Columbia University
+
+Edoardo M. Airoldi Harvard University
+
+Abstract
+We develop a general variational inference method that preserves dependency among the latent variables. Our method uses copulas to augment the families of distributions used in mean-field and structured approximations. Copulas model the dependency that is not captured by the original variational distribution, and thus the augmented variational family guarantees better approximations to the posterior. With stochastic optimization, inference on the augmented distribution is scalable. Furthermore, our strategy is generic: it can be applied to any inference procedure that currently uses the mean-field or structured approach. Copula variational inference has many advantages: it reduces bias; it is less sensitive to local optima; it is less sensitive to hyperparameters; and it helps characterize and interpret the dependency among the latent variables.
+
+1 Introduction
+
+Variational inference is a computationally efficient approach for approximating posterior distributions. The idea is to specify a tractable family of distributions of the latent variables and then to minimize the Kullback-Leibler divergence from it to the posterior. Combined with stochastic optimization, variational inference can scale complex statistical models to massive data sets [9, 23, 24].
+
+Both the computational complexity and accuracy of variational inference are controlled by the factorization of the variational family. To keep optimization tractable, most algorithms use the fullyfactorized family, also known as the mean-field family, where each latent variable is assumed independent. Less common, structured mean-field methods slightly relax this assumption by preserving some of the original structure among the latent variables [19]. Factorized distributions enable efficient variational inference but they sacrifice accuracy. In the exact posterior, many latent variables are dependent and mean-field methods, by construction, fail to capture this dependency.
+
+To this end, we develop copula variational inference (
+
+). C augments the traditional
+
+variational distribution with a copula, which is a flexible construction for learning dependencies in
+
+factorized distributions [3]. This strategy has many advantages over traditional : it reduces bias;
+
+it is less sensitive to local optima; it is less sensitive to hyperparameters; and it helps characterize
+
+and interpret the dependency among the latent variables. Variational inference has previously been
+
+restricted to either generic inference on simple models--where dependency does not make a signif-
+
+icant difference--or writing model-specific variational updates. C
+
+widens its applicability,
+
+providing generic inference that finds meaningful dependencies between latent variables.
+
+In more detail, our contributions are the following.
+
+A generalization of the original procedure in variational inference. C
+
+generalizes vari-
+
+ational inference for mean-field and structured factorizations: traditional corresponds to running
+
+only one step of our method. It uses coordinate descent, which monotonically decreases the KL
+
+divergence to the posterior by alternating between fitting the mean-field parameters and the copula
+
+parameters. Figure 1 illustrates
+
+on a toy example of fitting a bivariate Gaussian.
+
+Improving generic inference. C
+
+can be applied to any inference procedure that currently
+
+uses the mean-field or structured approach. Further, because it does not require specific knowledge
+
+1
+
+Figure 1: Approximations to an elliptical Gaussian. The mean-field (red) is restricted to fitting independent one-dimensional Gaussians, which is the first step in our algorithm. The second step (blue) fits a copula which models the dependency. More iterations alternate: the third refits the meanfield (green) and the fourth refits the copula (cyan), demonstrating convergence to the true posterior.
+
+of the model, it falls into the framework of black box variational inference [15]. An investigator need only write down a function to evaluate the model log-likelihood. The rest of the algorithm's calculations, such as sampling and evaluating gradients, can be placed in a library.
+
+Richer variational approximations. In experiments, we demonstrate
+
+on the standard
+
+example of Gaussian mixture models. We found it consistently estimates the parameters, reduces
+
+sensitivity to local optima, and reduces sensitivity to hyperparameters. We also examine how well
+
+captures dependencies on the latent space model [7]. C
+
+outperforms competing
+
+methods and significantly improves upon the mean-field approximation.
+
+2 Background
+2.1 Variational inference
+Let x be a set of observations, z be latent variables, and  be the free parameters of a variational distribution q(z; ). We aim to find the best approximation of the posterior p(z | x) using the variational distribution q(z; ), where the quality of the approximation is measured by KL divergence. This is equivalent to maximizing the quantity
+L () = Eq(z;)[log p(x, z)] - Eq(z;)[log q(z; )].
+L() is the evidence lower bound ( ), or the variational free energy [25]. For simpler computation, a standard choice of the variational family is a mean-field approximation
+d
+q(z; ) = qi(zi; i),
+i=1
+where z = (z1, . . . , zd). Note this is a strong independence assumption. More sophisticated approaches, known as structured variational inference [19], attempt to restore some of the dependencies among the latent variables.
+In this work, we restore dependencies using copulas. Structured is typically tailored to individual models and is difficult to work with mathematically. Copulas learn general posterior dependencies during inference, and they do not require the investigator to know such structure in advance. Further, copulas can augment a structured factorization in order to introduce dependencies that were not considered before; thus it generalizes the procedure. We next review copulas.
+2.2 Copulas
+We will augment the mean-field distribution with a copula. We consider the variational family
+d
+q(z) = q(zi) c(Q(z1), . . . , Q(zd)).
+i=1
+2
+
+1, 3 2, 3 132
+
+3, 4 4
+
+1, 2|3
+
+1, 4|3
+
+2, 3 1, 3 3, 4
+
+(T1) (T2)
+
+1, 2|3
+
+2, 4|13
+
+1, 4|3
+
+(T3)
+
+Figure 2: Example of a vine V which factorizes a copula density of four random variables c(u1, u2, u3, u4) into a product of 6 pair copulas. Edges in the tree Tj are the nodes of the lower level tree Tj+1, and each edge determines a bivariate copula which is conditioned on all random variables
+that its two connected nodes share.
+
+Here Q(zi) is the marginal cumulative distribution function (CDF) of the random variable zi, and c is a joint distribution of [0, 1] random variables.1 The distribution c is called a copula of z: it is a joint multivariate density of Q(z1), . . . , Q(zd) with uniform marginal distributions [21]. For any distribution, a factorization into a product of marginal densities and a copula always exists and integrates to one [14].
+Intuitively, the copula captures the information about the multivariate random variable after eliminating the marginal information, i.e., by applying the probability integral transform on each variable. The copula captures only and all of the dependencies among the zi's. Recall that, for all random variables, Q(zi) is uniform distributed. Thus the marginals of the copula give no information.
+For example, the bivariate Gaussian copula is defined as
+c(u1, u2; ) = (-1(u1), -1(u2)).
+If u1, u2 are independent uniform distributed, the inverse CDF -1 of the standard normal transforms (u1, u2) to independent normals. The CDF  of the bivariate Gaussian distribution, with mean zero and Pearson correlation , squashes the transformed values back to the unit square. Thus the Gaussian copula directly correlates u1 and u2 with the Pearson correlation parameter .
+2.2.1 Vine copulas
+It is difficult to specify a copula. We must find a family of distributions that is easy to compute with and able to express a broad range of dependencies. Much work focuses on two-dimensional copulas, such as the Student-t, Clayton, Gumbel, Frank, and Joe copulas [14]. However, their multivariate extensions do not flexibly model dependencies in higher dimensions [4]. Rather, a successful approach in recent literature has been by combining sets of conditional bivariate copulas; the resulting joint is called a vine [10, 13].
+A vine V factorizes a copula density c(u1, . . . , ud) into a product of conditional bivariate copulas, also called pair copulas. This makes it easy to specify a high-dimensional copula. One need only express the dependence for each pair of random variables conditioned on a subset of the others.
+Figure 2 is an example of a vine which factorizes a 4-dimensional copula into the product of 6 pair copulas. The first tree T1 has nodes 1, 2, 3, 4 representing the random variables u1, u2, u3, u4 respectively. An edge corresponds to a pair copula, e.g., 1, 4 symbolizes c(u1, u4). Edges in T1 collapse into nodes in the next tree T2, and edges in T2 correspond to conditional bivariate copulas, e.g., 1, 2|3 symbolizes c(u1, u2|u3). This proceeds to the last nested tree T3, where 2, 4|13 symbolizes
+1We overload the notation for the marginal CDF Q to depend on the names of the argument, though we occasionally use Qi(zi) when more clarity is needed. This is analogous to the standard convention of overloading the probability density function q(*).
+3
+
+c(u2, u4|u1, u3). The vine structure specifies a complete factorization of the multivariate copula, and each pair copula can be of a different family with its own set of parameters:
+
+c(u1, u2, u3, u4) = c(u1, u3)c(u2, u3)c(u3, u4) c(u1, u2|u3)c(u1, u4|u3) c(u2, u4|u1, u3) .
+
+Formally, a vine is a nested set of trees V = {T1, . . . , Td-1} with the following properties:
+1. Tree Tj = {Nj, Ej} has d + 1 - j nodes and d - j edges.
+2. Edges in the jth tree Ej are the nodes in the (j + 1)th tree Nj+1.
+3. Two nodes in tree Tj+1 are joined by an edge only if the corresponding edges in tree Tj share a node.
+Each edge e in the nested set of trees {T1, . . . , Td-1} specifies a different pair copula, and the product of all edges comprise of a factorization of the copula density. Since there are a total of d(d - 1)/2 edges, V factorizes c(u1, . . . , ud) as the product of d(d - 1)/2 pair copulas.
+Each edge e(i, k)  Tj has a conditioning set D(e), which is a set of variable indices 1, . . . , d. We define cik|D(e) to be the bivariate copula density for ui and uk given its conditioning set:
+
+cik|D(e) = c Q(ui|uj : j  D(e)), Q(ui|uj : j  D(e)) uj : j  D(e) .
+
+(1)
+
+Both the copula and the CDF's in its arguments are conditional on D(e). A vine specifies a factorization of the copula, which is a product over all edges in the d - 1 levels:
+
+d-1
+
+c(u1, . . . , ud; ) =
+
+cik|D(e).
+
+j=1 e(i,k)Ej
+
+(2)
+
+We highlight that c depends on , the set of all parameters to the pair copulas. The vine construction provides us with the flexibility to model dependencies in high dimensions using a decomposition of pair copulas which are easier to estimate. As we shall see, the construction also leads to efficient stochastic gradients by taking individual (and thus easy) gradients on each pair copula.
+
+3 Copula variational inference
+
+We now introduce copula variational inference (
+
+), our method for performing accurate and
+
+scalable variational inference. For simplicity, consider the mean-field factorization augmented with
+
+a copula (we later extend to structured factorizations). The copula-augmented variational family is
+
+d
+
+q(z; , ) = q(zi; ) c(Q(z1; ), . . . , Q(zd; ); ),
+
+(3)
+
+i=1 copula
+
+mean-field
+
+where  denotes the mean-field parameters and  the copula parameters. With this family, we max-
+
+imize the augmented ,
+
+L (, ) = Eq(z;,)[log p(x, z)] - Eq(z;,)[log q(z; , )].
+
+C alternates between two steps: 1) fix the copula parameters  and solve for the mean-field parameters ; and 2) fix the mean-field parameters  and solve for the copula parameters . This
+
+generalizes the mean-field approximation, which is the special case of initializing the copula to be
+
+uniform and stopping after the first step. We apply stochastic approximations [18] for each step with
+
+gradients schedule,
+
+derived in
+
+i.e., t=1
+
+the next section. We
+
+t = ,
+
+ t=1
+
+2t
+
+<
+
+set .
+
+the learning A summary
+
+rate t  R to satisfy a is outlined in Algorithm
+
+Robbins-Monro 1.
+
+This alternating set of optimizations falls in the class of minorize-maximization methods, which
+
+includes many procedures such as the EM algorithm [1], the alternating least squares algorithm, and
+
+the iterative procedure for the generalized method of moments. Each step of
+
+monotonically
+
+increases the objective function and therefore better approximates the posterior distribution.
+
+4
+
+Algorithm 1: Copula variational inference (
+
+)
+
+Input: Data x, Model p(x, z), Variational family q.
+Initialize  randomly,  so that c is uniform. while change in is above some threshold do
+// Fix , maximize over . Set iteration counter t = 1. while not converged do
+Draw sample u  Unif([0, 1]d). Update  =  + tL. (Eq.5, Eq.6) Increment t. end // Fix , maximize over . Set iteration counter t = 1. while not converged do Draw sample u  Unif([0, 1]d). Update  =  + tL. (Eq.7) Increment t. end end Output: Variational parameters (, ).
+
+C has the same generic input requirements as black-box variational inference [15]--the user need only specify the joint model p(x, z) in order to perform inference. Further, copula variational inference easily extends to the case when the original variational family uses a structured factorization. By the vine construction, one simply fixes pair copulas corresponding to pre-existent dependence in the factorization to be the independence copula. This enables the copula to only model dependence where it does not already exist.
+Throughout the optimization, we will assume that the tree structure and copula families are given and fixed. We note, however, that these can be learned. In our study, we learn the tree structure using sequential tree selection [2] and learn the families, among a choice of 16 bivariate families, through Bayesian model selection [6] (see supplement). In preliminary studies, we've found that re-selection of the tree structure and copula families do not significantly change in future iterations.
+
+3.1 Stochastic gradients of the
+
+To perform stochastic optimization, we require stochastic gradients of the with respect to both
+
+the mean-field and copula parameters. The
+
+objective leads to efficient stochastic gradients
+
+and with low variance.
+
+We first derive the gradient with respect to the mean-field parameters. In general, we can apply the score function estimator [15], which leads to the gradient
+
+L = Eq(z;,)[ log q(z; , ) * (log p(x, z) - log q(z; , ))].
+
+(4)
+
+We follow noisy unbiased estimates of this gradient by sampling from q(*) and evaluating the inner expression. We apply this gradient for discrete latent variables.
+
+When the latent variables z are differentiable, we use the reparameterization trick [17] to take advantage of first-order information from the model, i.e.,z log p(x, z). Specifically, we rewrite the expectation in terms of a random variable u such that its distribution s(u) does not depend on the variational parameters and such that the latent variables are a deterministic function of u and the mean-field parameters, z = z(u; ). Following this reparameterization, the gradients propagate
+
+5
+
+inside the expectation, L = Es(u)[(z log p(x, z) - z log q(z; , ))z(u; )].
+
+(5)
+
+This estimator reduces the variance of the stochastic gradients [17]. Furthermore, with a copula variational family, this type of reparameterization using a uniform random variable u and a deterministic function z = z(u; , ) is always possible. (See the supplement.)
+
+The reparameterized gradient (Eq.5) requires calculation of the terms zi log q(z; , ) and i z(u; , ) for each i. The latter is tractable and derived in the supplement; the former decom-
+
+poses as
+
+zi log q(z; , ) = zi log q(zi; i) + Q(zi;i) log c(Q(z1; 1), . . . , Q(zd; d); )zi Q(zi; i)
+
+d-1
+
+= zi log q(zi; i) + q(zi; i)
+
+Q(zi;i) log ck |D(e).
+
+(6)
+
+j=1 e(k, )Ej : i{k, }
+
+The summation in Eq.6 is over all pair copulas which contain Q(zi; i) as an argument. In other words, the gradient of a latent variable zi is evaluated over both the marginal q(zi) and all pair copulas which model correlation between zi and any other latent variable zj. A similar derivation
+holds for calculating terms in the score function estimator.
+
+We now turn to the gradient with respect to the copula parameters. We consider copulas which are differentiable with respect to their parameters. This enables an efficient reparameterized gradient
+
+L = Es(u)[(z log p(x, z) - z log q(z; , ))z(u; , )]. The requirements are the same as for the mean-field parameters.
+
+(7)
+
+Finally, we note that the only requirement on the model is the gradient z log p(x, z). This can
+
+be calculated using automatic differentiation tools [22]. Thus C
+
+can be implemented in a
+
+library and applied without requiring any manual derivations from the user.
+
+3.2 Computational complexity
+In the vine factorization of the copula, there are d(d - 1)/2 pair copulas, where d is the number of latent variables. Thus stochastic gradients of the mean-field parameters  and copula parameters  require O(d2) complexity. More generally, one can apply a low rank approximation to the copula by truncating the number of levels in the vine (see Figure 2). This reduces the number of pair copulas to be Kd for some K > 0, and leads to a computational complexity of O(Kd).
+Using sequential tree selection for learning the vine structure [2], the most correlated variables are at the highest level of the vines. Thus a truncated low rank copula only forgets the weakest correlations. This generalizes low rank Gaussian approximations, which also have O(Kd) complexity [20]: it is the special case when the mean-field distribution is the product of independent Gaussians, and each pair copula is a Gaussian copula.
+
+3.3 Related work
+Preserving structure in variational inference was first studied by Saul and Jordan [19] in the case of probabilistic neural networks. It has been revisited recently for the case of conditionally conjugate exponential familes [8]. Our work differs from this line in that we learn the dependency structure during inference, and thus we do not require explicit knowledge of the model. Further, our augmentation strategy works more broadly to any posterior distribution and any factorized variational family, and thus it generalizes these approaches.
+A similar augmentation strategy is higher-order mean-field methods, which are a Taylor series correction based on the difference between the posterior and its mean-field approximation [11]. Recently, Giordano et al. [5] consider a covariance correction from the mean-field estimates. All these methods assume the mean-field approximation is reliable for the Taylor series expansion to make sense, which is not true in general and thus is not robust in a black box framework. Our approach alternates the estimation of the mean-field and copula, which we find empirically leads to more robust estimates than estimating them simultaneously, and which is less sensitive to the quality of the mean-field approximation.
+
+6
+
+Lambda
+
+All off-diagonal covariances
+
+Estimated sd Estimated sd
+
+method CVI LRVB MF 0.3
+
+0.2
+
+0.1
+
+0.0 0.0
+
+0.1 0.2
+Gibbs standard deviation
+
+0.3
+
+method CVI LRVB
+
+0.01
+
+0.00
+
+-0.01
+
+-0.01
+
+0.00
+
+0.01
+
+Gibbs standard deviation
+
+Figure 3: Covariance estimates from copula variational inference (
+
+), mean-field ( ), and
+
+linear response variational Bayes ( ) to the ground truth (Gibbs samples).
+
+and
+
+effectively capture dependence while underestimates variance and forgets covariances.
+
+4 Experiments
+
+We study
+
+with two models: Gaussian mixtures and the latent space model [7]. The Gaus-
+
+sian mixture is a classical example of a model for which it is difficult to capture posterior dependen-
+
+cies. The latent space model is a modern Bayesian model for which the mean-field approximation
+
+gives poor estimates of the posterior, and where modeling posterior dependencies is crucial for un-
+
+covering patterns in the data.
+
+There are several implementation details of
+
+. At each iteration, we form a stochastic gra-
+
+dient by generating m samples from the variational distribution and taking the average gradient. We
+
+set m = 1024 and follow asynchronous updates [16]. We set the step-size using ADAM [12].
+
+4.1 Mixture of Gaussians
+
+We follow the goal of Giordano et al. [5], which is to estimate the posterior covariance for a Gaussian mixture. The hidden variables are a K-vector of mixture proportions  and a set of K P -dimensional multivariate normals N (k, -k 1), each with unknown mean k (a P -vector) and P x P precision matrix k. In a mixture of Gaussians, the joint probability is
+
+KN
+
+p(x, z, , -1, ) = p() p(k, -k 1) p(xn | zn, zn , -zn1)p(zn | ),
+
+k=1
+
+n=1
+
+with a Dirichlet prior p() and a normal-Wishart prior p(k, -k 1).
+
+We first apply the mean-field approximation ( ), which assigns independent factors to , , , and
+
+z. We then perform
+
+over the copula-augmented mean-field distribution, i.e., one which
+
+includes pair copulas over the latent variables. We also compare our results to linear response varia-
+
+tional Bayes ( ) [5], which is a posthoc correction technique for covariance estimation in varia-
+
+tional inference. Higher-order mean-field methods demonstrate similar behavior as . Compar-
+
+isons to structured approximations are omitted as they require explicit factorizations and are not black
+
+box. Standard black box variational inference [15] corresponds to the approximation.
+
+We simulate 10, 000 samples with K = 2 components and P = 2 dimensional Gaussians. Figure 3 displays estimates for the standard deviations of  for 100 simulations, and plots them against the
+ground truth using 500 effective Gibb samples. The second plot displays all off-diagonal covariance estimates. Estimates for  and  indicate the same pattern and are given in the supplement.
+
+When initializing at the true mean-field parameters, both
+
+and achieve consistent
+
+estimates of the posterior variance. underestimates the variance, which is a well-known limita-
+
+tion [25]. Note that because the estimates are initialized at the truth,
+
+converges to the
+
+true posterior upon one step of fitting the copula. It does not require alternating more steps.
+
+7
+
+Variational inference methods Mean-field
+(2 steps) (5 steps) (converged)
+
+Predictive Likelihood
+-383.2 -330.5 -303.2 -80.2 -50.5
+
+Runtime
+15 min. 38 min. 32 min. 1 hr. 17 min. 2 hr.
+
+Table 1: Predictive likelihood on the latent space model. Each
+
+step either refits the mean-
+
+field or the copula.
+
+converges in roughly 10 steps and already significantly outperforms
+
+both mean-field and upon fitting the copula once (2 steps).
+
+C is more robust than . As a toy demonstration, we analyze the MNIST data set of
+
+handwritten digits, using 12,665 training examples and 2,115 test examples of 0's and 1's. We per-
+
+form "unsupervised" classification, i.e., classify without using training labels: we apply a mixture of
+
+Gaussians to cluster, and then classify a digit based on its membership assignment.
+
+reports
+
+a test set error rate of 0.06, whereas ranges between 0.06 and 0.32 depending on the mean-field
+
+estimates.
+
+and similar higher order mean-field methods correct an existing solution--it is
+
+thus sensitive to local optima and the general quality of that solution. On the other hand,
+
+re-adjusts both the and copula parameters as it fits, making it more robust to initialization.
+
+4.2 Latent space model
+
+We next study inference on the latent space model [7], a Bernoulli latent factor model for network analysis. Each node in an N -node network is associated with a P -dimensional latent variable z  N (, -1). Edges between pairs of nodes are observed with high probability if the nodes are close
+to each other in the latent space. Formally, an edge for each pair (i, j) is observed with probability logit(p) =  - |zi - zj|, where  is a model parameter.
+
+We generate an N = 100, 000 node network with latent node attributes from a P = 10 dimensional
+
+Gaussian. We learn the posterior of the latent attributes in order to predict the likelihood of held-out
+
+edges. applies independent factors on , ,  and z,
+
+applies a correction, and
+
+uses the fully dependent variational distribution. Table 1 displays the likelihood of held-out edges and
+
+runtime. We also attempted Hamiltonian Monte Carlo but it did not converge after five hours.
+
+C dominates other methods in accuracy upon convergence, and the copula estimation with-
+
+out refitting (2 steps) already dominates in both runtime and accuracy. We note however that requires one to invert a O(N K3) x O(N K3) matrix. We can better scale the method and
+
+achieve faster estimates than
+
+if we applied stochastic approximations for the inversion.
+
+However,
+
+always outperforms and is still fast on this 100,000 node network.
+
+5 Conclusion
+
+We developed copula variational inference (
+
+).
+
+is a new variational inference
+
+algorithm that augments the mean-field variational distribution with a copula; it captures posterior
+
+dependencies among the latent variables. We derived a scalable and generic algorithm for performing
+
+inference with this expressive variational distribution. We found that
+
+significantly reduces
+
+the bias of the mean-field approximation, better estimates the posterior variance, and is more accurate
+
+than other forms of capturing posterior dependency in variational approximations.
+
+Acknowledgments
+We thank Luke Bornn, Robin Gong, and Alp Kucukelbir for their insightful comments. This work is supported by NSF IIS-0745520, IIS-1247664, IIS-1009542, ONR N00014-11-1-0651, DARPA FA8750-14-2-0009, N66001-15-C-4032, Facebook, Adobe, Amazon, and the John Templeton Foundation.
+
+8
+
+References
+[1] Dempster, A. P., Laird, N. M., and Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. Journal of the Royal Statistical Society, Series B, 39(1).
+[2] Dissmann, J., Brechmann, E. C., Czado, C., and Kurowicka, D. (2012). Selecting and estimating regular vine copulae and application to financial returns. arXiv preprint arXiv:1202.2002.
+[3] Frechet, M. (1960). Les tableaux dont les marges sont donnees. Trabajos de estadistica, 11(1):3-18.
+[4] Genest, C., Gerber, H. U., Goovaerts, M. J., and Laeven, R. (2009). Editorial to the special issue on modeling and measurement of multivariate risk in insurance and finance. Insurance: Mathematics and Economics, 44(2):143-145.
+[5] Giordano, R., Broderick, T., and Jordan, M. I. (2015). Linear response methods for accurate covariance estimates from mean field variational Bayes. In Neural Information Processing Systems.
+[6] Gruber, L. and Czado, C. (2015). Sequential Bayesian model selection of regular vine copulas. International Society for Bayesian Analysis.
+[7] Hoff, P. D., Raftery, A. E., and Handcock, M. S. (2001). Latent space approaches to social network analysis. Journal of the American Statistical Association, 97:1090-1098.
+[8] Hoffman, M. D. and Blei, D. M. (2015). Structured stochastic variational inference. In Artificial Intelligence and Statistics.
+[9] Hoffman, M. D., Blei, D. M., Wang, C., and Paisley, J. (2013). Stochastic variational inference. Journal of Machine Learning Research, 14:1303-1347.
+[10] Joe, H. (1996). Families of m-variate distributions with given margins and m(m - 1)/2 bivariate dependence parameters, pages 120-141. Institute of Mathematical Statistics.
+[11] Kappen, H. J. and Wiegerinck, W. (2001). Second order approximations for probability models. In Neural Information Processing Systems.
+[12] Kingma, D. P. and Ba, J. L. (2015). Adam: A method for stochastic optimization. In International Conference on Learning Representations.
+[13] Kurowicka, D. and Cooke, R. M. (2006). Uncertainty Analysis with High Dimensional Dependence Modelling. Wiley, New York.
+[14] Nelsen, R. B. (2006). An Introduction to Copulas (Springer Series in Statistics). Springer-Verlag New York, Inc.
+[15] Ranganath, R., Gerrish, S., and Blei, D. M. (2014). Black box variational inference. In Artificial Intelligence and Statistics, pages 814-822.
+[16] Recht, B., Re, C., Wright, S., and Niu, F. (2011). Hogwild: A lock-free approach to parallelizing stochastic gradient descent. In Advances in Neural Information Processing Systems, pages 693-701.
+[17] Rezende, D. J., Mohamed, S., and Wierstra, D. (2014). Stochastic backpropagation and approximate inference in deep generative models. In International Conference on Machine Learning.
+[18] Robbins, H. and Monro, S. (1951). A stochastic approximation method. The Annals of Mathematical Statistics, 22(3):400-407.
+[19] Saul, L. and Jordan, M. I. (1995). Exploiting tractable substructures in intractable networks. In Neural Information Processing Systems, pages 486-492.
+[20] Seeger, M. (2010). Gaussian covariance and scalable variational inference. In International Conference on Machine Learning.
+[21] Sklar, A. (1959). Fonstions de repartition a n dimensions et leurs marges. Publications de l'Institut de Statistique de l'Universite de Paris, 8:229-231.
+[22] Stan Development Team (2015). Stan: A C++ library for probability and sampling, version 2.8.0.
+[23] Toulis, P. and Airoldi, E. M. (2014). Implicit stochastic gradient descent. arXiv preprint arXiv:1408.2923.
+[24] Tran, D., Toulis, P., and Airoldi, E. M. (2015). Stochastic gradient descent methods for estimation with large data sets. arXiv preprint arXiv:1509.06459.
+[25] Wainwright, M. J. and Jordan, M. I. (2008). Graphical models, exponential families, and variational inference. Foundations and Trends in Machine Learning, 1(1-2):1-305.
+9
+

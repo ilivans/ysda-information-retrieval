@@ -1,0 +1,521 @@
+Local Expectation Gradients for Black Box Variational Inference
+
+Michalis K. Titsias Athens University of Economics and Business
+mtitsias@aueb.gr
+
+Miguel Lazaro-Gredilla Vicarious
+miguel@vicarious.com
+
+Abstract
+We introduce local expectation gradients which is a general purpose stochastic variational inference algorithm for constructing stochastic gradients by sampling from the variational distribution. This algorithm divides the problem of estimating the stochastic gradients over multiple variational parameters into smaller sub-tasks so that each sub-task explores intelligently the most relevant part of the variational distribution. This is achieved by performing an exact expectation over the single random variable that most correlates with the variational parameter of interest resulting in a Rao-Blackwellized estimate that has low variance. Our method works efficiently for both continuous and discrete random variables. Furthermore, the proposed algorithm has interesting similarities with Gibbs sampling but at the same time, unlike Gibbs sampling, can be trivially parallelized.
+1 Introduction
+Stochastic variational inference has emerged as a promising and flexible framework for performing large scale approximate inference in complex probabilistic models. It significantly extends the traditional variational inference framework [7, 1] by incorporating stochastic approximation [16] into the optimization of the variational lower bound. Currently, there exist two major research directions in stochastic variational inference. The first one (data stochasticity) attempts to deal with massive datasets by constructing stochastic gradients by using mini-batches of training examples [5, 6]. The second direction (expectation stochasticity) aims at dealing with the intractable expectations under the variational distribution that are encountered in non-conjugate probabilistic models [12, 14, 10, 18, 8, 15, 20]. Unifying these two ideas, it is possible to use stochastic gradients to address both massive datasets and intractable expectations. This results in a doubly stochastic estimation approach, where the mini-batch source of stochasticity can be combined with the stochasticity associated with sampling from the variational distribution.
+In this paper, we are interested to further investigate the expectation stochasticity that in practice is dealt with by drawing samples from the variational distribution. A challenging issue here is concerned with the variance reduction of the stochastic gradients. Specifically, while the method based on the log derivative trick is currently the most general one, it has been observed to severely suffer from high variance problems [12, 14, 10] and thus it is only applicable together with sophisticated variance reduction techniques based on control variates. However, the construction of efficient control variates can be strongly dependent on the form of the probabilistic model. Therefore, it would be highly desirable to introduce more black box procedures, where simple stochastic gradients can work well for any model, thus allowing the end-user not to worry about having to design model-dependent variance reduction techniques. Notice, that for continuous random variables and differentiable functions the reparametrization approach [8, 15, 20] offers a simple black box procedure [20, 9] which does not require further model-dependent variance reduction. However, reparametrization is neither applicable for discrete spaces nor for non-differentiable models and this greatly limits its scope of applicability.
+1
+
+In this paper, we introduce a simple black box algorithm for stochastic optimization in variational inference which provides stochastic gradients having low variance and without needing any extra variance reduction. This method is based on a new trick referred to as local expectation or integration. The key idea here is that stochastic gradient estimation over multiple variational parameters can be divided into smaller sub-tasks where each sub-task requires different amounts of information about different parts of the variational distribution. More precisely, each sub-task aims at exploiting the conditional independence structure of the variational distribution. Based on this intuitive idea we introduce the local expectation gradients algorithm that provides a stochastic gradient over a variational parameter vi by performing an exact expectation over the associated latent variable xi while using a single sample from the remaining latent variables. Essentially, this consists of a RaoBlackwellized estimate that allows to dramatically reduce the variance of the stochastic gradient so that, for instance, for continuous spaces the new stochastic gradient is guaranteed to have lower variance than the stochastic gradient corresponding to the reparametrization method where the latter utilizes a single sample. Furthermore, the local expectation algorithm has interesting similarities with Gibbs sampling with the important difference, that unlike Gibbs sampling, it can be trivially parallelized.
+
+2 Stochastic variational inference
+
+Here, we discuss the main ideas behind current algorithms on stochastic variational inference and particularly methods that sample from the variational distribution in order to approximate intractable expectations using Monte Carlo. Given a joint probability distribution p(y, x) where y are observations and x are latent variables (possibly including model parameters that consist of random variables) and a variational distribution qv(x), the objective is to maximize the lower bound
+
+F (v) = Eqv(x) [log p(y, x) - log qv(x)] , = Eqv(x) [log p(y, x)] - Eqv(x) [log qv(x)] ,
+
+(1) (2)
+
+with respect to the variational parameters v. Ideally, in order to tune v we would like to have a closed-form expression for the lower bound so that we could subsequently maximize it by using standard optimization routines such as gradient-based algorithms. However, for many probabilistic models and forms of the variational distribution at least one of the two expectations in (2) is intractable. Therefore, in general we are faced with the following intractable expectation
+
+F (v) = Eqv(x) [f (x)] ,
+
+(3)
+
+where f (x) can be either log p(y, x), - log qv(x) or log p(y, x) - log qv(x), from which we would like to efficiently estimate the gradient over v in order to apply gradient-based optimization.
+
+The most general method for estimating the gradient vF(v) is based on the log derivative trick, also called likelihood ratio or REINFORCE, that has been invented in control theory and reinforce-
+ment learning [3, 21, 13] and used recently for variational inference [12, 14, 10]. Specifically, this makes use of the property vqv(x) = qv(x)v log qv(x), which allows to write the gradient as
+
+vF (v) = Eqv(x) [f (x)v log qv(x)] and then obtain an unbiased estimate according to
+
+(4)
+
+1 S
+
+S
+
+f (x(s))v log qv(x(s)),
+
+s=1
+
+(5)
+
+where each x(s) is an independent draw from qv(x). While this estimate is unbiased, it has been observed to severely suffer from high variance so that in practice it is necessary to consider variance
+reduction techniques such as those based on control variates [12, 14, 10].
+
+The second approach is suitable for continuous spaces where f (x) is a differentiable function of x [8, 15, 20]. It is based on a simple transformation of (3) which allows to move the variational parameters v inside f (x) so that eventually the expectation is taken over a base distribution that does not depend on the variational parameters any more. For example, if the variational distribution is the
+Gaussian N (x|, LL ) where v = (, L), the expectation in (3) can be re-written as F(, L) =
+
+2
+
+N (z|0, I)f ( + Lz)dz and subsequently the gradient over (, L) can be approximated by the following unbiased Monte Carlo estimate
+
+1 S
+
+S
+(,L)f ( + Lz(s)),
+
+s=1
+
+(6)
+
+where each z(s) is an independent sample from N (z|0, I). This estimate makes efficient use of the slope of f (x) which allows to perform informative moves in the space of (, L). Furthermore, it has been shown experimentally in several studies [8, 15, 20, 9] that the estimate in (6) has relatively low variance and can lead to efficient optimization even when a single sample is used at each iteration. Nevertheless, a limitation of the approach is that it is only applicable to models where x is continuous and f (x) is differentiable. Even within this subset of models we are also additionally restricted to using certain classes of variational distributions for which reparametrization is possible.
+
+Next we introduce an approach that is applicable to a broad class of models (both discrete and continuous), has favourable scaling properties and provides low-variance stochastic gradients.
+
+3 Local expectation gradients
+
+Suppose that the n-dimensional latent vector x in the probabilistic model takes values in some space S1 x . . . Sn where each set Si can be continuous or discrete. We consider a variational distribution over x that is represented as a directed graphical model having the following joint density
+
+n
+qv(x) = qvi (xi|pai),
+i=1
+
+(7)
+
+where qvi (xi|pai) is the conditional factor over xi given the set of the parents denoted by pai. We assume that each conditional factor has its own separate set of variational parameters vi and
+v = (vi, . . . , vn). The objective is then to obtain a stochastic approximation for the gradient of the
+lower bound over each variational parameter vi.
+
+Our method is motivated by the observation that each vi is influenced mostly by its corresponding latent variable xi since vi determines the factor qvi (xi|pai). Therefore, to get information about the gradient of vi we should be exploring multiple possible values of xi and a rather smaller set of values
+from the remaining latent variables x\i. Next we take this idea into the extreme where we will be
+using infinite draws from xi (i.e. essentially an exact expectation) together with just a single sample of x\i. More precisely, we factorize the variational distribution as qv(x) = q(xi|mbi)q(x\i), where
+mbi denotes the Markov blanket of xi. The gradient over vi can be written as
+
+vi F (v) = Eq(x) [f (x)vi log qvi (xi|pai)] , = Eq(x\i) Eq(xi|mbi) [f (x)vi log qvi (xi|pai)] , (8)
+where in the second expression we used the law of iterated expectations. Then, an unbiased stochastic gradient, say at the t-th iteration of an optimization algorithm, can be obtained by drawing a single sample x(\ti) from q(x\i) so that
+
+Eq(xi|mb(it)) f (x(\ti), xi)vi log qvi (xi|pa(it)) =
+
+q(xi|mb(it))f (x(\ti), xi)vi qvi (xi|pa(it)), (9)
+
+xi
+
+where xi denotes summation or integration and q(xi|mb(it)) is the same as q(xi|mb(it)) but with qvi (xi|pa(it)) removed from the numerator.1 The above is the expression for the proposed stochastic gradient for the parameter vi. Notice that this estimate does not rely on the log derivative trick since we never draw samples from q(xi|mb(it)). Instead the trick here is to perform local expectation (integration or summation). To get an independent sample x(\ti) from q(x\i) we can simply simulate a
+full latent vector x(t) from qv(x) by applying the standard ancestral sampling procedure for directed
+graphical models [1]. Then, the sub-vector x(\ti) is by construction an independent draw from the
+
+1Notice that q(xi|mbi(t))  h(xi, mbi(t))qvi (xi|pa(it)) for some non-negative function h(*).
+
+3
+
+Algorithm 1 Stochastic variational inference using local expectation gradients
+Input: f (x), qv(x). Initialize v(0), t = 0.
+repeat
+Set t = t + 1. Draw pivot sample x(t)  qv(x). for i = 1 to n do
+dvi = Eq(xi|mb(it)) f (x(\ti), xi)vi log qvi (xi|pa(it)) . vi = vi + tdvi. end for
+until convergence criterion is met.
+
+marginal q(x\i). Furthermore, the sample x(t) can be thought of as a global or pivot sample that is needed to be drawn once and then it can be re-used multiple times in order to compute all stochastic gradients for all variational parameters (v1, . . . , vn) according to eq. (9).
+When the variable xi takes discrete values, the expectation in eq. (9) reduces to a sum of terms associated with all possible values of xi. On the other hand, when xi is a continuous variable the expectation in (9) corresponds to an univariate integral that in general may not be analytically tractable. In this case we shall use fast numerical integration methods.
+We shall refer to the above algorithm for providing stochastic gradients over variational parameters as local expectation gradients and pseudo-code of a stochastic variational inference scheme that internally uses this algorithm is given in Algorithm 1. Notice that Algorithm 1 corresponds to the case where f (x) = log p(y, x) - log qv(x) while other cases can be expressed similarly.
+In the next two sections we discuss some theoretical properties of local expectation gradients (Section 3.1) and draw interesting connections with Gibbs sampling (Section 3.2).
+
+3.1 Properties of local expectation gradients
+
+We first derive the variance of the stochastic estimates obtained by local expectation gradients. In our analysis, we will focus on the case of fitting a fully factorized variational distribution (and leave the more general case for future work) having the form
+
+n
+
+qv(x) = qvi (xi).
+i=1
+
+(10)
+
+For such case the local expectation gradient for each parameter vi from eq. (9) simplifies to
+
+Eqvi (xi) f (x\i, xi)vi log qvi (xi) =
+
+vi qvi (xi)f (x\i, xi),
+
+xi
+
+(11)
+
+where also for notational simplicity we write x(\ti) as x\i. It would be useful to define the following mean and covariance functions
+
+m(xi) = Eq(x\i)[f (x\i, xi)],
+
+(12)
+
+Cov(xi, xi) = Eq(x\i)[(f (x\i, xi) - m(xi))(f (x\i, xi) - m(xi))],
+
+(13)
+
+that characterize the variability of f (x\i, xi) as x\i varies according to q(x\i). Notice that based
+on eq. (12) the exact gradient of the variational lower bound over vi can also be written as xi vi qvi (xi)m(xi), which has an analogous form to the local expectation gradient from (11)
+with the difference that f (x\i, xi) is now replaced by its mean value m(xi).
+
+We can now characterize the variance of the stochastic gradient and describe some additional properties. All proofs for the following statements are given in the Supplementary Material.
+
+Proposition 1. The variance of the stochastic gradient in (11) can be written as
+
+vi qvi (xi)vi qvi (xi)Cov(xi, xi).
+xi ,xi
+
+(14)
+
+4
+
+This gives us some intuition about when we expect the variance of the estimate to be small. For
+instance, two simple cases are: i) when the covariance function Cov(xi, xi) takes small values, which can occur when q(x\i) has low entropy, or ii) when Cov(xi, xi) is approximately constant. In
+fact, when Cov(xi, xi) is exactly constant, then the variance is zero (so that the stochastic gradient is exact) as the following proposition states.
+
+Proposition 2. If Cov(xi, xi) = c for all xi and xi then the variance in (14) is equal to zero.
+A case for which the condition Cov(xi, xi) = c holds exactly is when the function f (x) factorizes as f (x\i, xi) = fi(xi) + f\i(x\i) (see Supplementary Material for a proof). Such a factorization essentially implies that xi is independent from the remaining random variables, which results the local expectation gradient to be exact. In contrast, in order to get exactness by using the standard Monte Carlo stochastic gradient from eq. (5) (and any of its improvements that apply variance reduction) we will typically need to draw infinite number of samples.
+
+To further analyze local expectation gradients we can contrast them with stochastic gradients ob-
+tained by the reparametrization trick [8, 15, 20]. Suppose that we can reparametrize the random variable xi  qvi (xi) according to xi = g(vi, zi), where zi  qi(zi) and qi(zi) is a suitable base distribution. We further assume that the function f (x\i, xi) is differentiable with respect to xi and
+g(vi, zi) is differentiable with respect to vi. Then, the exact gradient with respect to the variational parameter vi can be reparametrized as
+
+
+
+vi 
+
+q(x\i)qvi (xi)f (x\i, xi) =
+
+q(x\i)qi(zi)vi f (x\i, g(vi, zi)),
+
+x\i ,xi
+
+x\i ,zi
+
+(15)
+
+while a single-sample stochastic estimate that follows from this expression is
+
+vi f (x\i, g(vi, zi)), x\i  q(x\i), zi  qi(zi).
+
+(16)
+
+The following statement gives us a clear understanding about how this estimate compares with the corresponding local expectation gradient.
+
+Proposition 3. Given that we can reparametrize xi as described above (and all differentiability conditions mentioned above hold), the gradient from (11) can be equivalently written as
+
+qi(zi)vi f (x\i, g(vi, zi)), x\i  q(x\i).
+zi
+
+(17)
+
+Clearly, the above expression is an expectation of the reparametrization gradient from eq. (16), and therefore based on the standard Rao-Blackwellization argument the variance of the local expectation gradient will always be lower or equal than the variance of a single-sample estimate based on the reparametrization method. Notice that the reparametrization method is only applicable to continuous random variables and differentiable functions f (x). However, for such cases, reparametrization could be computationally more efficient than local expectation gradients since the latter approach will require to apply 1-D numerical integration to estimate the integral in (11) or the integral in (17)2 which could be computationally more expensive.
+
+3.2 Connection with Gibbs sampling
+There are interesting similarities between local expectation gradients and Gibbs sampling. Firstly, notice that carrying out Gibbs sampling in the variational distribution in eq. (7) requires iteratively sampling from each conditional q(xi|mbi), for i = 1, . . . , n, and clearly the same conditional appears also in local expectation gradients with the obvious difference that instead of sampling from q(xi|mbi) we now average under this distribution. Of course, in practice, we never perform Gibbs sampling on a variational distribution but instead on the true posterior distribution which is proportional to ef(x) (where we assumed that - log qv(x) is not part of f (x)). Specifically, at each Gibbs step we simulate a new value for some xi from the posterior conditional distribution that is proportional to ef(x(\ti),xi) and where x(\ti) are the fixed values for the remaining random variables. We can
+2The exact value of the two integrals is the same. However, approximation of these two integrals based on numerical integration will typically not give the same value.
+
+5
+
+observe that an update in local expectation gradients is quite similar, because now we also condition on some fixed remaining values x(\ti) in order to update the parameter vi towards the direction where q(xi|mb(it)) gets closer to the corresponding true posterior conditional distribution. Despite these similarities, there is a crucial computational difference between the two procedures. While
+in local expectation gradients it is perfectly valid to perform all updates of the variational parameters in parallel, given the pivot sample x(t), in Gibbs sampling all updates need to be executed in a
+serial manner. This difference is essentially a consequence of the fundamental difference between
+variational inference and Gibbs sampling where the former relies on optimization while the latter on
+convergence of a Markov chain.
+
+4 Experiments
+
+In this section, we apply local expectation gradients (LeGrad) to two different types of stochastic variational inference problems and we compare it against the standard stochastic gradient based on the log derivative trick (LdGrad), that incorporates also variance reduction3, as well as the reparametrization-based gradient (ReGrad) given by eq. (6). In Section 4.1, we consider a two-class classification problem using two digits from the MNIST database and we approximate a Bayesian logistic regression model using stochastic variational inference. Then, in Section 4.2 we consider sigmoid belief networks [11] and we fit them to the binarized version of the MNIST digits.
+
+4.1 Bayesian logistic regression
+
+In this section we compare the three approaches in a challenging binary classification problem using Bayesian logistic regression. Specifically, given a dataset D  {zj, yj}mj=1, where zj  Rn is the input and yj  {-1, +1} the class label, we model the joint distribution over the observed
+
+labels and the parameters w by p(y, w) =
+
+M m=1
+
+(ymzmw)
+
+p(w), where (a) is the sigmoid
+
+function and p(w) denotes a zero-mean Gaussian prior on the weights w. We wish to apply the
+
+three algorithms in order to approximate the posterior over the regression parameters by a factorized
+
+variational Gaussian distribution of the form qv(w) =
+
+n i=1
+
+N
+
+(wi|i
+
+,
+
+2i ).
+
+In the following we
+
+consider a subset of the MNIST dataset that includes all 12660 training examples from the digit
+
+classes 2 and 7, each with 784 pixels so that by including the bias the number of weights is n = 785.
+
+To obtain the local expectation gradient for each (i, i) we need to apply 1-D numerical integration. We used the quadrature rule having K = 5 nodes4 so that LeGrad was using S = 785 x 5 function evaluations per gradient estimation. For LdGrad we also set the number of samples to S = 785 x 5 so that LeGrad and LdGrad match exactly in the number of function evaluations and roughly in computational cost. When using the ReGrad approach based on (6) we construct the stochastic gradient using K = 5 target function gradient samples. This matches the computational cost, but ReGrad still has the unmatched advantage of having access to the gradient of the target function.
+
+The variance of the stochastic gradient for parameter 1 is shown in Figure 1(a)-(b). It is much smaller for LeGrad than for LdGrad, despite having almost similar computational cost and use the same amount of information about the target function. The evolution of the bound in Figure 1(c) clearly shows the advantage of using less noisy gradients. LdGrad will need a huge number of iterations to find the global optimum, despite having optimized the step size of its stochastic updates.
+
+4.2 Sigmoid belief networks
+In the second example we consider sigmoid belief networks (SBNs) [11] and i) compare our approach with LdGrad in terms of variance and optimization efficiency and then ii) we perform density estimation experiments by training sigmoid belief nets with fully connected hidden units using LeGrad. Note that ReGrad cannot be used on discrete models.
+3As discussed in [19], there are multiple unbiased sample-based estimators of (4), and using (5) directly tends to have a large variance. We use instead the estimator given by eq. (8) in [19]. Though other estimators with even lower variance exist, we restrict ourselves to those with the same scalability as the proposed LeGrad, requiring at most O(S|v|) computation per gradient estimation.
+4Gaussian quadrature with K grid points integrates exactly polynomials up to 2K - 1 degree.
+
+6
+
+Variance Variance Lower bound
+
+2
+
+1.5
+
+1
+
+0.5
+
+0
+
+0
+
+5000
+
+10000
+
+Iterations
+
+(a)
+
+100
+
+80
+
+60
+
+40
+
+20
+
+0
+
+0
+
+5000
+
+10000
+
+Iterations
+
+(b)
+
+-200 -400 -600 -800 -1000
+0
+
+5000
+
+10000
+
+Iterations
+
+15000
+
+Figure 1: (a) Variance of the gradient for the variational parameter 1 for LeGrad (red line) and ReGrad (blue line). (b) Variance of the gradient for the variational parameter 1 for LdGrad (green line). (c) Evolution of the stochastic value of the lower bound.
+
+For the variance reduction comparison we consider a network with an unstructured hidden layer where binary observed vectors yi  {0, 1}D are generated independently according to
+
+p(y|W ) =
+
+D
+(wd x) yd 1 - (wd x) 1-yd p(x),
+
+x d=1
+
+(18)
+
+where x  {0, 1}K is a vector of hidden variables that follows a uniform distribution. The matrix W (which includes bias terms) contains the parameters to be estimated by fitting the model to the data. In theory we could use the EM algorithm to learn the parameters W , however, such an approach is not feasible because at the E step we need to compute the posterior distribution p(xi|yi, W ) over each hidden variable which clearly is intractable since each xi takes 2K values. Therefore, we need to apply approximate inference and next we consider stochastic variational inference using the local expectation gradients algorithm and compare this with the method in [19] eq. (8), which has the same scalability properties and have been denoting as LdGrad.
+
+More precisely, we shall consider a variational distribution that consists of a recognition model
+
+[4, 2, 10, 8, 15] which is parametrized by a "reverse" sigmoid network that predicts the latent vector
+
+xi from the associated observation yi: qV (xi) =
+
+K k=1
+
+(vk yi) xik
+
+1 - (vk yi) 1-xik .
+
+The
+
+variational parameters are contained in matrix V (also the bias terms). The application of stochastic
+
+variational inference boils down to constructing a separate lower bound for each pair (yi, xi) so that the full bound is the sum of these individual terms (see Supplementary Material for explicit
+
+expressions). Then, the maximization of the bound proceeds by performing stochastic gradient
+
+updates for the model weights W and the variational parameters V . The update for W reduces to
+
+a logistic regression type of update, based upon drawing a single sample from the full variational
+
+distribution. On the other hand, obtaining effective and low variance stochastic gradients for the
+
+variational parameters V is considered to be a very highly challenging task and current advanced
+
+methods are based on covariates that employ neural networks as auxiliary models [10]. In contrast,
+
+the local expectation gradient for each variational parameter vk only requires evaluating
+
+vk F
+
+=
+
+n i=1
+
+vk Fi
+
+=
+
+n i=1
+
+ik (1
+
+-
+
+
+D
+ik)  log
+d=1
+
+1 1
+
++ +
+
+e-yid wd e-yid wd
+
+(x(i\t)k ,xik =0) (x(i\t)k ,xik =1)
+
++
+
+log
+
+1
+
+
+
+- ik ik
+
+
+
+yi
+
+,
+
+(19)
+
+where ik = (vk yi) and yid is the {-1, 1} encoding of yid. This expression is a weighted sum across data terms where each term is a difference induced by the directions xik = 1 and xik = 0 for all hidden units {xik}ni=1 associated with the variational factors that depend on vk.
+Based on the above model, we compare the performance of LeGrad and LdGrad when simultaneously optimizing V and W for a small set of 100 random binarized MNIST digits [17]. The evolution of the instantaneous bound for H = 40 hidden units can be seen in Figure 2(a), where once again LeGrad shows superior performance and increased stability.
+
+In the second series of experiments we consider a more complex sigmoid belief network where the prior p(x) over the hidden units becomes a fully connected distribution parametrized by an
+
+7
+
+Table 1: NLL scores in the test data for the binarized MNIST dataset. The left part of the table shows results based on sigmoid belief nets (SBN) constructed and trained based on the approach from [10], denoted as NVIL, or by using the LeGrad algorithm. The right part of the table gives the performance of alternative state of the art models (reported in Table 1 in [10]).
+
+SBN
+
+Dim Test NLL
+
+Model Dim Test NLL
+
+NVIL
+
+200-200
+
+99.8 FDARN 400
+
+96.3
+
+NVIL 200-200-200
+
+96.7
+
+NADE 500
+
+88.9
+
+NVIL 200-200-500
+
+97.0
+
+DARN 400
+
+93.0
+
+LeGrad
+
+200
+
+96.0 RBM(CD3) 500
+
+105.5
+
+LeGrad
+
+300 95.1 RBM(CD25) 500 86.3
+
+LeGrad
+
+500 94.9
+
+MOB 500
+
+137.6
+
+additional set of K(K + 1)/2 model weights (see Supplementary Material). Such a model can better capture the dependence structure of the hidden units and provide a good density estimator for high dimensional data. We trained this model using the 5 x 104 training examples of the binarized MNIST by using mini-batches of size 100 and assuming different numbers of hidden units: H = 200, 300, 500. Table 1 provides negative log likelihood (NLL) scores for LegGrad and several other methods reported in [10]. Notice that for LeGrad the NLLs are essentially variational upper bounds of the exact NLLs obtained by Monte Carlo approximation of the variational bound (an estimate also considered in [10]). From Table 1 we can observe that LeGrad outperforms the advanced NVIL technique proposed in [10]. Finally, Figure 2(b) and 2(c) displays model weights and few examples of digits generated after having trained the model with H = 200 units, respectively.
+
+Lower bound
+
+-30 -40 -50 -60 -70 -80 -90 -100 -110
+0
+
+1000
+
+2000 3000 Iterations
+(a)
+
+4000
+
+5000
+
+(b)
+
+(c)
+
+Figure 2: (a) LeGrad (red) and LdGrad (green) convergence for the SBN model on a single minibatch of 100 MNIST digits. (b) Weights W (filters) learned by LeGrad when training an SBN with H = 200 units in the full MNIST training set. (c) New digits generated from the trained model.
+
+5 Discussion
+
+Local expectation gradients is a generic black box stochastic optimization algorithm that can be used to maximize objective functions of the form Eqv(x)[f (x)], a problem that arises in variational inference. The idea behind this algorithm is to exploit the conditional independence structure of the variational distribution qv(x). Also this algorithm is mostly related to stochastic optimization schemes that make use of the log derivative trick that has been invented in reinforcement learning [3, 21, 13] and has been recently used for variational inference [12, 14, 10]. The approaches in [12, 14, 10] can be thought of as following a global sampling strategy, where multiple samples are drawn from qv(x) and then variance reduction is built a posteriori in a subsequent stage through the use of control variates. In contrast, local expectation gradients reduce variance by directly changing the sampling strategy, so that instead of working with a global set of samples drawn from qv(x), the strategy now is to exactly marginalize out the random variable that has the largest influence on a specific gradient of interest while using a single sample for the remaining random variables.
+We believe that local expectation gradients can be applied to a great range of stochastic optimization problems that arise in variational inference and elsewhere. Here, we have demonstrated its use for variational inference in logistic regression and sigmoid belief networks.
+
+8
+
+References [1] Christopher M. Bishop. Pattern Recognition and Machine Learning. Springer, 2006. [2] Jrg Bornschein and Yoshua Bengio. Reweighted wake-sleep. CoRR, pages -1-1, 2014. [3] Peter W. Glynn. Likelihood ratio gradient estimation for stochastic systems. Commun. ACM, 33(10):75-
+84, October 1990. [4] Geoffrey Hinton, Peter Dayan, Brendan J Frey, and Radford M Neal. The wake-sleep algorithm for
+unsupervised neural networks. Science, 268(5214):1158-1161, 1995. [5] Matthew D. Hoffman, David M. Blei, and Francis R. Bach. Online learning for latent dirichlet allocation.
+In NIPS, pages 856-864, 2010. [6] Matthew D. Hoffman, David M. Blei, Chong Wang, and John William Paisley. Stochastic variational
+inference. Journal of Machine Learning Research, 14(1):1303-1347, 2013. [7] Michael I. Jordan, Zoubin Ghahramani, Tommi S. Jaakkola, and Lawrence K. Saul. An introduction to
+variational methods for graphical models. Mach. Learn., 37(2):183-233, November 1999. [8] Diederik P. Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114,
+2013. [9] A. Kucukelbir, R. Ranganath, A. Gelman, and D.M. Blei. Automatic variational inference in stan. In
+Advances in Neural Information Processing Systems, 28, 2015. [10] Andriy Mnih and Karol Gregor. Neural variational inference and learning in belief networks. In The 31st
+International Conference on Machine Learning (ICML 2014), 2014. [11] Radford M. Neal. Connectionist learning of belief networks. Artif. Intell., 56(1):71-113, July 1992. [12] John William Paisley, David M. Blei, and Michael I. Jordan. Variational bayesian inference with stochastic
+search. In ICML, 2012. [13] J. Peters and S. Schaal. Policy gradient methods for robotics. In Proceedings of the IEEE International
+Conference on Intelligent Robotics Systems (IROS 2006), 2006. [14] Rajesh Ranganath, Sean Gerrish, and David Blei. Black box variational inference. In Proceedings of the
+Seventeenth International Conference on Artificial Intelligence and Statistics (AISTATS), page 814822, 2014. [15] Danilo Jimenez Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In The 31st International Conference on Machine Learning (ICML 2014), 2014. [16] Herbert Robbins and Sutton Monro. A Stochastic Approximation Method. The Annals of Mathematical Statistics, 22(3):400-407, 1951. [17] Ruslan Salakhutdinov and Iain Murray. On the quantitative analysis of Deep Belief Networks. In Andrew McCallum and Sam Roweis, editors, Proceedings of the 25th Annual International Conference on Machine Learning (ICML 2008), pages 872-879. Omnipress, 2008. [18] Tim Salimans and David A. Knowles. Fixed-form variational posterior approximation through stochastic linear regression. Bayesian Anal., 8(4):837-882, 12 2013. [19] Tim Salimans and David A. Knowles. On Using Control Variates with Stochastic Approximation for Variational Bayes and its Connection to Stochastic Linear Regression, January 2014. [20] Michalis K. Titsias and Miguel Lazaro-Gredilla. Doubly stochastic variational bayes for non-conjugate inference. In The 31st International Conference on Machine Learning (ICML 2014), 2014. [21] Ronald J. Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Mach. Learn., 8(3-4):229-256, May 1992.
+9
+

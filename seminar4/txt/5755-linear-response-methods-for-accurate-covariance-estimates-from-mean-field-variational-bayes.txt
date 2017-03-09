@@ -1,0 +1,614 @@
+Linear Response Methods for Accurate Covariance Estimates from Mean Field Variational Bayes
+
+Ryan Giordano UC Berkeley
+rgiordano@berkeley.edu
+
+Tamara Broderick MIT
+tbroderick@csail.mit.edu
+
+Michael Jordan UC Berkeley jordan@cs.berkeley.edu
+
+Abstract
+Mean field variational Bayes (MFVB) is a popular posterior approximation method due to its fast runtime on large-scale data sets. However, a well known major failing of MFVB is that it underestimates the uncertainty of model variables (sometimes severely) and provides no information about model variable covariance. We generalize linear response methods from statistical physics to deliver accurate uncertainty estimates for model variables--both for individual variables and coherently across variables. We call our method linear response variational Bayes (LRVB). When the MFVB posterior approximation is in the exponential family, LRVB has a simple, analytic form, even for non-conjugate models. Indeed, we make no assumptions about the form of the true posterior. We demonstrate the accuracy and scalability of our method on a range of models for both simulated and real data.
+1 Introduction
+With increasingly efficient data collection methods, scientists are interested in quickly analyzing ever larger data sets. In particular, the promise of these large data sets is not simply to fit old models but instead to learn more nuanced patterns from data than has been possible in the past. In theory, the Bayesian paradigm yields exactly these desiderata. Hierarchical modeling allows practitioners to capture complex relationships between variables of interest. Moreover, Bayesian analysis allows practitioners to quantify the uncertainty in any model estimates--and to do so coherently across all of the model variables. Mean field variational Bayes (MFVB), a method for approximating a Bayesian posterior distribution, has grown in popularity due to its fast runtime on large-scale data sets [1-3]. But a well known major failing of MFVB is that it gives underestimates of the uncertainty of model variables that can be arbitrarily bad, even when approximating a simple multivariate Gaussian distribution [4- 6]. Also, MFVB provides no information about how the uncertainties in different model variables interact [5-8]. By generalizing linear response methods from statistical physics [9-12] to exponential family variational posteriors, we develop a methodology that augments MFVB to deliver accurate uncertainty estimates for model variables--both for individual variables and coherently across variables. In particular, as we elaborate in Section 2, when the approximating posterior in MFVB is in the exponential family, MFVB defines a fixed-point equation in the means of the approximating posterior,
+1
+
+and our approach yields a covariance estimate by perturbing this fixed point. We call our method linear response variational Bayes (LRVB). We provide a simple, intuitive formula for calculating the linear response correction by solving a linear system based on the MFVB solution (Section 2.2). We show how the sparsity of this system for many common statistical models may be exploited for scalable computation (Section 2.3). We demonstrate the wide applicability of LRVB by working through a diverse set of models to show that the LRVB covariance estimates are nearly identical to those produced by a Markov Chain Monte Carlo (MCMC) sampler, even when MFVB variance is dramatically underestimated (Section 3). Finally, we focus in more depth on models for finite mixtures of multivariate Gaussians (Section 3.3), which have historically been a sticking point for MFVB covariance estimates [5, 6]. We show that LRVB can give accurate covariance estimates orders of magnitude faster than MCMC (Section 3.3). We demonstrate both theoretically and empirically that, for this Gaussian mixture model, LRVB scales linearly in the number of data points and approximately cubically in the dimension of the parameter space (Section 3.4).
+Previous Work. Linear response methods originated in the statistical physics literature [10-13]. These methods have been applied to find new learning algorithms for Boltzmann machines [13], covariance estimates for discrete factor graphs [14], and independent component analysis [15]. [16] states that linear response methods could be applied to general exponential family models but works out details only for Boltzmann machines. [10], which is closest in spirit to the present work, derives general linear response corrections to variational approximations; indeed, the authors go further to formulate linear response as the first term in a functional Taylor expansion to calculate full pairwise joint marginals. However, it may not be obvious to the practitioner how to apply the general formulas of [10]. Our contributions in the present work are (1) the provision of concrete, straightforward formulas for covariance correction that are fast and easy to compute, (2) demonstrations of the success of our method on a wide range of new models, and (3) an accompanying suite of code.
+
+2 Linear response covariance estimation
+
+2.1 Variational Inference
+
+Suppose we observe N data points, denoted by the N -long column vector x, and denote our unobserved model parameters by . Here,  is a column vector residing in some space ; it has J subgroups and total dimension D. Our model is specified by a distribution of the observed data given the model parameters--the likelihood p(x|)--and a prior distributional belief on the model parameters p(). Bayes' Theorem yields the posterior p(|x).
+
+Mq(ea)n=-fieldJj=v1arqi(atijo)n. aql
+
+Bayes (MFVB) approximates p(|x) by a factorized distribution of the form is chosen so that the Kullback-Liebler divergence KL(q||p) between q and p
+
+is minimized. Equivalently, q is chosen so that E := L + S, for L := Eq[log p(|x)] (the expected
+
+log posterior) and S := -Eq[log q()] (the entropy of the variational distribution), is maximized:
+
+q := arg min KL(q||p) = arg min Eq [log q() - log p(|x)] = arg max E.
+
+qq
+
+q
+
+(1)
+
+Up to a constant in , the objective E is sometimes called the "evidence lower bound", or the ELBO
+
+[5]. In what follows, we further assume that our variational distribution, q (), is in the exponential
+
+family with natural parameter  and log partition function A: log q (|) = T  - A () (expressed
+
+with respect to some base measure in ). We assume that p (|x) is expressed with respect to the
+
+same base measure in  as for q. Below, we will make only mild regularity assumptions about the
+
+true posterior p(|x) and no assumptions about its form.
+
+If we assume additionally that the parameters  at the optimum q() = q(|) are in the interior of the feasible space, then q(|) may instead be described by the mean parameterization: m := Eq
+
+2
+
+with m := Eq . Thus, the objective E can be expressed as a function of m, and the first-order condition for the optimality of q becomes the fixed point equation
+
+E m
+
+
+m=m
+
+=
+
+0
+
+
+
+ E m
+
++
+
+m
+m=m
+
+=
+
+m
+
+
+
+M (m)
+
+=
+
+m
+
+for
+
+M (m)
+
+:=
+
+E m
+
++
+
+m.
+
+(2)
+
+2.2 Linear Response
+
+Let V denote the covariance matrix of  under the variational distribution q(), and let  denote the covariance matrix of  under the true posterior, p(|x):
+
+V := Covq ,  := Covp. In MFVB, V may be a poor estimator of , even when m  Ep, i.e., when the marginal estimated means match well [5-7]. Our goal is to use the MFVB solution and linear response methods to construct an improved estimator for . We will focus on the covariance of the natural sufficient statistic , though the covariance of functions of  can be estimated similarly (see Appendix A).
+
+The essential idea of linear response is to perturb the first-order condition M (m) = m around its optimum. In particular, define the distribution pt (|x) as a log-linear perturbation of the posterior:
+
+log pt (|x) := log p (|x) + tT  - C (t) ,
+
+(3)
+
+where C (t) is a constant in . We assume that pt(|x) is a well-defined distribution for any t in an open ball around 0. Since C (t) normalizes pt(|x), it is in fact the cumulant-generating function of p(|x), so the derivatives of C (t) evaluated at t = 0 give the cumulants of . To see why this
+
+perturbation may be useful, recall that the second cumulant of a distribution is the covariance matrix,
+
+our desired estimand:
+
+ = Covp() =
+
+d dtT dt
+
+C
+
+(t)
+t=0
+
+=
+
+d dtT
+
+Ept 
+t=0
+
+.
+
+The practical success of MFVB relies on the fact that its estimates of the mean are often good in
+
+pdqtrearicivstiatctheive.eMsSowFViwthBe raaespssppuermoctxetiomthtaattoionmnbtotothpstEi.dp(etWs,oewfethxheaisrmemimneeatnthisaisptpharesosmxuimemapanttiioponanrfaaumnrdtehtseeerrtticinnhgaSretacc=ttieor0nizy3iin.e)gldTqstakainndg
+
+ = Covp() 
+
+dmt dtT
+
+
+t=0
+
+=:
+
+ ,
+
+(4)
+
+where we call  the linear response variational Bayes (LRVB) estimate of the posterior covariance of .
+
+We next show that there exists a simple formula for  . Recalling the form of the KL divergence
+
+(see Eq. (1)), we have that -KL(q||pt) = E +tT m =: Et. Then for Mt(m) := M (m) + t. It follows from the chain rule that
+
+by
+
+Eq.
+
+(2),
+
+we
+
+have
+
+mt
+
+=
+
+Mt(mt )
+
+dmt dt
+
+=
+
+Mt mT
+
+
+m=mt
+
+dmt dt
+
++
+
+Mt t
+
+=
+
+Mt mT
+
+
+m=mt
+
+dmt dt
+
++ I,
+
+(5)
+
+where I is the identity matrix. If we assume that we are at a strict local optimum and so can invert the Hessian of E, then evaluating at t = 0 yields
+
+ =
+
+dmt dtT
+
+
+t=0
+
+=
+
+M m
+
+
+
++
+
+I
+
+=
+
+
+
+2E mmT
+
+ + I  + I
+
+
+
+
+
+=
+
+-
+
+
+
+2E mmT
+
+-1
+
+,
+
+(6)
+
+3
+
+where we have used the form for M in Eq. (2). So the LRVB estimator  is the negative inverse Hessian of the optimization objective, E, as a function of the mean parameters. It follows from Eq. (6) that  is both symmetric and positive definite when the variational distribution q is at least a local maximum of E.
+
+We can further simplify Eq. (6) by using the exponential family form of the variational approximat-
+
+ing distribution q. For q in exponential family form as above, the negative entropy -S is dual to the
+
+log partition function A [17], so S = -T m + A(); hence,
+
+
+
+dS dm
+
+=
+
+S T
+
+d dm
+
++
+
+S m
+
+=
+
+A 
+
+-
+
+m
+
+d dm
+
+-
+
+(m)
+
+=
+
+-(m).
+
+Recall that for exponential families, (m)/m = V -1. So Eq. (6) becomes1
+
+
+
+=
+
+-
+
+
+
+2L mmT
+
++
+
+2S -1 mmT
+
+= -(H
+
+- V -1)-1,
+
+for H
+
+:=
+
+2L mmT
+
+.
+
+
+
+ = (I - V H)-1V.
+
+(7)
+
+When the true posterior p(|x) is in the exponential family and contains no products of the variational moment parameters, then H = 0 and  = V . In this case, the mean field assumption is correct, and the LRVB and MFVB covariances coincide at the true posterior covariance. Furthermore, even when the variational assumptions fail, as long as certain mean parameters are estimated exactly, then this formula is also exact for covariances. E.g., notably, MFVB is well-known to provide arbitrarily bad estimates of the covariance of a multivariate normal posterior [4-7], but since MFVB estimates the means exactly, LRVB estimates the covariance exactly (see Appendix B).
+
+2.3 Scaling the matrix inverse
+
+Eq. (7) requires the inverse of a matrix as large as the parameter dimension of the posterior p(|x),
+
+which may be computationally prohibitive. Suppose we are interested in the covariance of parameter
+
+sub-vector , and let z denote the remaining parameters:  = (, z)T . We can partition  =
+
+(, z; z, z) . Similar partitions exist for V and H. If we assume a mean-field factorization q(, z) = q()q(z), then Vz = 0. (The variational distributions may factor further as well.) We calculate the Schur complement of  in Eq. (7) with respect to its zth component to find that
+
+ 
+
+=
+
+(I
+
+-
+
+VH
+
+-
+
+VHz
+
+ Iz
+
+-
+
+Vz Hz )-1 Vz Hz -1
+
+V.
+
+(8)
+
+Here, I and Iz refer to - and z-sized identity matrices, respectively. In cases where (Iz - VzHz)-1 can be efficiently calculated (e.g., all the experiments in Section 3; see Fig. (5) in Appendix D), Eq. (8) requires only an -sized inverse.
+
+3 Experiments
+We compare the covariance estimates from LRVB and MFVB in a range of models, including models both with and without conjugacy 2. We demonstrate the superiority of the LRVB estimate to MFVB in all models before focusing in on Gaussian mixture models for a more detailed scalability analysis. For each model, we simulate datasets with a range of parameters. In the graphs, each point represents the outcome from a single simulation. The horizontal axis is always the result from an MCMC
+1For a comparison of this formula with the frequentist "supplemented expectation-maximization" procedure see Appendix C.
+2All the code is available on our Github repository, rgiordan/LinearResponseVariationalBayesNIPS2015,
+
+4
+
+procedure, which we take as the ground truth. As discussed in Section 2.2, the accuracy of the
+
+LRVB covariance for a to follow, we focus on
+
+sufficient statistic depends on the regimes of moderate dependence
+
+approximation where this is a
+
+mreat sonaEbpltea. sIsnutmheptmioondfeolsr
+
+most of the parameters (see Section 3.2 for an exception). Except where explicitly mentioned,
+
+the MFVB means of the parameters of interest coincided well with the MCMC means, so our key
+
+assumption in the LRVB derivations of Section 2 appears to hold.
+
+3.1 Normal-Poisson model
+
+Model. First consider a Poisson generalized linear mixed model, exhibiting non-conjugacy. We
+
+observe Poisson draws yn and a design vector xn, for n = 1, ..., N . Implicitly below, we will
+
+everywhere condition on the xn, which we consider to be a fixed design matrix. The generative
+
+model is:
+
+zn|, 
+
+indep
+
+N
+
+ zn|
+
+xn
+
+,
+
+
+
+-1
+
+
+
+,
+
+yn|zn indep Poisson (yn| exp(zn)) ,
+
+(9)
+
+For q (
+
+)MwFiVllBb,ewGeafuascstioarniz, eanqd(th,e,ozp)Ntim=(aql|0q(,()2)q),w(i)llbeNn=g1a(mq|(mzan,)(.seIen).sAppecpteinodnixreDve)a.lSs itnhcaet
+
+the the
+
+optimal optimal
+
+q (zn) does not take a standard exponential family form, we restrict further to Gaussian q (zn). There are product terms in L (for example, the term Eq [ ] Eq [] Eq [zn]), so H = 0, and the mean field approximation does not hold; we expect LRVB to improve on the MFVB covariance estimate. A
+
+detailed description of how to calculate the LRVB estimate can be found in Appendix D.
+
+Results. We simulated 100 datasets, each with 500 data points and a randomly chosen value for  and  . We drew the design matrix x from a normal distribution and held it fixed throughout. We set prior hyperparameters 2 = 10,  = 1, and  = 1. To get the "ground truth" covariance matrix, we took 20000 draws from the posterior with the R MCMCglmm package [18], which used a combination of Gibbs and Metropolis Hastings sampling. Our LRVB estimates used the autodifferentiation software JuMP [19]. Results are shown in Fig. (1). Since  is high in many of the simulations, z and  are correlated, and MFVB underestimates the standard deviation of  and  . LRVB matches the MCMC standard deviation for all , and matches for  in all but the most correlated simulations. When  gets very high, the MFVB assumption starts to bias the point estimates of  , and the LRVB standard deviations start to differ from MCMC. Even in that case, however, the LRVB standard deviations are much more accurate than the MFVB estimates, which underestimate the uncertainty dramatically. The final plot shows that LRVB estimates the covariances of z with ,  , and log  reasonably well, while MFVB considers them independent.
+
+Figure 1: Posterior mean and covariance estimates on normal-Poisson simulation data.
+3.2 Linear random effects Model. Next, we consider a simple random slope linear model, with full details in Appendix E. We observe scalars yn and rn and a vector xn, for n = 1, ..., N . Implicitly below, we will everywhere
+5
+
+condition on all the xn and rn, which we consider to be fixed design matrices. In general, each random effect may appear in multiple observations, and the index k(n) indicates which random effect, zk, affects which observation, yn. The full generative model is:
+
+yn|, z, 
+
+indep
+
+N
+
+ yn
+
+|T
+
+xn
+
++ rnzk(n),  -1 ,
+
+zk |
+
+iid
+
+N
+
+ zk |0,
+
+ -1 
+
+,
+
+  N (|0, ),   (| ,  ),   ( | ,  ).
+
+We assume a conjugate
+
+the mean-field factorization model, the optimal q will be
+
+q (, , , z) = q () q ( in the exponential family
+
+) q ( with
+
+)no aKkd=d1itqio(nzanl)a. sSsuinmcepttihoinss.is
+
+Results. We simulated 100 datasets of 300 datapoints each and 30 distinct random effects. We set prior hyperparameters to  = 2,  = 2,  = 2 ,  = 2, and  = 0.1-1I. Our xn was 2-dimensional. As in Section 3.1, we implemented the variational solution using the autodifferentiation software JuMP [19]. The MCMC fit was performed with using MCMCglmm [18].
+
+Intuitively, when the random effect explanatory variables rn are highly correlated with the fixed effects xn, then the posteriors for z and  will also be correlated, leading to a violation of the mean field assumption and an underestimated MFVB covariance. In our simulation, we used rn = x1n + N (0, 0.4), so that rn is correlated with x1n but not x2n. The result, as seen in Fig. (2), is that 1 is underestimated by MFVB, but 2 is not. The  parameter, in contrast, is not wellestimated by the MFVB approximation in many of the simulations. Since the LRVB depends on the
+
+satpipllriomxipmroavtieosnomn ttheMEFpVt B,
+
+its LRVB covariance standard deviation.
+
+is
+
+not
+
+accurate
+
+either
+
+(Fig.
+
+(2)).
+
+However,
+
+LRVB
+
+Figure 2: Posterior mean and covariance estimates on linear random effects simulation data.
+
+3.3 Mixture of normals
+
+Model. Mixture models constitute some of the most popular models for MFVB application [1, 2]
+
+and are often used as an example of where MFVB covariance estimates may go awry [5, 6]. Thus, we
+
+will consider in detail a Gaussian mixture model (GMM) consisting of a K-component mixture of
+
+P -dimensional multivariate normals with unknown component means, covariances, and weights. In
+
+cowofhvtaahtreifaoknltlchoewcposa,mrtahpmeoneweteenrit)g,.haNtndkisiktshtiehsentuhpmeroPbbearxboilPfitdypaortaefctpihsoeiionknttshm, acanotdrmixxpononfiestnhtteh, ektknhtihscotohmbespePornv-deenidmtP(esn-odsiiomn-kea1nlsimisoetnhaanel data point. We employ the standard trick of augmenting the data generating process with the latent
+
+indicator variables znk, for n = 1, ..., N and k = 1, ..., K, such that znk = 1 implies xn 
+
+N (k, -k 1). So the generative model is:
+
+
+
+P (znk = 1) = k, p(x|, , , z) =
+
+N (xn|k, -k 1)znk
+
+(10)
+
+n=1:N k=1:K
+
+Wasseuumsepdtidoinffqu(se ,con, di,tizo)n=allycKko=n1juqg(atek
+
+p) rqio(rsk()seqe(Akp)penNnd=ix1Fq
+
+for details). We make the variational (zn). We compare the accuracy and
+
+6
+
+speed of our estimates to Gibbs sampling on the augmented model (Eq. (10)) using the function rnmixGibbs from the R package bayesm. We implemented LRVB in C++, making extensive use of RcppEigen [20]. We evaluate our results both on simulated data and on the MNIST data set [21].
+Results. For simulations, we generated N = 10000 data points from K = 2 multivariate normal components in P = 2 dimensions. MFVB is expected to underestimate the marginal variance of , , and log() when the components overlap since that induces correlation in the posteriors due to the uncertain classification of points between the clusters. We check the covariances estimated with Eq. (7) against a Gibbs sampler, which we treat as the ground truth.3 We performed 198 simulations, each of which had at least 500 effective Gibbs samples in each variable--calculated with the R tool effectiveSize from the coda package [22]. The first three plots show the diagonal standard deviations, and the third plot shows the off-diagonal covariances. Note that the off-diagonal covariance plot excludes the MFVB estimates since most of the values are zero. Fig. (3) shows that the raw MFVB covariance estimates are often quite different from the Gibbs sampler results, while the LRVB estimates match the Gibbs sampler closely. For a real-world example, we fit a K = 2 GMM to the N = 12665 instances of handwritten 0s and 1s in the MNIST data set. We used PCA to reduce the pixel intensities to P = 25 dimensions. Full details are provided in Appendix G. In this MNIST analysis, the  standard deviations were under-estimated by MFVB but correctly estimated by LRVB (Fig. (3)); the other parameter standard deviations were estimated correctly by both and are not shown.
+
+Figure 3: Posterior mean and covariance estimates on GMM simulation and MNIST data.
+
+3.4 Scaling experiments
+
+We here explore the computational scaling of LRVB in more depth for the finite Gaussian mixture
+
+model (Section 3.3). In the terms of Section 2.3,  includes the sufficient statistics from , , and ,
+
+and grows as O(KP 2). The sufficient statistics for the variational posterior of  contain the P -length
+
+vectors k, for each k, and the (P + Similarly, for each k, the variational
+
+1)P/2 second-order products in posterior of  involves the (P
+
++the1c)oPv/a2riasnucffiecmieanttrisxtatikstiTkcs.
+
+in of
+
+the k
+
+asryemtmheetKrictemrmatrsixlog kka.s4
+
+well So,
+
+as the term minimally,
+
+log Eq.
+
+|k|. The sufficient statistics (7) will require the inverse of
+
+for the posterior a matrix of size
+
+3The likelihood described in Section 3.3 is symmetric under relabeling. When the component locations
+
+and shapes have a real-life interpretation, the researcher is generally interested in the uncertainty of , , and
+
+ for a particular labeling, not the marginal uncertainty over all possible re-labelings. This poses a problem
+
+for standard MCMC methods, and we restrict our simulations to regimes where label switching did not occur
+
+in our Gibbs sampler. The MFVB solution conveniently avoids this problem since the mean field assumption
+
+pnroetv4veSinointlsacteiet farnoKkym=o1rfepthkree=sneen1ct,iensugssaimrnygoraKesstuhsmaunfpfiotcinoieennsmt fsootdraetEisoqtfi.ct(sh7ei)n,jvoaoinnldvteiptsocosotnenersiirodered. ruanbdlyanstimpaprlaimfieestetrh.eHcoalwcuevlaetri,otnhsi.s
+
+does Note
+
+that though the perturbation argument of Section 2 requires the parameters of p(|x) to be in the interior of the
+
+feasible space, it does not require that the parameters of p(x|) be interior.
+
+7
+
+O(KP 2). The sufficient statistics for z have dimension K x N . Though the number of parameters thus grows with the number of data points, Hz = 0 for the multivariate normal (see Appendix F), so we can apply Eq. (8) to replace the inverse of an O(KN )-sized matrix with multiplication by the same matrix. Since a matrix inverse is cubic in the size of the matrix, the worst-case scaling for LRVB is then O(K2) in K, O(P 6) in P , and O(N ) in N . In our simulations (Fig. (4)) we can see that, in practice, LRVB scales linearly5 in N and approximately cubically in P across the dimensions considered.6 The P scaling is presumably better than the theoretical worst case of O(P 6) due to extra efficiency in the numerical linear algebra. Note that the vertical axis of the leftmost plot is on the log scale. At all the values of N , K and P considered here, LRVB was at least as fast as Gibbs sampling and often orders of magnitude faster.
+Figure 4: Scaling of LRVB and Gibbs on simulation data in both log and linear scales. Before taking logs, the line in the two lefthand (N) graphs is y  x, and in the righthand (P) graph, it is y  x3.
+4 Conclusion
+The lack of accurate covariance estimates from the widely used mean-field variational Bayes (MFVB) methodology has been a longstanding shortcoming of MFVB. We have demonstrated that in sparse models, our method, linear response variational Bayes (LRVB), can correct MFVB to deliver these covariance estimates in time that scales linearly with the number of data points. Furthermore, we provide an easy-to-use formula for applying LRVB to a wide range of inference problems. Our experiments on a diverse set of models have demonstrated the efficacy of LRVB, and our detailed study of scaling of mixtures of multivariate Gaussians shows that LRVB can be considerably faster than traditional MCMC methods. We hope that in future work our results can be extended to more complex models, including Bayesian nonparametric models, where MFVB has proven its practical success. Acknowledgments. The authors thank Alex Blocker for helpful comments. R. Giordano and T. Broderick were funded by Berkeley Fellowships.
+5The Gibbs sampling time was linearly rescaled to the amount of time necessary to achieve 1000 effective samples in the slowest-mixing component of any parameter. Interestingly, this rescaling leads to increasing efficiency in the Gibbs sampling at low P due to improved mixing, though the benefits cease to accrue at moderate dimensions.
+6For numeric stability we started the optimization procedures for MFVB at the true values, so the time to compute the optimum in our simulations was very fast and not representative of practice. On real data, the optimization time will depend on the quality of the starting point. Consequently, the times shown for LRVB are only the times to compute the LRVB estimate. The optimization times were on the same order.
+8
+
+References
+[1] D. M. Blei, A. Y. Ng, and M. I. Jordan. Latent Dirichlet allocation. Journal of Machine Learning Research, 3:993-1022, 2003.
+[2] D. M. Blei and M. I. Jordan. Variational inference for Dirichlet process mixtures. Bayesian Analysis, 1(1):121-143, 2006.
+[3] M. D. Hoffman, D. M. Blei, C. Wang, and J. Paisley. Stochastic variational inference. Journal of Machine Learning Research, 14(1):1303-1347, 2013.
+[4] D. J. C. MacKay. Information Theory, Inference, and Learning Algorithms. Cambridge University Press, 2003. Chapter 33.
+[5] C. M. Bishop. Pattern Recognition and Machine Learning. Springer, New York, 2006. Chapter 10. [6] R. E. Turner and M. Sahani. Two problems with variational expectation maximisation for time-series
+models. In D. Barber, A. T. Cemgil, and S. Chiappa, editors, Bayesian Time Series Models. 2011. [7] B. Wang and M. Titterington. Inadequacy of interval estimates corresponding to variational Bayesian
+approximations. In Workshop on Artificial Intelligence and Statistics, pages 373-380, 2004. [8] H. Rue, S. Martino, and N. Chopin. Approximate Bayesian inference for latent Gaussian models by using
+integrated nested Laplace approximations. Journal of the Royal Statistical Society: Series B (statistical methodology), 71(2):319-392, 2009. [9] G. Parisi. Statistical Field Theory, volume 4. Addison-Wesley New York, 1988. [10] M. Opper and O. Winther. Variational linear response. In Advances in Neural Information Processing Systems, 2003. [11] M. Opper and D. Saad. Advanced mean field methods: Theory and practice. MIT press, 2001. [12] T. Tanaka. Information geometry of mean-field approximation. Neural Computation, 12(8):1951-1968, 2000. [13] H. J. Kappen and F. B. Rodriguez. Efficient learning in Boltzmann machines using linear response theory. Neural Computation, 10(5):1137-1156, 1998. [14] M. Welling and Y. W. Teh. Linear response algorithms for approximate inference in graphical models. Neural Computation, 16(1):197-221, 2004. [15] P. A. d. F. R. Hojen-Sorensen, O. Winther, and L. K. Hansen. Mean-field approaches to independent component analysis. Neural Computation, 14(4):889-918, 2002. [16] T. Tanaka. Mean-field theory of Boltzmann machine learning. Physical Review E, 58(2):2302, 1998. [17] M. J. Wainwright and M. I. Jordan. Graphical models, exponential families, and variational inference. Foundations and Trends(R) in Machine Learning, 1(1-2):1-305, 2008. [18] J. D. Hadfield. MCMC methods for multi-response generalized linear mixed models: The MCMCglmm R package. Journal of Statistical Software, 33(2):1-22, 2010. [19] M. Lubin and I. Dunning. Computing in operations research using Julia. INFORMS Journal on Computing, 27(2):238-248, 2015. [20] D. Bates and D. Eddelbuettel. Fast and elegant numerical linear algebra using the RcppEigen package. Journal of Statistical Software, 52(5):1-24, 2013. [21] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11):2278-2324, 1998. [22] M. Plummer, N. Best, K. Cowles, and K. Vines. CODA: Convergence diagnosis and output analysis for MCMC. R News, 6(1):7-11, 2006. [23] X. L. Meng and D. B. Rubin. Using EM to obtain asymptotic variance-covariance matrices: The SEM algorithm. Journal of the American Statistical Association, 86(416):899-909, 1991. [24] A. Wachter and L. T. Biegler. On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming. Mathematical Programming, 106(1):25-57, 2006.
+9
+

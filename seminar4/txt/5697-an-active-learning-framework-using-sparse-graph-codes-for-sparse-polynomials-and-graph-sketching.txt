@@ -1,0 +1,508 @@
+An Active Learning Framework using Sparse-Graph Codes for Sparse Polynomials and Graph Sketching
+
+Xiao Li UC Berkeley xiaoli@berkeley.edu
+
+Kannan Ramchandran UC Berkeley
+kannanr@berkeley.edu
+
+Abstract
+Let f : {-1, 1}n  R be an n-variate polynomial consisting of 2n monomials, in which only s 2n coefficients are non-zero. The goal is to learn the polynomial by querying the values of f . We introduce an active learning framework that is associated with a low query cost and computational runtime. The significant savings are enabled by leveraging sampling strategies based on modern coding theory, specifically, the design and analysis of sparse-graph codes, such as Low-Density-Parity-Check (LDPC) codes, which represent the state-of-the-art of modern packet communications. More significantly, we show how this design perspective leads to exciting, and to the best of our knowledge, largely unexplored intellectual connections between learning and coding. The key is to relax the worst-case assumption with an ensemble-average setting, where the polynomial is assumed to be drawn uniformly at random from the ensemble of all polynomials (of a given size n and sparsity s). Our framework succeeds with high probability with respect to the polynomial ensemble with sparsity up to s = O(2n) for any   (0, 1), where f is exactly learned using O(ns) queries in time O(ns log s), even if the queries are perturbed by Gaussian noise. We further apply the proposed framework to graph sketching, which is the problem of inferring sparse graphs by querying graph cuts. By writing the cut function as a polynomial and exploiting the graph structure, we propose a sketching algorithm to learn the an arbitrary n-node unknown graph using only few cut queries, which scales almost linearly in the number of edges and sub-linearly in the graph size n. Experiments on real datasets show significant reductions in the runtime and query complexity compared with competitive schemes.
+1 Introduction
+One of the central problems in computational learning theory is the efficient learning of polynomials f (x) : x  {-1, 1}n  R. The task of learning an s-sparse polynomial f has been studied extensively in the literature, often in the context of Fourier analysis for pseudo-boolean functions (a real-valued function defined on a set of binary variables). Many concept classes, such as (1)-juntas, polynomial-sized circuits, decision trees and disjunctive normative form (DNF) formulas, have been proven very difficult [1] to learn in the worst-case with random examples. Almost all existing efficient algorithms are based on the membership query model [1, 6-8, 10, 11, 17], which provides arbitrary access to the value of f (x) given any x  {-1, 1}n. This makes a richer set of concept classes learnable in polynomial time poly(s, n). This is a form of what is now popularly referred to as active learning, which makes queries using different sampling strategies. For instance, [3,10] use regular subsampling and [9, 14, 18] use random sampling based on compressed sensing. However, they remain difficult to scale computationally, especially for large s and n.
+This work was supported by grant NSF CCF EAGER 1439725.
+1
+
+In this paper, we are interested in learning polynomials with s = O(2n) for some   (0, 1). Although this regime is not typically considered in the literature, we show that by relaxing the "worst-case" mindset to an ensemble-average setting (explained later), we can handle this more challenging regime and reduce both the number of queries and the runtime complexity, even if the queries are corrupted by Gaussian noise. In the spirit of active learning, we design a sampling strategy that makes queries to f based on modern coding theory and signal processing. The queries are formed by "strategically" subsampling the input to induce aliasing patterns in the dual domain based on sparse-graph codes. Then, our framework exploits the aliasing pattern (code structure) to reconstruct f by peeling the sparse coefficients with an iterative simple peeling decoder. Through a coding-theoretic lens, our algorithm achieves a low query complexity (capacity-approaching codes) and low computational complexity (peeling decoding).
+Further, we apply our proposed framework to graph sketching, which is the problem of inferring hidden sparse graphs with n nodes by actively querying graph cuts (see Fig. 1). Motivated by bioinformatics applications [2], learning hidden graphs from additive or cross-additive queries (i.e. edge counts within a set or across two sets) has gained considerable interest. This problem closely pertains to our learning framework because the cut function of any graph can be written as a sparse polynomial with respect to the binary variables x  {-1, +1}n indicating a graph partition for the cut [18]. Given query access to the cut value for an arbitrary partition of the graph, how many cut queries are needed to infer the hidden graph structure? What is the runtime for such inference?
+
+(a) Unknown Graph
+
+(b) Cut Query
+
+(c) Inferred Graph
+
+Figure 1: Given a set of n nodes, infer the graph structure by querying graph cuts.
+
+Most existing algorithms that achieve the optimal query cost for graph sketching (see [13]) are nonconstructive, except for a few algorithms [4, 5, 9, 18] that run in polynomial time in the graph size n. Inspired by our active learning framework, we derive a sketching algorithm associated with a query cost and runtime that are both sub-linear in the graph size n and almost-linear in the number of edges. To the best of our knowledge, this is the first constructive non-adaptive sketching scheme with sub-linear costs in the graph size n. In the following, we introduce the problem setup, our learning model, and summarize our contributions.
+
+1.1 Problem Setup
+
+Our goal is to learn the following polynomial in terms of its coefficients:
+
+f (x) =
+
+[k]k(x),  x  {-1, 1}n, F2 := {0, 1},
+
+kFn2
+
+(1)
+
+where k := [k[1], * * * , k[n]]T  Fn2 is the index of the monomial1 k(x) = i[n] xki [i], and [k]  R is the coefficient. In this work, we consider an ensemble-average setting for learning.
+Definition 1 (Polynomial Ensemble). The polynomial ensemble F(s, n, A) is a collection of polynomials f : {-1, 1}n  R satisfying the following conditions:
+
+* the vector  := [* * * , [k], * * * ]T is s-sparse with s = O(2n) for some 0 <  < 1;
+
+* the support supp () := {k : [k] = 0, k  Fn2 } is chosen uniformly at random over Fn2 ;
+* each non-zero coefficient [k] takes values from some set A according to [k]  PA for all k  supp (), and PA is some probability distribution over A.
+
+1The notation is defined as [n] := {1, * * * , n}.
+
+2
+
+We consider active learning under the membership query model. Each query to f at x  {-1, 1}n returns the data-label pair (x, f (x) + ), where  is some additive noise. We propose a query framework that leads to a fast reconstruction algorithm, which outputs an estimate  of the polynomial coefficients. The performance of our framework is evaluated by the probability of failing to recover the exact coefficients PF := Pr ( = ) = E 1= , where 1(*) is the indicator function and the expectation is taken with respect to the noise , the randomized construction of our queries, as well as the random polynomial ensemble F(s, n, A).
+1.2 Our Approach and Contributions
+
+Particularly relevant to this work are the algorithms on learning decision trees and boolean functions by uncovering the Fourier spectrum of f [3, 5, 10, 12]. Recent papers further show that this problem can be formulated and solved as a compressed sensing problem using random queries [14, 18]. Specifically, [14] gives an algorithm using O(s2n) queries based on mutual coherence, whereas the Restricted Isometry Property (RIP) is used in [18] to give a query complexity of O(sn4). However, this formulation needs to estimate a length-2n vector and hence the complexity is exponential in n.
+To alleviate the computational burden, [9] proposes a pre-processing scheme to reduce the number of unknowns to 2s, which shortens the runtime to poly(2s, n) using O(n2s) samples. However, this method only works with very small s due to the exponential scaling. Under the sparsity regime s = O(2n) for some 0 <  < 1, existing algorithms [3, 9, 10, 14, 18], irrespective of using membership queries or random examples, do not immediately apply here because this may require 2n samples (and large runtime) due to the obscured polynomial scaling in s.
+In our framework, we show that f can be learned exactly in time almost-linear in s and strictly-linear in n, even when the queries are perturbed by random Gaussian noise.
+Theorem 1 (Noisy Learning). Let f  F(s, n, A) where A is some arbitrarily large but finite set. In the presence of noise   N (0, 2), our algorithm learns f exactly in terms of the coefficients  = , which runs in time O(ns log s) using O(ns) queries with probability at least 1 - O(1/s).
+
+The proposed algorithm and proofs are given in the supplementary material. Further, we apply this
+framework on learning hidden graphs from cut queries. We consider an undirected weighted graph G = (V, E, W ) with |E| = r edges and weights W  Rr, where V = {1, * * * , n} is given but the edge set E  V x V is unknown. This generalizes to hypergraphs, where an edge can connect at most d nodes, called the rank of the graph. For a d-rank hypergraph with r edges, the cut function is a s-sparse d-bounded pseudo-boolean function (i.e. each monomial depending on at most d variables) where the sparsity is bounded by s = O(r2d-1) [9].
+On the graph sketching problem, [18] uses O(sn4) random queries to sketch the sparse temporal changes of a hypergraph in polynomial time poly(nd). However, [9] shows that it becomes computationally infeasible for small graphs (e.g. n = 200 nodes, r = 3 edges with d = 4), while the LearnGraph algorithm [9] runs in time O(2rdM + n2d log n) using M = O(2rdd log n + 22d+1d2(log n + rd)) queries. Although this significantly reduces the runtime compared to [14, 18], the algorithm only tackles very sparse graphs due to the scaling 2r and n2. This implies that the sketching needs to be done on relatively small graphs (i.e. n = 1000 nodes) over fine sketching intervals (i.e. minutes) to suppress the sparsity (i.e. r = 10 within the sketching interval).
+In this work, we adapt and apply our learning framework to derive an efficient sketching algorithm, whose runtime scales as O(ds log s(log n + log s)) by using O(ds(log n + log s)) queries. We use
+our adapted algorithm on real datasets and find that we can handle much coarser sketching intervals (e.g. half an hour) and much larger hypergraphs (e.g. n = 105 nodes).
+
+2 Learning Framework
+
+Our learning framework consists of a query generator and a reconstruction engine. Given the sparsity s and the number of variables n, the query generator strategically constructs queries (randomly) and the reconstruction engine recovers the s-sparse vector . For notation convenience, we replace each boolean variable xi = (-1)m[i] with a binary variable m[i]  F2 for all i  [n]. Using the notation m = [m[1], * * * , m[n]]T in the Fourier expansion (1), we have
+
+u[m] =
+
+[k](-1) m,k + [m],
+
+kFn2
+
+(2)
+
+3
+
+where m, k = i[n]m[i]k[i] over F2. Now the coefficients [k] can be interpreted as the WalshHadamard Transform (WHT) coefficients of the polynomial f (x) for x  {-1, 1}n.
+
+2.1 Membership Query: A Coding-Theoretic Design
+
+The building block of our query generator is the basic query set by subsampling and tiny WHTs:
+* Subsampling: we choose B = 2b samples u[m] indexed selectively by m = M + d for  Fb2, where M  Fn2xb is the subsampling matrix and d  Fn2 is the subsampling offset.
+
+* WHT: a very small B-point WHT is performed over the samples u[M + d] for  Fb2, where each output coefficient can be obtained according to the aliasing property of WHT:
+
+U [j] =
+
+[k](-1) d,k + W [j], j  Fb2,
+
+k:MT k=j
+
+(3)
+
+where W [j] = 1
+B
+
+Fb2 [M + d](-1) ,j is the observation noise with variance 2.
+
+The B-point basic query set (3) implies that each coefficient U [j] is the weighted hash output of [k] under the hash function MT k = j. From a coding-theoretic perspective, the coefficient U [j] for constitutes a parity constraint of the coefficients [k], where [k] enters the j-th parity if MT k = j.
+If we can induce a set of parity constraints that mimic good error-correcting codes with respect to
+the unknown coefficients [k], the coefficients can be recovered iteratively in the spirit of peeling
+decoding, similar to that in LDPC codes. Now it boils down to the following questions:
+
+* How to choose the subsampling matrix M and how to choose the query set size B? * How to recover the coefficients [k] from their aliased observations U [j]?
+
+In the following, we illustrate the principle of our learning framework through a simple example with n = 4 boolean variables and sparsity s = 4.
+
+2.2 Main Idea: A Simple Example
+
+Suppose that the s = 4 non-zero coefficients are [0100], [0110], [1010] and [1111]. We choose B = s = 4 and use two patterns M1 = [0T2x2, IT2x2]T and M2 = [IT2x2, 0T2x2]T for subsampling, where all queries made using the same pattern Mi are called a query group.
+In this example, by enforcing a zero subsampling offset d = 0, we generate only one set of queries {Uc[j]}jFb2 under each pattern Mc according to (3). For example, under pattern M1, the chosen samples are u[0000], u[0001], u[0010], u[0011]. Then, the observations are obtained by a B-point WHT coefficients of these chosen samples.
+
+For illustration we assume the queries are noiseless:
+
+U1[00] = [0000] + [0100] + [1000] + [1100], U1[01] = [0001] + [0101] + [1001] + [1101], U1[10] = [0010] + [0110] + [1010] + [1110], U1[11] = [0011] + [0111] + [1011] + [1111].
+
+Generally speaking, it is impossible to reconstruct the coefficients from these queries. However, since the coefficients are sparse, then the observations are reduced to
+
+U1[00] = [0100],
+
+U2[00] = 0
+
+U1[01] = 0,
+
+U2[01] = [0100] + [0110]
+
+U1[10] = [0110] + [1010], U2[10] = [1010]
+
+U1[11] = [1111],
+
+U2[11] = [1111].
+
+[0100]  [0110]  [1010]  [1111] 
+
+00  [0100]  01  10  [0110]+[1010]  11  [1111] 
+Query Stage 1
+00  01  [0100]+[0110]  10  [1010]  11  [1111] 
+Query Stage 2
+
+The observations are captured by a bipartite graph, which Figure 2: Example of a bipartite consists of s = 4 left nodes and 8 right nodes (see Fig. 2). graph for the observations.
+
+4
+
+2.2.1 Oracle-based Decoding
+We illustrate how to decode the unknown [k] from the bipartite graph in Fig. 2 with the help of an "oracle", and then introduce how to get rid of this oracle. The right nodes can be categorized as:
+* Zero-ton: a right node is a zero-ton if it is not connected to any left node. * Single-ton: a right node is a single-ton if it is connected to only one left node. We refer to
+the index k and its associated value [k] as the index-value pair (k, [k]). * Multi-ton: a right node is a multi-ton if it is connected to more than one left node.
+The oracle informs the decoder exactly which right nodes are single-tons as well as the corresponding index-value pair (k, [k]). Then, we can learn the coefficients iteratively as follows:
+Step (1) select all edges in the bipartite graph with right degree 1 (i.e. detect presence of single-tons and the index-value pairs informed by the oracle);
+Step (2) remove (peel off) these edges and the left and right end nodes of these single-ton edges;
+Step (3) remove (peel off) other edges connected to the left nodes that are removed in Step (2);
+Step (4) remove contributions of the left nodes removed in Step (3) from the remaining right nodes.
+Finally, decoding is successful if all edges are removed. Clearly, this simple example is only an illustration. In general, if there are C query groups associated with the subsampling patterns {Mc}Cc=1 and query set size B, we define the bipartite graph ensemble below and derive the guidelines for choosing them to guarantee successful peeling-based recovery. Definition 2 (Sparse Graph Ensemble). The bipartite graph ensemble G(s, , C, {Mc}c[C]) is a collection of C-regular bipartite graphs where
+* there are s left nodes, each associated with a distinct non-zero coefficient [k];
+* there are C groups of right nodes and B = 2b = s right nodes per group, and each right node is characterized by the observation Uc[j] indexed by j  Fb2 in each group;
+* there exists an edge between left node [k] and right node Uc[j] in group c if MTc k = j, and thus each left node has a regular degree C.
+Using the construction of {Mc}Cc=1 given in the supplemental material, the decoding is successful over the ensemble G(s, , C, {Mc}c[C]) if C and B are chosen appropriately. The key idea is to avoid excessive aliasing by exploiting a sufficiently large but finite number of groups C for diversity and maintaining the query set size B on par with the sparsity O(s). Lemma 1. If we construct our query generator using C query groups with B = s = 2b for some redundancy parameter  > 0 satisfying:
+C 2 3 4 5 6 ***  1.0000 0.4073 0.3237 0.2850 0.2616 * * *
+Table 1: Minimum value for  given the number of groups C then the oracle-based decoder learns f in O(s) peeling iterations with probability 1 - O(1/s).
+
+2.2.2 Getting Rid of the Oracle
+
+Now we explain how to detect single-tons and obtain the index-value pair without an oracle. We exploit the diversity of subsampling offsets d from (3). Let Dc  FP2 xn be the offset matrix containing P subsampling offsets, where each row is a chosen offset. Denote by U c[j] := [* * * , Uc,p[j], * * * ]T the vector of observations (called observation bin) associated with the P offsets at the j-th right
+node, we have the general observation model for each right node in the bipartite graph as follows.
+
+Proposition 1.
+
+Given
+
+the
+
+offset
+
+matrix
+
+D
+
+
+
+P
+F2
+
+xn,
+
+we
+
+have
+
+U c[j] =
+
+[k](-1)Dck + wc[j],
+
+(4)
+
+k : MTc k=j
+
+where wc[j] [* * * , Wc,p[j], * * * ]T contains noise samples with variance 2, (-1)(*) is an elementwise exponentiation operator and (-1)Dck is the offset signature associated with [k].
+
+5
+
+In the same simple example, we keep the subsampling matrix M1 and use the set of offsets d0 = [0, 0, 0, 0]T , d1 = [1, 0, 0, 0]T , d2 = [0, 1, 0, 0]T , d3 = [0, 0, 1, 0]T and d4 = [0, 0, 0, 1]T such that D1 = [01x4; I4]. The observation bin associated with the subsampling pattern M1 is:
+
+U 1[j] = [U1,0[j], U1,1[j], U1,2[j], U1,3[j], U1,4[j]]T .
+
+(5)
+
+For example, observations U 1[01] and U 1[10] are given as
+
+1
+
+1
+
+1
+
+(-1)0
+
+(-1)0
+
+(-1)1
+
+
+
+
+
+
+
+U 1[01]
+
+=
+
+[0100]
+
+x (-1)1 , 
+
+U 1[10]
+
+=
+
+[0110]
+
+x (-1)1 + [1010] 
+
+x (-1)0 . 
+
+(-1)0
+
+(-1)1
+
+(-1)1
+
+(-1)0
+
+(-1)0
+
+(-1)0
+
+With these bin observations, one can effectively determine if a check node is a zero-ton, a singleton or a multi-ton. For example, a single-ton, say U 1[01], satisfies |U1,0[01]| = |U1,1[01]| = |U1,2[01]| = |U1,3[01]| = |U1,4[01]|. Then, the index k = [k[1], k[2], k[3], k[4]]T and the value of a single-ton can be obtained by a simple ratio test
+
+(-1)k[1]   (-1)k[2]
+(-1)k[3]   (-1)k[4]
+
+= = = =
+
+U1,1 [01]
+U1,0 [01] U1,2 [01]
+U1,0 [01] U1,3 [01]
+U1,0 [01] U1,4 [01]
+U1,0 [01]
+
+= (-1)0 = (-1)1 = (-1)0 = (-1)0
+
+k[1] = 0   k[2] = 1 
+= k[3] = 0
+k[4] = 0   [k] = U1,0[01]
+
+The above tests are easy to verify for all observations such that the index-value pair is obtained for peeling. In fact, this detection scheme for obtaining the oracle information is mentioned in the noiseless scenario [16] by using P = n + 1 offsets. However, this procedure fails in the presence of noise. In the following, we propose the general detection scheme for the noisy scenario while using P = O(n) offsets.
+
+3 Learning in the Presence of Noise
+In this section, we propose a robust bin detection scheme that identifies the type of each observation bin and estimate the index-value pair (k, [k]) of a single-ton in the presence of noise. For convenience, we drop the group index c and the node index j without loss of clarity, because the detection scheme is identical for all nodes from all groups. The bin detection scheme consists of the single-ton detection scheme and the zero-ton/multi-ton detection scheme, as described next.
+3.1 Single-ton Detection
+Proposition 2. Given a single-ton with (k, [k]) observed in the presence of noise N (0, 2), then by collecting the signs of the observations, we have
+c = Dk  sgn [[k]]  z
+where z contains P independent Bernoulli variables with probability at most Pe = e-B2min/22 , and the sign function is defined as sgn [x] = 1 if x < 0 and sgn [x] = 0 if x > 0.
+Note that the P -bit vector c is a received codeword of the n-bit message k over a binary symmetric channel (BSC) under an unknown flip sgn [[k]]. Therefore, we can design the offset matrix D according to linear block codes. The codes should include 1 as a valid codeword such that both Dk and Dk  1 can be decoded correctly and then obtain the correct codeword Dk and hence k. Definition 3. Let the offset matrix D  FP2 xn constitute a P x n generator matrix of some linear code, which satisfies a minimum distance P with a code rate R() > 0 and  > Pe.
+Since there are n information bits in the index k, there exists some linear code (i.e. D) with block length P = n/R() that achieves a minimum distance of P , where R() is the rate of the code [15]. As long as  > Pe, it is obvious that the unknown k can be decoded with exponentially decaying probability of error. Excellent examples include the class of expander codes or LDPC codes, which admits a linear time decoding algorithm. Therefore, the single-ton detection can be performed in time O(n), same as the noiseless case.
+
+6
+
+3.2 Zero-ton and Multi-ton Detection
+
+The single-ton detection scheme works when the underlying bin is indeed a single-ton. However, it does not work on isolating single-tons from zero-tons and multi-tons. We address this issue by further introducing P extra random offsets.
+
+Definition 4.
+
+Let the offset
+
+matrix
+
+D
+
+
+
+P xn
+F2
+
+constitute
+
+aP
+
+xn
+
+random
+
+matrix consisting
+
+of
+
+independent identically distributed (i.i.d.) Bernoulli entries with probability 1/2.
+
+Denote by U = [U1, * * * , UP ]T the observations associated with D, we perform the following:
+* zero-ton verification: the bin is a zero-ton if U 2/P  (1+)2/B for some   (0, 1). * multi-ton verification: the bin is a multi-ton if U - [k](-1)Dk 2  (1 + )2/B,
+where (k, [k]) are the single-ton detection estimates.
+
+It is shown in the supplemental material that this bin detection scheme works with probability at least 1 - O(1/s). Together with Lemma 1, the learning framework in the presence of noise succeeds with probability at least 1 - O(1/s). As detailed in the supplemental material, this leads to a overall
+sample complexity of O(sn) and runtime of O(ns log s).
+
+4 Application in Hypergraph Sketching
+
+Consider a d-rank hypergraph G = (V, E) with |E| = r edges, where V = {1, * * * , n}. A cut S  V is a set of selected vertices, denoted by the boolean cube x = [x1, * * * , xn] over {1}n,
+where xi = -1 if i  S and xi = 1 if i / S. The value of a specific cut x can be written as
+
+f (x) = 1 - (1 + xi) + (1 - xi)
+
+22
+
+eE
+
+ie
+
+ie
+
+.
+
+(6)
+
+Letting xi = (-1)m[i], we have f (x) = u[m] = kFn2 c[k](-1) k,m with xi = (-1)m[i] for all i  [n], where the coefficient c[k] is a scaled WHT coefficient. Clearly, if the number of hyperedges is small r 2n and the maximum size of each hyperedge is small d n, the coefficients c[k]'s are sparse and the sparsity can be well upper bounded by s  r2d-1. Now, we can use our learning framework to compute the sparse coefficients c[k] from only a few cut queries. Note that in the graph sketching problem, the weight of k is bounded by d due to the special structure of cut function.
+Therefore, in the noiseless setting, we can leverage the sparsity d and use much fewer offsets P n
+in the spirit of compressed sensing. In the supplemental material, we adapt our framework to derive
+the GraphSketch bin detection scheme with even lower query costs and runtime.
+
+Proposition 3. The GraphSketch bin detection scheme uses P = O(d(log n + log s)) offsets and successfully detects single-tons and their index-value pairs with probability at least 1 - O(1/s).
+
+Next, we provide numerical experiments of our learning algorithm for sketching large random hypergraphs as well as actual hypergraphs formed by real datasets2. In Fig. 3, we compare the probability
+of success in sketching hypergraphs with n = 1000 nodes over 100 trials against the LearnGraph procedure3 in [9], by randomly generating r = 1 to 10 hyperedges with rank d = 5. The perfor-
+mance is plotted against the number of edges r and the query complexity of learning. As seen from Fig. 3, the query complexity of our framework is significantly lower ( 1%) than that of [9].
+
+4.1 Sketching the Yahoo! Messenger User Communication Pattern Dataset
+We sketch the hypergraphs extracted from Yahoo! Messenger User Communication Pattern Dataset [19], which records communications for 28 days. The dataset is recorded entry-wise as (day, time, transmitter, origin-zipcode, receiver, flag), where day and time represent the time stamp of each message, the transmitter and receiver represent the IDs of the sender and the recipient, the zipcode is a spatial stamp of each message, and the flag indicates if the recipient is in the contact list. There are 105 unique users and 5649 unique zipcodes. A hidden hypergraph structure is captured as follows.
+2We used MATLAB on a Macbook Pro with an Intel Core i5 processor at 2.4 GHz and 8 GB RAM. 3We would like to acknowledge and thank the authors [9] for providing their source codes.
+
+7
+
+# of Edges
+
+1 2 3 4 5 6 7 8 9 10
+1
+
+Prob. of Success
+
+1
+
+0.8
+
+0.6
+
+0.4
+
+0.2
+
+1.5 2 2.5 # of Queries
+
+3 x 104
+
+(a) Our Framework
+
+0
+
+Run-time (secs)
+
+Run-time
+
+2
+
+1.5
+
+1
+
+0.5
+
+0 10
+5
+# of Edges
+
+01
+
+2 1.5
+
+3 2.5
+x 104
+
+# of Queries
+
+(b) Our Framework
+
+# of Edges
+
+1 2 3 4 5 6 7 8 9 10
+1
+
+Prob. of Success
+
+1
+
+0.8
+
+0.6
+
+0.4
+
+0.2
+
+1.5 2 2.5 # of Queries
+
+3 x 106
+
+(c) LearnGraph
+
+0
+
+Run-time (secs)
+
+Run-time
+
+40
+
+30
+
+20
+
+10
+
+0 10
+5
+# of Edges
+
+01
+
+2 1.5
+
+3 2.5
+x 106
+
+# of Queries
+
+(d) LearnGraph
+
+Figure 3: Sketching performance of random hypergraphs with n = 1000 nodes.
+Over an interval t, each sender with a unique zipcode forms a hyperedge, and the recipients are the members of the hyperedge. By considering T consecutive intervals t over a set of z 5649 zipcodes, the communication pattern gives rise to a hypergraph with only few hyperedges in each interval and each hyperedge contains only few d nodes. The complete set of nodes in the hypergraph n is the set of recipients who are active during the T intervals. In Table 2, we choose the sketching interval t = 0.5hr and consider T = 5 intervals. For each interval, we extract the communication hypergraph from the dataset by sketching the communications originating from a set of z = 20 zipcodes4 by posing queries constructed at random in our framework. We average our performance over 100 trial runs and obtain the success probability.
+
+Temporal Graph (9:00 a.m.  9:30 a.m.) (9:30 a.m.  10:00 a.m.) (10:00 a.m.  10:30 a.m.) (10:30 a.m.  11:00 a.m.) (11:00 a.m.  11:00 a.m.)
+
+n 12648 12648 12648 12648 12648
+
+# of edges (E) 87 102 109 84 89
+
+degree (d) 9 8 7 9 10
+
+1 - PF 0.97 0.99 0.99 0.93 0.93
+
+Run-time (sec) 422.3 310.1 291.4 571.3 295.1
+
+Table 2: Sketching performance with C = 8 groups and P = 421 query sets of size B = 128.
+
+We maintain C = 8 groups of queries with P = 421 query sets of size B = 256 per group throughout all the experiments (i.e., 8.6 x 105 queries  60n). It is also seen that we can sketch the
+temporal communication hypergraphs from the real dataset over much larger intervals (0.5 hr) than
+that by LearnGraph (around 30 sec to 5 min), also more reliably in terms of success probability.
+
+5 Conclusions
+In this paper, we introduce a coding-theoretic active learning framework for sparse polynomials under a much more challenging sparsity regime. The proposed framework effectively lowers the query complexity and especially the computational complexity. Our framework is useful in sketching large hypergraphs, where the queries are obtained by specific graph cuts. We further show via experiments that our learning algorithm performs very well over real datasets compared with existing approaches.
+4We did now show the performance of LearnGraph because it fails to work on hypergraphs with the number of hyperedges at this scale with a reasonable number of queries (i.e.,  1000n), as mentioned in [9].
+
+8
+
+References
+[1] D. Angluin. Computational learning theory: survey and selected bibliography. In Proceedings of the twenty-fourth annual ACM symposium on Theory of computing, pages 351-369. ACM, 1992.
+[2] M. Bouvel, V. Grebinski, and G. Kucherov. Combinatorial search on graphs motivated by bioinformatics applications: A brief survey. In Graph-Theoretic Concepts in Computer Science, pages 16-27. Springer, 2005.
+[3] N. Bshouty and Y. Mansour. Simple learning algorithms for decision trees and multivariate polynomials. In Foundations of Computer Science, 1995. Proceedings., 36th Annual Symposium on, pages 304-311, Oct 1995.
+[4] N. H. Bshouty and H. Mazzawi. Optimal query complexity for reconstructing hypergraphs. In 27th International Symposium on Theoretical Aspects of Computer Science-STACS 2010, pages 143-154, 2010.
+[5] S.-S. Choi, K. Jung, and J. H. Kim. Almost tight upper bound for finding fourier coefficients of bounded pseudo-boolean functions. Journal of Computer and System Sciences, 77(6):1039- 1053, 2011.
+[6] S. A. Goldman. Computational learning theory. In Algorithms and theory of computation handbook, pages 26-26. Chapman & Hall/CRC, 2010.
+[7] J. Jackson. An efficient membership-query algorithm for learning dnf with respect to the uniform distribution. In Foundations of Computer Science, 1994 Proceedings., 35th Annual Symposium on, pages 42-53. IEEE, 1994.
+[8] M. J. Kearns. The computational complexity of machine learning. MIT press, 1990. [9] M. Kocaoglu, K. Shanmugam, A. G. Dimakis, and A. Klivans. Sparse polynomial learning and
+graph sketching. In Advances in Neural Information Processing Systems, pages 3122-3130, 2014. [10] E. Kushilevitz and Y. Mansour. Learning decision trees using the fourier spectrum. SIAM Journal on Computing, 22(6):1331-1348, 1993. [11] Y. Mansour. Learning boolean functions via the fourier transform. In Theoretical advances in neural computation and learning, pages 391-424. Springer, 1994. [12] Y. Mansour. Randomized interpolation and approximation of sparse polynomials. SIAM Journal on Computing, 24(2):357-368, 1995. [13] H. Mazzawi. Reconstructing Graphs Using Edge Counting Queries. PhD thesis, TechnionIsrael Institute of Technology, Faculty of Computer Science, 2011. [14] S. Negahban and D. Shah. Learning sparse boolean polynomials. In Communication, Control, and Computing (Allerton), 2012 50th Annual Allerton Conference on, pages 2032-2036. IEEE, 2012. [15] T. Richardson and R. Urbanke. Modern coding theory. Cambridge University Press, 2008. [16] R. Scheibler, S. Haghighatshoar, and M. Vetterli. A fast hadamard transform for signals with sub-linear sparsity. arXiv preprint arXiv:1310.1803, 2013. [17] B. Settles. Active learning literature survey. University of Wisconsin, Madison, 52:55-66, 2010. [18] P. Stobbe and A. Krause. Learning fourier sparse set functions. In International Conference on Artificial Intelligence and Statistics, pages 1125-1133, 2012. [19] Yahoo. Yahoo! webscope dataset ydata-ymessenger-user-communication-pattern-v1 0.
+9
+

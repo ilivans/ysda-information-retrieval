@@ -1,0 +1,777 @@
+Fast Distributed k-Center Clustering with Outliers on Massive Data
+
+Gustavo Malkomes, Matt J. Kusner, Wenlin Chen Department of Computer Science and Engineering Washington University in St. Louis St. Louis, MO 63130
+{luizgustavo,mkusner,wenlinchen}@wustl.edu
+
+Kilian Q. Weinberger Department of Computer Science
+Cornell University Ithaca, NY 14850 kqw4@cornell.edu
+
+Benjamin Moseley Department of Computer Science and Engineering
+Washington University in St. Louis St. Louis, MO 63130
+bmoseley@wustl.edu
+
+Abstract
+Clustering large data is a fundamental problem with a vast number of applications. Due to the increasing size of data, practitioners interested in clustering have turned to distributed computation methods. In this work, we consider the widely used kcenter clustering problem and its variant used to handle noisy data, k-center with outliers. In the noise-free setting we demonstrate how a previously-proposed distributed method is actually an O(1)-approximation algorithm, which accurately explains its strong empirical performance. Additionally, in the noisy setting, we develop a novel distributed algorithm that is also an O(1)-approximation. These algorithms are highly parallel and lend themselves to virtually any distributed computing framework. We compare each empirically against the best known sequential clustering methods and show that both distributed algorithms are consistently close to their sequential versions. The algorithms are all one can hope for in distributed settings: they are fast, memory efficient and they match their sequential counterparts.
+1 Introduction
+Clustering is a fundamental machine learning problem with widespread applications. Example applications include grouping documents or webpages by their similarity for search engines [30] or grouping web users by their demographics for targeted advertising [2]. In a clustering problem one is given as input a set U of n data points, characterized by a set of features, and is asked to cluster (partition) points so that points in a cluster are similar by some measure. Clustering is a well understood task on modestly sized data sets; however, today practitioners seek to cluster datasets of massive size. Once data becomes too voluminous, sequential algorithms become ineffective due to their running time and insufficient memory to store the data. Practitioners have turned to distributed methods, in particular MapReduce [13], to efficiently process massive data sets.
+One of the most fundamental clustering problems is the k-center problem. Here, it is assumed that for any two input points a pair-wise distance can be computed that reflects their dissimilarity (typically these arise from a metric space). The objective is to choose a subset of k points (called centers) that give rise to a clustering of the input set into k clusters. Each input point is assigned to the cluster defined by its closest center (out of the k center points). The k-center objective selects these centers to minimize the farthest distance of any point to its cluster center.
+1
+
+The k-center problem has been studied for over three decades and is a fundamental task used for
+exemplar based clustering [22]. It is known to be NP-Hard and, further, no algorithm can achieve a (2 - )-approximation for any > 0 unless P=NP [16, 20]. In the sequential setting, there are algorithms which match this bound achieving a 2-approximation [16, 20].
+
+The k-center problem is popular for clustering datasets which are not subject to noise since the
+objective is sensitive to error in the data because the worst case (maximum) distance of a point to
+the centers is used for the objective. In the case where data can be noisy [1, 18, 19], previous work has considered the k-centers with outliers problem [10]. In this problem, the objective is the same, but additionally one may discard a set of z points from the input. These z points are the outliers and are ignored in the objective. Here, the best known algorithm is a 3-approximation [10].
+
+Once datasets become large, the known algorithms for these two problems become ineffective. Due to this, previous work on clustering has resorted to alternative algorithmics. There have been several works on streaming algorithms [3, 17, 24, 26]. Others have focused on distributed computing [6, 7, 14, 25]. The work in the distributed setting has focused on algorithms which are implementable in MapReduce, but are also inherently parallel and work in virtually any distributed computing framework. The work of [14] was the first to consider k-center clustering in the distributed setting. Their work gave an O(1)-round O(1)-approximate MapReduce algorithm. Their algorithm is a sampling based MapReduce algorithm which can be used for a variety of clustering objectives. Unfortunately, as the authors point out in their paper, the algorithm does not always perform well empirically for the k-center objective since the objective function is very sensitive to missing data points and the sampling can cause large errors in the solution.
+
+The
+
+work
+
+of
+
+Kumar
+
+et
+
+al.
+
+[23]
+
+gave
+
+a
+
+(1 -
+
+1 e
+
+)-approximation
+
+algorithm
+
+for
+
+submodular
+
+function
+
+maximization subject to a cardinality constraint in the MapReduce setting, however, their algorithm
+
+requires a non-constant number of MapReduce rounds. Whereas, Mirzasoleiman et al. [25] (re-
+
+cently, extended in [8]) gave a two MapReduce rounds algorithm but their approximation ratio is not
+
+constant. It is known that an exact algorithm for submodular maximization subject to a cardinality
+
+constraint gives an exact algorithm for the k-center problem. Unfortunately, both problems are NP-
+
+Hard and the reduction is not approximation preserving. Therefore, their theoretical results do not
+
+imply a nontrivial approximation for the k-center problem.
+
+For these problems, the following questions loom: What can be achieved for k-center clustering with or without outliers in the large-scale distributed setting? What underlying algorithmic ideas are needed for the k-center with outliers problem to be solved in the distributed setting? The k-center with outliers problem has not been studied in the distributed setting. Given the complexity of the
+sequential algorithm, it is not clear what such an algorithm would look like.
+
+Contributions. In this work, we consider the k-center and k-center with outliers problems in the distributed computing setting. Although the algorithms are highly parallel and work in virtually any distributed computing framework, they are particularly well suited for the MapReduce [13] as they require only small amounts of inter-machine communication and very little memory on each machine. We therefore state our results for the MapReduce framework [13]. We will assume throughout the paper that our algorithm is given some number of machines, m, to process the data. We first begin by considering a natural interpretation of the algorithm of Mirzasoleiman et al. [25] on submodular optimization for the k-center problem. The algorithm we introduce runs in two MapReduce rounds and achieves a small constant approximation.
+
+Theorem 1.1. There is a two round MapReduce algorithm which achieves a 4-approximation for the k-center problem which communicates O(km) amount of data assuming the data is already partitioned across the machines. The algorithm uses O(max{n/m, mk}) memory on each machine.
+
+Next we consider the k-center with outliers problem. This problem is far more challenging and previous distributed techniques do not lend themselves to this problem. Here we combine the algorithm developed for the problem without outliers with the sequential algorithm for k-center with outliers. We show a two round MapReduce algorithm that achieves an O(1)-approximation.
+Theorem 1.2. There is a two round MapReduce algorithm which achieves a 13-approximation for the k-center with outliers problem which communicates O(km log n) amount of data assuming the data is already partitioned across the machines. The algorithm uses O(max{n/m, m(k+z) log n}) memory on each machine.
+
+2
+
+Finally, we perform experiments with both algorithms on real world datasets. For k-center we observe that the quality of the solutions is effectively the same as that of the sequential algorithm for all values of k--the best one could hope for. For the k-center problem with outliers our algorithm matches the sequential algorithm as the values of k and z vary and it significantly outperforms the algorithm which does not explicitly consider outliers. Somewhat surprisingly our algorithm achieves
+an order of magnitude speed-up over the sequential algorithm even if it is run sequentially.
+
+2 Preliminaries
+
+Map-Reduce. We will consider algorithms in the distributed setting where our algorithms are given m machines. We define our algorithms in a general distributed manner, but they particularly suited to the MapReduce model [21]. This model has become widely used both in theory and in applied machine learning [4, 5, 9, 12, 15, 21, 25, 27, 31]. In the MapReduce setting, algorithms run in rounds. In each round the machines are allowed to run a sequential computation without machine communication. Between rounds, data is distributed amongst the machines in preparation for new computation. The goal is to design an algorithm which runs in a small number of rounds since the main running time bottleneck is distributing the data amongst the machine between each round. Generally it is assumed that each of the machines uses sublinear memory [21]. The motivation here is that since MapReduce is used to process large data sets, the memory on the machines should be much smaller than the input size to the problem. It is additionally assumed that there is enough memory to store the entire dataset across all machines. Our algorithms fall into this category and the memory required on each machine scales inversely with m.
+
+k-center (with outliers) problem. In the problems considered, there is a universe U of n points. Between each pair of points u, v  U there is a distance d(u, v) specifying their dissimilarity. The points are assumed to lie in a metric space which implies that for all u, v, u  U we have that 1. d(u, u) = 0, 2. d(u, v) = d(v, u), and 3. d(u, v)  d(u, u )+d(u , v) (triangle inequality). For a set X of points, we let dX (u) := minvX {d(u, v)} denote the minimum distance of a point u  U to any point in X. In the k-center problem, the goal is to choose a set of centers X of k points such
+that maxvU dX (v) is minimized (i.e., dX (v) is the distance between v and its cluster center and we would like to minimize the largest distance, across all points). In the k-center with outliers problem,
+the goal is to choose a set X of k points and a set Z of z points such that maxvU\Z dX (v) is minimized. Note that in this problem the algorithm simply needs to choose the set X as the optimal
+set of Z points is well defined: It is the set of points in U farthest from the centers X.
+
+Sequential algorithms The most widely used k-center (with- Algorithm 1 Sequential k-center
+
+out outliers) algorithm is the following simple greedy proce- GREEDY(U, k) dure, summarized in pseudo-code in Algorithm 1. The algo-
+
+rithm sets X =  and then iteratively adds points from U to X until |X| = k. At each step, the algorithm greedily selects the farthest point in U from X, and then adds this point to the updated set X. This algorithm is natural and efficient and is known to give a 2-approximation for the k-center prob-
+lem [20]. However, it is also inherently sequential and does
+not lend itself to the distributed setting (except for very small
+
+1: X =  2: Add any point u  U to X 3: while |X| < k do 4: u = argmaxvU dX (v) 5: X = X  {u}
+6: end while
+
+k). A naive MapReduce implementation can be obtained by finding the element v  U to maximize
+
+dX (v) in a distributed fashion (line 4 in Algorithm 1). This, however, requires k rounds of Map-
+
+Reduce that must distribute the entire dataset each round. Therefore it is unsuitably inefficient for
+
+many real world problems. The sequential algorithm for k-center with outliers is more complicated
+
+due to the increased difficulty of the problem (for reference see: [10]). This algorithm is even more
+
+fundamentally sequential than Algorithm 1.
+
+3 k-Center in MapReduce
+
+In this section we consider the k-center problem where no outliers are allowed. As mentioned
+
+before, a similar variant of this problem has been previously studied in Mirzasoleiman et al. [25]
+
+in the distributed setting. The work of Mirzasoleiman et al. considers submodular maximization
+
+and
+
+showed
+
+a
+
+min{
+
+1 k
+
+,
+
+1 m
+
+}-approximation
+
+where
+
+m
+
+is
+
+the
+
+number
+
+of
+
+machines.
+
+Their algorithm
+
+was shown to perform extremely well in practice (in a slightly modified clustering setup). The
+
+3
+
+k-center problem can be mapped to submodular maximization, but the standard reduction is not approximation preserving and their result does not imply a non-trivial approximation for k-center. In this section, we give a natural interpretation of their algorithm without submodular maximization.
+Algorithm 2 summarizes a distributed approach for solving the k-center problem. First the data points of U are partitioned across all m machines. Then each machine i runs the GREEDY algorithm on the partition they are given to compute a set Ci of k points. These points are assigned to a single machine, which runs GREEDY again to compute the final solution. The algorithm runs in two MapReduce rounds and the only information communicated is Ci for each i if the data is already assigned to machines. Thus, we have the following proposition.
+Proposition 3.1. The algorithm GREEDY-MR runs in two MapReduce rounds and communicates O(km) amount of data assuming the data is originally partitioned across the machines. The algorithm uses O(max{n/m, mk}) memory on each machine.
+
+We aim to bound the approximation ratio of GREEDY-MR. Let OPT denote the optimal
+
+Algorithm 2 Distributed k-center
+
+solution value for the k-center problem. The GREEDY-MR(U, k)
+
+previous proposition and following lemma 1: Partition U into m equal sized sets U1, . . . , Um
+
+give Theorem 1.1.
+
+where machine i receives Ui.
+
+Lemma 3.2. The algorithm GREEDY-MR is a 4-approximation algorithm.
+Proof. We first show for any i that dCi (u)  2OPT for any u  Ui. Indeed, say that this is
+
+2: Machine i assigns Ci = GREEDY(Ui, k) 3: All sets Ci are assigned to machine 1 4: Machine 1 sets X = GREEDY(mi=1Ci, k) 5: Output X
+
+not the case for sake of contradiction for some i. Then for some u  Ui, dCi (u) > 2OPT which implies u is distance greater than 2OPT from all points in Ci. By definition of GREEDY for any pair
+
+of points v, v  Ci it must be the case that d(v, v )  dCi (u) > 2OPT (otherwise u would have been included in Ci). Thus, in the set {u}  Ci there are k + 1 points all of distance greater than
+
+2OPT from each other. However, then two of these points v, v  ({u}  Ci) must be assigned to the same center v in the optimal solution. Using the triangle inequality and the definition of OPT it
+
+must be the case that d(v, v )  d(v, v) + d(v, v )  2OPT, a contradiction. Thus, for all points
+
+u  Ui, it must be that dCi (u)  2OPT.
+
+LwthehitseXniscdnoeomntopttahereethdceatsooeuXtfpo.urtTsshaoaklteuitsoio,fnwcboeynstGhroaRdwEicEtthDioaYtn-d.MXTR(hu.e)nWfeoc2raOsnoPsmhToewfuoraasnimymii=ula1rCrie,smiud=lXt1fC(ouir).p>Ionidn2etOsediPn,Tsawmiy=ht1ihCcahit implies u is distance greater than 2OPT from all points in X. By definition of GREEDY for any pair of points v, v  mi=1Ci it must be that d(v, v )  dX (u) > 2OPT. Thus, in the set {u}  X there are k+1 points all of distance greater than 2OPT from each other. However, then two of these points v, v  ({u}  X) must be assigned to the same center v in the optimal solution. Using the triangle inequality and the definition of OPT it must be the case that d(v, v )  d(v, v)+d(v, v )  2OPT, a contradiction. Thus, for all points u  mi=1Ci, it must be that dX (u)  2OPT.
+
+Now we put these together to get a 4-approximation. Consider any point u  U . If u is in Ci for any i, it must be the case that dX (u)  2OPT by the above argument. Otherwise, u is not in Ci for any i. Let Uj be the partition which u belongs to. We know that u is within distance 2OPT to some point v  Cj and further we know that v is within distance 2OPT from X from the above arguments. Thus, using the triangle inequality, dX (u)  d(u, v) + dX (v)  2OPT + 2OPT  4OPT.
+
+4 k-center with Outliers
+In this section, we consider the k-center with outliers problem and give the first MapReduce algorithm for the problem. The problem is more challenging than the version without outliers because one has to also determine which points to discard, which can drastically change which centers should be chosen. Intuitively, the right algorithmic strategy is to choose centers such that there are many points around them. Given that they are surrounded by many points, this is a strong indicator that these points are not outliers. This idea was formalized in the algorithm of Charikar et al. [10], a well-known and influential algorithm for this problem in the single machine setting.
+
+Algorithm 3 summarizes the approach of Charikar et al. [10]. It takes as input the set of points U , the desired number centers k and a parameter G. The parameter G is a `guess' of the optimal solution's value. The algorithm's performance is best when G = OPT where OPT denotes the
+
+4
+
+optimal k-center objective after discarding z points. The number of outliers to be discarded, z, is not a parameter of the algorithm and is communicated implicitly through G. The value of G can be determined by doing a binary search on possible values of G--between the minimum and maximum
+distances of any two points.
+
+For each point u  U , the set Bu contains Algorithm 3 Sequential k-center with outliers [10]
+
+points within distance G of u. The algorithm adds the point v to the solution set
+which covers the largest number of points with Bv . The idea here is to add points which have many points nearby (and thus large Bv ). Then the algorithm removes all points from the universe which are within distance 3G from v and continues until k points are chosen to be in the set X. Recall that in the out-
+liers problem, choosing the centers is a well
+
+OUTLIERS(U, k, G)
+1: U = U , X =  2: while |X| < k do 3: u  U let Bu = {v : v  U , du,v  G} 4: Let v = argmaxuU |Bu| 5: Set X = X  {v } 6: Compute Bv = {v : v  U , dv ,v  3G} 7: U = U \ Bv 8: end while
+
+defined solution and the outliers are simply the farthest z points from the centers. Further, it can
+
+be shown that when G = OP T , after selecting the k centers, there are at most z outliers remaining
+
+in U . It is known that this algorithm gives a 3-approximation [10]--however it is not efficient on
+
+large or even medium sized datasets due to the computation of the sets Bu within each iteration. For instance, it can take  100 hours on a data set with 45, 000 points.
+
+We now give a distributed approach (Algorithm 4) for clustering with outliers. This algorithm is naturally parallel, yet it is significantly faster even if run sequentially on a single machine. It uses a sub-procedure (Algorithm 5) which is a generalization of OUTLIERS.
+
+The algorithm first partitions the points
+
+across the m machines (e.g., set Ui goes Algorithm 4 Distributed k-center with outliers
+
+to machine i). Each machine i runs the OUTLIERS-MR(U, k, z, G, , )
+
+GREEDY algorithm on Ui, but selects k+z
+
+points rather than k. This results in a set Ci. For each c  Ci, we assign a weight wc that is the number of points in Ui that have c as their closest point in Ci (i.e., if Ci defines an intermediate clustering of Ui then wc is the number of points in the ccluster). The algorithm then runs a vari-
+ation of OUTLIERS called CLUSTER, de-
+scribed in Algorithm 5, on only the points in mi=1Ci. The main differences are that
+
+1: Partition U into m equal sized sets U1, . . . , Um
+where machine i receives Ui.
+2: Machines i sets Ci = GREEDY(Ui, k + z) 3: For each point c  Ci, machine i set wc = |{v :
+v  Ui, d(v, c) = dCi (v)}| + 1 4: All sets Ci are assigned to machine 1 with the
+weights of the points in Ci 5: Machine 1 sets X = CLUSTER(mi=1Ci, k, G) 6: Output X
+
+CLUSTER represents each point c by the number of points wc closest to it, and that it uses 5G and
+
+11G for the radii in Bu and Bu.
+
+The total machine-wise communica-
+
+tion required for OUTLIERS-MR is Algorithm 5 Clustering subroutine
+
+that needed to send each of the sets Ci to Machine 1 along with their weights. Each weight can have size at most n, so it only requires O(log n) space to encode the weight. This gives the following proposition.
+Proposition 4.1. OUTLIERS-MR runs in two MapReduce rounds and communicates O((k + z)m log n) amount of data assuming the data is originally partitioned across the
+
+CLUSTER(U, k, G)
+1: U = U , X =  2: while |X| < k do 3: u  U compute Bu = {v : v  U , du,v  5G} 4: Let v = argmaxuU u Bu wu 5: Set X = X  {v } 6: Compute Bv = {v : v  U , dv ,v  11G} 7: U = U \ Bv 8: end while
+9: Output X
+
+machines. The algorithm uses O(max{n/m, m(k + z) log n}) memory on each machine.
+
+Our goal is to show that OUTLIERS-MR is an O(1)-approximation algorithm (Theorem 1.2). We first present intermediate lemmas and give proof sketches, leaving intermediate proofs to the supplementary material. We overload notation and let OPT denote a fixed optimal solution as well as
+
+5
+
+the optimal objective to the problem. We will assume throughout the proof that G = OPT, as we can perform a binary search to find G = OPT(1 + ) for arbitrarily small > 0 when running CLUSTER on a single machine. We first claim that any point in Ui is not too far from any point in Ci.
+Lemma 4.2. For every point u  Ui it is the case that dCi (u)  2OPT for all 1  i  m.
+
+Given the above lemma, let O1, . . . , Ok denote the clusters in the optimal solution. A cluster in OPT is defined as a subset of the points in U , not including outliers identified by OPT, that are closest to
+some fixed center chosen by OPT. The high level idea of our proof is similar to that used in [10]. Our goal is to show that when our algorithm choses each center, the set of points discarded from U
+in CLUSTER can be mapped to some cluster in the optimal solution. At the end of CLUSTER there should be at most z points in U , which are the outliers in the optimal solution. Knowing that we only discard points from U close to centers we choose, this will imply the approximation bound.
+
+For every point u  U , which must fall into some Ui, we let c(u) denote the closest point in Ci to u (i.e., c(u) is the closest intermediate cluster center found by GREEDY to u). Consider the output of CLUSTER, X = {x1, x2, . . . , xk}, ordered by how elements were added to X. We will say that an optimal cluster Oi is marked at CLUSTER iteration j if there is a point u  Oi such that c(u) / U just before xj is added to X. Essentially if a cluster is marked, we can make no guarantee about covering it within some radius of xj (which will then be discarded). Figure 1 shows examples where Oi is (and is not) marked. We begin by noting that when xj is added to X that the weight of the points removed from U is at least as large as the maximum number of points in an unmarked cluster
+in the optimal solution.
+Lemma 4.3. When xj is added, then u Bxj wu  |Oi| for any unmarked cluster Oi.
+
+Given this result, the following lemma considers a point v that is in some cluster Oi. If c(v) is within the ball Bxj for xj added to X, then intuitively, this means that we cover all of the points in Oi with Bxj . Another way to say this is that after we remove the ball Bxj , no points in Oi contribute weight to any point in U .
+Lemma 4.4. Consider that xj is to be added to X. Say that c(v)  Bxj for some point v  Oi for some i. Then, for every point u  Oi either c(u)  Bxj or c(u) has already been removed from U .
+
+See the supplementary material for the proof. The final lemma below states
+
+tohfapt othinetws ienight1ofithkeOpio.inFtusritnher,xiw:1ekinkoBwxtihiast
+
+at least as |  1ik
+
+large as the Oi| = n -
+
+number z since
+
+OPT has z outliers. Viewing the points in Bxi as being assigned to xi in the
+
+algorithm's solution then this shows that the number of points covered is at
+
+least as large as the number of points that the optimal solution covers. Hence,
+
+there cannot be more than z points uncovered by our algorithm.
+
+Lemma 4.5.
+
+k i=1
+
+uBxi wu  n - z
+
+Finally, we are ready to complete the proof of Theorem 1.2.
+
+Oi marked
+
+Oi v
+
+9u
+
+c(u)
+deleted from U 0
+
+v0
+
+c(v0)
+
+c(v)
+
+U0 Oi unmarked
+
+Oi 8u
+
+v v0
+
+c(v0) c(u)
+
+c(v)
+
+U0
+Figure 1: Examples in which Oi is/is not marked.
+
+Proof of [Theorem 1.2] Lemma 4.5 implies that the sum of the weights of the
+
+points which are in xi:1ikBxi weight of some point c(u) which
+
+are at least is in Ci for
+
+n 1
+
+- 
+
+z. i
+
+We know that every  m and by Lemma
+
+point u contributes to the 4.2 d(u, c(u))  2OPT.
+
+We the
+
+map case
+
+every point u  U d(u, xi)  13OPT
+
+to xi, such that by the triangle
+
+c(u)  Bxi . By inequality. Thus,
+
+definition of Bxi we have mapped
+
+and n-
+
+Lemma z points
+
+4.2 it is to some
+
+point in X within distance 13OPT. Hence, our algorithm discards at most n - z points and achieves
+
+a 13-approximation. With Proposition 4.1 we have shown Theorem 1.2.
+
+2
+
+5 Experiments
+We evaluate the real-world performance of the above clustering algorithms on seven clustering datasets, described in Table 1. We compare all methods using the k-center with outliers objective, in which z outliers may be discarded. We begin with a brief description of the clustering methods we
+
+6
+
+Table 1: The clustering datasets (and their descriptions) used for evaluation.
+
+name description
+
+n
+
+Parkinsons [28] patients with early-stage Parkinson's disease
+
+5, 875
+
+Census1 census household information
+
+45, 222
+
+Skin1 RGB-pixel samples from face images
+
+245, 057
+
+Yahoo [11] web-search ranking dataset (features are GBRT outputs [29])
+
+473, 134
+
+Covertype1 a forest cover dataset with cartographic features
+
+522, 911
+
+Power1 household electric power readings
+
+2, 049, 280
+
+Higgs1 particle detector measurements (the seven `high-level' features) 11, 000, 000
+
+dim. 22 12 3 500 13 7 7
+
+compare. We then show how the distributed algorithms compare with their sequential counterparts
+on datasets small enough to run the sequential methods, for a variety of settings. Finally, in the large-scale setting, we compare all distributed methods for different settings of k.
+
+Methods. We implemented the sequential GREEDY and OUTLIERS and distributed GREEDY-MR
+[25] and OUTLIERS-MR. We also implemented two baseline methods: RANDOM|RANDOM: m
+machines randomly select k +z points, then a single machine randomly selects k points out of the previously selected m(k+z) points; RANDOM|OUTLIERS: m machines randomly select k+z points,
+then OUTLIERS (Algorithm 4) is run over the m(k+z) points previously selected; All methods were implemented in MATLABTM and conducted on an 8-core Intel Xeon 2 GHz machine.
+
+objective value
+
+10k Cm=o10v, z=e25r6type
+2
+
+1.6
+
+1.2
+
+0.8 Greedy
+Outliers Random | Random
+0.4 Random | Outliers
+Greedy-MR Outliers-MR
+
+0 20
+
+40 60
+k
+
+k=50, m=10
+2
+
+80
+
+1.6
+
+1.2
+
+0.8
+
+0.4
+
+0 5678
+log (z) 2
+k=50, z=256
+2
+
+1.6
+
+1.2
+
+0.8
+
+0.4
+
+0 5
+
+10 15
+m
+
+10km=P10,oz=w256er
+40
+
+Pamr=k10i,nz=s25o6 n
+45
+
+35 40 30 25 35
+
+20 30
+
+15 25 10
+5 20
+
+0 100 20
+40
+
+40 60
+k
+k=50, m=10
+
+15
+
+80 100
+
+20 40 60
+
+number of clusters: k
+
+k
+
+k=50, m=10
+
+45
+
+80
+
+35 40 30 25 35
+
+20 30
+
+15 25 10
+5 20
+
+9
+
+0 5
+
+40
+
+15
+
+6 7 8 95 6 7 8
+
+log2(z)
+
+number of outliers: log(z)
+
+log (z) 2
+
+k=50, z=256
+
+2 k=50, z=256
+
+45
+
+35 40
+30
+25 35
+
+20 30
+
+15 25
+10
+5 20
+
+0 20
+
+5
+
+10
+
+15
+
+20 15
+
+5
+
+10 15
+
+m number of machines: m m
+
+3 x 105
+
+Cm=e10n, zs=2u56s
+
+2.5
+
+2
+
+1.5
+
+1
+
+0.5
+
+0 100 20
+5 x 105 4.5
+4 3.5
+3 2.5
+2 1.5
+1 0.5
+0 95
+x 105 3
+
+40 60
+k k=50, m=10
+67
+log (z) 2
+k=50, z=256
+
+80 8
+
+2.5
+
+2
+
+1.5
+
+1
+
+0.5
+
+0 20
+
+5
+
+10 15
+m
+
+100 9 20
+
+Figure 2: The performance of sequential and distributed methods. We plot the objective value of four small datasets for varying k, z, and m.
+
+Sequential vs. Distributed. Our first set of experiments evaluate how close the proposed distributed
+methods are to their sequential counterparts. To this end, we vary all parameters: number of centers k, number of outliers z, and the number of machines m. We consider datasets for which computing the sequential methods is practical: Parkinsons, Census and two random subsamples (10, 000 inputs
+each) of Covertype and Power. We show the results in Figure 2. Each column contains the results for a single dataset and each row for a single varying parameter (k, z, or m), along with standard errors over 5 runs. When a parameter is not varied we fix k = 50, z = 256, and m = 10. As expected, the objective value for all methods generally decreases as k increases (as the distance of any point to its cluster center must shrink with more clusters). RANDOM|RANDOM and RANDOM|OUTLIERS usually perform worse than GREEDY-MR for small k (save 10k Covertype) and RANDOM|OUTLIERS
+
+1https://archive.ics.uci.edu/ml/datasets/
+
+7
+
+objective value
+
+250 200 150 100
+50 0 20
+
+m=10, z=256
+
+0.3
+Skin
+0.25
+
+0.2
+
+40 60
+k
+
+0.15
+
+80 100
+
+20
+
+m=10, z=256
+40 60
+k
+
+2.4
+Yahoo
+2.2 2
+1.8 1.6 1.4 1.2
+1 80 100
+
+m=10, z=256
+Covertype
+
+100 80
+
+60
+
+Random | Random Random | Outliers Greedy-MR Outliers-MR
+20 40 60 80 number of ck lusters: k
+
+40 20
+0 100
+
+20
+
+m=10, z=256
+
+20
+Power
+15
+
+10
+
+5
+
+40 60
+k
+
+80 100 0 20
+
+Figure 3: The objective value of five large-scale datasets, for varying k
+
+m=10, z=256
+40 60
+k
+
+Higgs
+80 100
+
+sometimes matches it for large k. For all values of k tested, OUTLIERS-MR outperforms all other distributed methods. Furthermore, it matches or slightly outperforms (which we attribute to randomness) the sequential OUTLIERS method in all settings. As z increases the two random methods improve, beyond GREEDY-MR in some cases. Similar to the first plot, OUTLIERS-MR outperforms
+all other distributed methods while matching the sequential clustering method. For very small settings of m (i.e., m = 2, 6), OUTLIERS-MR and GREEDY-MR perform slightly worse than sequential OUTLIERS and GREEDY. However, for practical settings of m (i.e., m  10), OUTLIERS-MR matches OUTLIERS and GREEDY-MR matches GREEDY. In terms of speed, on the largest of these datasets (Census) OUTLIERS-MR run sequentially is more than 677x faster than OUTLIERS, see Table 2. This large speedup is due to the fact that we cannot store the full distance matrix for Census,
+thus all distances need to be computed on demand.
+
+Large-scale. Our second set of experiments
+focus on the performance of the distributed
+methods on five large-scale datasets, shown in Figure 3. We vary k between 0 and 100, and fix m = 10 and z = 256. Note
+
+Table 2: The speedup of the distributed algorithms, run sequentially, over their sequential counterparts on the small datasets.
+
+dataset
+
+k-center outliers
+
+that for certain datasets, clustering while tak-
+
+10k Covertype 3.6
+
+6.2
+
+ing into account outliers produces a notice-
+
+10k Power 4.8 9.4
+
+able reduction in objective value. On Ya-
+
+Parkinson 4.9 4.4
+
+hoo, the GREEDY-MR method is even outperformed by RANDOM|OUTLIERS that considers
+
+Census
+
+12.4 677.7
+
+outliers. Similar to the small dataset results
+
+OUTLIERS-MR outperforms nearly all distributed methods (save for small k on Covertype). Even
+
+on datasets where there appear to be few outliers OUTLIERS-MR has excellent performance. Fi-
+
+nally, OUTLIERS-MR is extremely fast: clustering on Higgs took less than 15 minutes.
+
+6 Conclusion
+In this work we described algorithms for the k-center and k-center with outliers problems in the distributed setting. For both problems we studied two round MapReduce algorithms which achieve an O(1)-approximation and demonstrated that they perform almost identically to their sequential counterparts on real data. Further, a number of our experiments validate that using k-center clustering on noisy data degrades the quality of the solution. We hope these techniques lead to the discovery of fast and efficient distributed algorithms for other clustering problems. In particular, what can be shown for the k-median or k-means with outliers problems are exciting open questions.
+Acknowledgments GM was supported by CAPES/BR; MJK and KQW were supported by the NSF grants IIA-1355406, IIS-1149882, EFRI-1137211; and BM was supported by the Google and Yahoo Research Awards.
+References
+[1] P. K. Agarwal and J. M. Phillips. An efficient algorithm for 2d euclidean 2-center with outliers. In ESA, pages 64-75, 2008.
+[2] C. C. Aggarwal, J. L. Wolf, and P. S Yu. Method for targeted advertising on the web based on accumulated self-learning data, clustering users and semantic node graph techniques, March 30 2004. US Patent 6,714,975.
+[3] N. Ailon, R. Jaiswal, and C. Monteleoni. Streaming k-means approximation. In NIPS, pages 10-18, 2009.
+
+8
+
+[4] A. Andoni, A. Nikolov, K. Onak, and G. Yaroslavtsev. Parallel algorithms for geometric graph problems. In STOC, pages 574-583, 2014.
+[5] B. Bahmani, R. Kumar, and S. Vassilvitskii. Densest subgraph in streaming and mapreduce. PVLDB, 5 (5):454-465, 2012.
+[6] Bahman Bahmani, Benjamin Moseley, Andrea Vattani, Ravi Kumar, and Sergei Vassilvitskii. Scalable k-means++. PVLDB, 5(7):622-633, 2012.
+[7] M. Balcan, S. Ehrlich, and Y. Liang. Distributed k-means and k-median clustering on general communication topologies. In NIPS, pages 1995-2003, 2013.
+[8] Rafael Barbosa, Alina Ene, Huy Nguyen, and Justin Ward. The power of randomization: Distributed submodular maximization on massive datasets. In ICML, pages 1236-1244, 2015.
+[9] A. Z. Broder, L. G. Pueyo, V. Josifovski, S. Vassilvitskii, and S. Venkatesan. Scalable k-means by ranked retrieval. In WSDM, pages 233-242, 2014.
+[10] M. Charikar, S. Khuller, D. M. Mount, and G. Narasimhan. Algorithms for facility location problems with outliers. In SODA, pages 642-651, 2001.
+[11] M. Chen, K. Q. Weinberger, O. Chapelle, D. Kedem, and Z. Xu. Classifier cascade for minimizing feature evaluation cost. In AIStats, pages 218-226, 2012.
+[12] F. Chierichetti, R. Kumar, and A. Tomkins. Max-cover in map-reduce. In WWW, pages 231-240, 2010.
+[13] J. Dean and S. Ghemawat. MapReduce: Simplified data processing on large clusters. In OSDI, pages 137-150, 2004.
+[14] A. Ene, S. Im, and B. Moseley. Fast clustering using MapReduce. In KDD, pages 681-689, 2011.
+[15] J. Feldman, S. Muthukrishnan, A. Sidiropoulos, C. Stein, and Z. Svitkina. On distributing symmetric streaming computations. In SODA, pages 710-719, 2008.
+[16] T. F. Gonzalez. Clustering to minimize the maximum intercluster distance. Theoretical Computer Science, 38(0):293 - 306, 1985. ISSN 0304-3975.
+[17] S. Guha, A. Meyerson, N. Mishra, R. Motwani, and L. O'Callaghan. Clustering data streams: Theory and practice. IEEE Trans. Knowl. Data Eng., 15(3):515-528, 2003.
+[18] Sudipto Guha, Rajeev Rastogi, and Kyuseok Shim. Techniques for clustering massive data sets. In Clustering and Information Retrieval, volume 11 of Network Theory and Applications, pages 35-82. Springer US, 2004. ISBN 978-1-4613-7949-2.
+[19] M. Hassani, E. Muller, and T. Seidl. EDISKCO: energy efficient distributed in-sensor-network k-center clustering with outliers. In SensorKDD-Workshop, pages 39-48, 2009.
+[20] D. S. Hochbaum and D. B. Shmoys. A best possible heuristic for the k-center problem. Mathematics of Operations Research, 10(2):180-184, 1985.
+[21] H. J. Karloff, S. Suri, and S. Vassilvitskii. A model of computation for MapReduce. In SODA, pages 938-948, 2010.
+[22] L. Kaufman and P. J. Rousseeuw. Finding Groups in Data: An Introduction to Cluster Analysis. WileyInterscience, 9th edition, March 1990. ISBN 0471878766.
+[23] Ravi Kumar, Benjamin Moseley, Sergei Vassilvitskii, and Andrea Vattani. Fast greedy algorithms in mapreduce and streaming. In SPAA, pages 1-10, 2013.
+[24] R. M. McCutchen and S. Khuller. Streaming algorithms for k-center clustering with outliers and with anonymity. In APPROX-RANDOM, pages 165-178, 2008.
+[25] B. Mirzasoleiman, A. Karbasi, R. Sarkar, and A. Krause. Distributed submodular maximization: Identifying representative elements in massive data. In NIPS, pages 2049-2057, 2013.
+[26] M. Shindler, A. Wong, and A. W. Meyerson. Fast and accurate k-means for large datasets. In NIPS, pages 2375-2383, 2011.
+[27] S. Suri and S. Vassilvitskii. Counting triangles and the curse of the last reducer. In WWW, pages 607-614, 2011.
+[28] A. Tsanas, M. A Little, P. E McSharry, and L. O Ramig. Enhanced classical dysphonia measures and sparse regression for telemonitoring of parkinson's disease progression. In ICASSP, pages 594-597. IEEE, 2010.
+[29] S. Tyree, K.Q. Weinberger, K. Agrawal, and J. Paykin. Parallel boosted regression trees for web search ranking. In WWW, pages 387-396. ACM, 2011.
+[30] O. Zamir, O. Etzioni, O. Madani, and R. M Karp. Fast and intuitive clustering of web documents. In KDD, volume 97, pages 287-290, 1997.
+[31] Z. Zhao, G. Wang, A.R. Butt, M. Khan, V.S.A. Kumar, and M.V. Marathe. Sahad: Subgraph analysis in massive networks using hadoop. In IPDPS, pages 390-401, May 2012.
+9
+
