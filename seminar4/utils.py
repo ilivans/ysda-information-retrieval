@@ -1,26 +1,180 @@
-import os
-
 from nltk.tokenize import RegexpTokenizer
 
 tokenize = RegexpTokenizer("\w+").tokenize
 
-PICKLE_PATH = "stuff.pkl"
-TFIDF_PATH = "tfidf.npy"
-VOCABULARY_PATH = "vocabulary.npy"
-
-NPMI_FOLDER = "npmi_parts"
-NPMI_PATH_TEMPLATE = os.path.join(NPMI_FOLDER, "npmi{}-{}.npy")
-NPMI_PART_SIZE = 100
 
 def get_terms(text):
     return tokenize(text.lower())
 
 
-def make_npmi_dir():
-    if not os.path.exists(NPMI_FOLDER):
-        os.mkdir(NPMI_FOLDER)
+def get_top_terms(tf_matrix, vocabulary, stop_words_ids, k=3):
+    def get_k_meaningful_terms(terms):
+        j = 0
+        res = []
+        for term in terms:
+            if term not in stop_words_ids:
+                res.append(vocabulary[term])
+                j += 1
+                if j == k:
+                    break
+        return res
+
+    top_terms = tf_matrix.argsort(axis=0).transpose()
+    top_terms = [get_k_meaningful_terms(terms) for terms in top_terms]
+    return top_terms
 
 
-def get_npmi_part_path(term):
-    left_border = term / NPMI_PART_SIZE * NPMI_PART_SIZE
-    return NPMI_PATH_TEMPLATE.format(left_border, left_border + NPMI_PART_SIZE - 1)
+STOP_WORDS = ['about',
+ 'above',
+ 'after',
+ 'again',
+ 'against',
+ 'all',
+ 'am',
+ 'an',
+ 'and',
+ 'any',
+ 'are',
+ 'aren',
+ 'as',
+ 'at',
+ 'be',
+ 'because',
+ 'been',
+ 'before',
+ 'being',
+ 'below',
+ 'between',
+ 'both',
+ 'but',
+ 'by',
+ 'can',
+ 'cannot',
+ 'could',
+ 'couldn',
+ 'did',
+ 'didn',
+ 'do',
+ 'does',
+ 'doesn',
+ 'doing',
+ 'don',
+ 'down',
+ 'during',
+ 'each',
+ 'few',
+ 'for',
+ 'from',
+ 'further',
+ 'had',
+ 'hadn',
+ 'has',
+ 'hasn',
+ 'have',
+ 'haven',
+ 'having',
+ 'he',
+ 'her',
+ 'here',
+ 'here',
+ 'hers',
+ 'herself',
+ 'him',
+ 'himself',
+ 'his',
+ 'how',
+ 'if',
+ 'in',
+ 'into',
+ 'is',
+ 'isn',
+ 'it',
+ 'its',
+ 'itself',
+ 'let',
+ 'me',
+ 'more',
+ 'most',
+ 'mustn',
+ 'my',
+ 'myself',
+ 'no',
+ 'nor',
+ 'not',
+ 'of',
+ 'off',
+ 'on',
+ 'once',
+ 'only',
+ 'or',
+ 'other',
+ 'ought',
+ 'our',
+ 'ours',
+ 'ourselves',
+ 'out',
+ 'over',
+ 'own',
+ 'same',
+ 'she',
+ 'should',
+ 'shouldn',
+ 'so',
+ 'some',
+ 'such',
+ 'than',
+ 'that',
+ 'that',
+ 'the',
+ 'their',
+ 'theirs',
+ 'them',
+ 'themselves',
+ 'then',
+ 'there',
+ 'there',
+ 'these',
+ 'they',
+ 'they',
+ 'they',
+ 'they',
+ 'they',
+ 'this',
+ 'those',
+ 'through',
+ 'to',
+ 'too',
+ 'under',
+ 'until',
+ 'up',
+ 'very',
+ 'was',
+ 'wasn',
+ 'we',
+ 'were',
+ 'weren',
+ 'what',
+ 'what',
+ 'when',
+ 'when',
+ 'where',
+ 'where',
+ 'which',
+ 'while',
+ 'who',
+ 'who',
+ 'whom',
+ 'why',
+ 'why',
+ 'with',
+ 'won',
+ 'would',
+ 'wouldn',
+ 'you',
+ 'll',
+ 're',
+ 've',
+ 'your',
+ 'yours',
+ 'yourself',
+ 'yourselves'] + map(str, range(10)) + list('abcdefghijklmnopqrstuvwxyz') + ['10']

@@ -1,20 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
-
 import os
-import cPickle
-import argparse
 from collections import Counter
-from time import clock
-import warnings
 
 import numpy as np
-import sys
 
-from numpy import log2
-from joblib import Parallel, delayed
-
-from utils import get_terms, make_npmi_dir, PICKLE_PATH, TFIDF_PATH, NPMI_PART_SIZE, NPMI_PATH_TEMPLATE, VOCABULARY_PATH
+from utils import get_terms
 
 EPSILON = 1e-8
 
@@ -61,3 +52,20 @@ def build_inverted_index(index, term_to_id):
             tf = float(frequency)
             inverted_index[term_to_id[term]][document_id] = tf
     return inverted_index
+
+
+def get_tf_matrix(inverted_index, num_docs):
+    voc_size = len(inverted_index)
+    tf_matrix = np.zeros((voc_size, num_docs), dtype=np.float32)
+    for term, posting_list in enumerate(inverted_index):
+        for doc_id, tf in posting_list.iteritems():
+            tf_matrix[term, doc_id] = tf
+    return tf_matrix
+
+
+def normalize(tf_matrix):
+    num_docs = tf_matrix.shape[1]
+    tf_normalized = tf_matrix / tf_matrix.sum(axis=1).reshape((-1, 1))
+    tf_normalized = (tf_normalized * np.ma.log(tf_normalized).filled(0.) / np.log(num_docs)).sum(axis=1).reshape((-1, 1))
+    tf_normalized = tf_normalized * np.log2(tf_matrix + 1.)
+    return tf_normalized
