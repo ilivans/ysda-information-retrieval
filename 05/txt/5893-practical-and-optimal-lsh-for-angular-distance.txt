@@ -1,0 +1,760 @@
+Practical and Optimal LSH for Angular Distance
+
+Alexandr Andoni Columbia University
+Ilya Razenshteyn MIT
+
+Piotr Indyk MIT
+
+Thijs Laarhoven TU Eindhoven
+
+Ludwig Schmidt MIT
+
+Abstract
+We show the existence of a Locality-Sensitive Hashing (LSH) family for the angular distance that yields an approximate Near Neighbor Search algorithm with the asymptotically optimal running time exponent. Unlike earlier algorithms with this property (e.g., Spherical LSH [1, 2]), our algorithm is also practical, improving upon the well-studied hyperplane LSH [3] in practice. We also introduce a multiprobe version of this algorithm and conduct an experimental evaluation on real and synthetic data sets.
+We complement the above positive results with a fine-grained lower bound for the quality of any LSH family for angular distance. Our lower bound implies that the above LSH family exhibits a trade-off between evaluation time and quality that is close to optimal for a natural class of LSH functions.
+
+1 Introduction
+
+Nearest neighbor search is a key algorithmic problem with applications in several fields including computer vision, information retrieval, and machine learning [4]. Given a set of n points P  Rd,
+the goal is to build a data structure that answers nearest neighbor queries efficiently: for a given query point q  Rd, find the point p  P that is closest to q under an appropriately chosen distance metric.
+The main algorithmic design goals are usually a fast query time, a small memory footprint, and--in
+the approximate setting--a good quality of the returned solution.
+
+There is a wide range of algorithms for nearest neighbor search based on techniques such as space
+
+partitioning with indexing, as well as dimension reduction or sketching [5]. A popular method for
+
+point sets in high-dimensional spaces is Locality-Sensitive Hashing (LSH) [6, 3], an approach that
+
+offers a provably sub-linear query time and sub-quadratic space complexity, and has been shown
+
+to achieve good empirical performance in a variety of applications [4]. The method relies on the
+
+notion of locality-sensitive hash functions. Intuitively, a hash function is locality-sensitive if its
+
+probability of collision is higher for "nearby" points than for points that are "far apart". More formally,
+
+two points are nearby if their distance is at most r1, and they are far apart if their distance is at least r2 = c * r1, where c > 1 quantifies the gap between "near" and "far". The quality of a hash function is characterized by two key parameters: p1 is the collision probability for nearby points, and p2 is the collision probability for points that are far apart. The gap between p1 and p2
+
+determines how "sensitive" the hash function is to changes in distance, and this property is captured
+
+by
+
+the
+
+parameter
+
+
+
+=
+
+log log
+
+1/p1 1/p2
+
+,
+
+which
+
+can
+
+usually
+
+be
+
+expressed
+
+as
+
+a
+
+function
+
+of
+
+the
+
+distance
+
+gap
+
+c.
+
+The problem of designing good locality-sensitive hash functions and LSH-based efficient nearest
+
+neighbor search algorithms has attracted significant attention over the last few years.
+
+The authors are listed in alphabetical order.
+
+1
+
+In this paper, we focus on LSH for the Euclidean distance on the unit sphere, which is an important special case for several reasons. First, the spherical case is relevant in practice: Euclidean distance on a sphere corresponds to the angular distance or cosine similarity, which are commonly used in applications such as comparing image feature vectors [7], speaker representations [8], and tf-idf data sets [9]. Moreover, on the theoretical side, the paper [2] shows a reduction from Nearest Neighbor Search in the entire Euclidean space to the spherical case. These connections lead to a natural question: what are good LSH families for this special case?
+
+On the theoretical side, the recent work of [1, 2] gives the best known provable guarantees for LSH-
+
+based nearest neighbor search w.r.t. the Euclidean distance on the unit sphere. Specifically, their
+
+algorithm
+
+has
+
+a
+
+query
+
+time
+
+of
+
+O(n)
+
+and
+
+space
+
+complexity
+
+of
+
+O(n1+)
+
+for
+
+
+
+=
+
+1 2c2 -1
+
+.1
+
+E.g.,
+
+for
+
+the
+
+approximation factor c = 2, the algorithm achieves a query time of n1/7+o(1). At the heart of the
+
+algorithm is an LSH scheme called Spherical LSH, which works for unit vectors. Its key property
+
+is that it can distinguish between distances r1 = 2/c and r2 = 2 with probabilities yielding
+
+
+
+=
+
+1 2c2 -1
+
+(the formula for the full range of distances is more complex and given in Section 3).
+
+Unfortunately, the scheme as described in the paper is not applicable in practice as it is based on
+
+rather complex hash functions that are very time consuming to evaluate. E.g., simply evaluating
+
+a single hash function from [2] can take more time than a linear scan over 106 points. Since an LSH
+
+data structure contains many individual hash functions, using their scheme would be slower than
+
+a simple linear scan over all points in P unless the number of points n is extremely large.
+
+On the practical side, the hyperplane LSH introduced in the influential work of Charikar [3] has worse
+theoretical guarantees, but works well in practice. Since the hyperplane LSH can be implemented very efficiently, it is the standard hash function in practical LSH-based nearest neighbor algorithms2
+and the resulting implementations has been shown to improve over a linear scan on real data by
+multiple orders of magnitude [14, 9].
+
+The aforementioned discrepancy between the theory and practice of LSH raises an important question: is there a locality-sensitive hash function with optimal guarantees that also improves over the hyperplane LSH in practice?
+
+In this paper we show that there is a family of locality-sensitive hash functions that achieves both objectives. Specifically, the hash functions match the theoretical guarantee of Spherical LSH from [2] and, when combined with additional techniques, give better experimental results than the hyperplane LSH. More specifically, our contributions are:
+
+Theoretical guarantees for the cross-polytope LSH. We show that a hash function based on randomly rotated cross-polytopes (i.e., unit balls of the 1-norm) achieves the same parameter  as the Spherical LSH scheme in [2], assuming data points are unit vectors. While the cross-polytope
+LSH family has been proposed by researchers before [15, 16] we give the first theoretical analysis of
+its performance.
+
+Fine-grained lower bound for cosine similarity LSH. To highlight the difficulty of obtaining
+
+optimal and practical LSH schemes, we prove the first non-asymptotic lower bound on the trade-off
+
+between
+
+the
+
+collision
+
+probabilities
+
+p1
+
+and
+
+p2.
+
+So
+
+far,
+
+the
+
+optimal
+
+LSH
+
+upper
+
+bound
+
+
+
+=
+
+1 2c2 -1
+
+(from
+
+[1, 2] and cross-polytope from here) attain this bound only in the limit, as p1, p2  0. Very small p1
+
+and p2 are undesirable since the hash evaluation time is often proportional to 1/p2. Our lower bound
+
+proves this is unavoidable: if we require p2 to be large,  has to be suboptimal.
+
+This result has two important implications for designing practical hash functions. First, it shows that the trade-offs achieved by the cross-polytope LSH and the scheme of [1, 2] are essentially optimal. Second, the lower bound guides design of future LSH functions: if one is to significantly improve upon the cross-polytope LSH, one has to design a hash function that is computed more efficiently than by explicitly enumerating its range (see Section 4 for a more detailed discussion).
+
+Multiprobe scheme for the cross-polytope LSH. The space complexity of an LSH data structure is sub-quadratic, but even this is often too large (i.e., strongly super-linear in the number of points),
+1This running time is known to be essentially optimal for a large class of algorithms [10, 11]. 2Note that if the data points are binary, more efficient LSH schemes exist [12, 13]. However, in this paper we consider algorithms for general (non-binary) vectors.
+
+2
+
+and several methods have been proposed to address this issue. Empirically, the most efficient scheme is multiprobe LSH [14], which leads to a significantly reduced memory footprint for the hyperplane LSH. In order to make the cross-polytope LSH competitive in practice with the multiprobe hyperplane LSH, we propose a novel multiprobe scheme for the cross-polytope LSH.
+We complement these contributions with an experimental evaluation on both real and synthetic data (SIFT vectors, tf-idf data, and a random point set). In order to make the cross-polytope LSH practical, we combine it with fast pseudo-random rotations [17] via the Fast Hadamard Transform, and feature hashing [18] to exploit sparsity of data. Our results show that for data sets with around 105 to 108 points, our multiprobe variant of the cross-polytope LSH is up to 10x faster than an efficient implementation of the hyperplane LSH, and up to 700x faster than a linear scan. To the best of our knowledge, our combination of techniques provides the first "exponent-optimal" algorithm that empirically improves over the hyperplane LSH in terms of query time for an exact nearest neighbor search.
+1.1 Related work
+The cross-polytope LSH functions were originally proposed in [15]. However, the analysis in that paper was mostly experimental. Specifically, the probabilities p1 and p2 of the proposed LSH functions were estimated empirically using the Monte Carlo method. Similar hash functions were later proposed in [16]. The latter paper also uses DFT to speed-up the random matrix-vector matrix multiplication operation. Both of the aforementioned papers consider only the single-probe algorithm.
+There are several works that show lower bounds on the quality of LSH hash functions [19, 10, 20, 11]. However, those papers provide only a lower bound on the  parameter for asymptotic values of p1 and p2, as opposed to an actual trade-off between these two quantities. In this paper we provide such a trade-off, with implications as outlined in the introduction.
+
+2 Preliminaries
+
+We use . to denote the Euclidean (a.k.a. 2) norm on Rd. We also use Sd-1 to denote the unit sphere in Rd centered in the origin. The Gaussian distribution with mean zero and variance of one is denoted by N (0, 1). Let  be a normalized Haar measure on Sd-1 (that is, (Sd-1) = 1). Note that  it corresponds to the uniform distribution over Sd-1. We also let u  Sd-1 be a point sampled from Sd-1 uniformly at random. For   R we denote
+
+c()
+
+=
+
+Pr [X
+XN (0,1)
+
+
+
+]
+
+=
+
+1 2
+
+
+e-t2/2 dt.
+
+
+We will be interested in the Near Neighbor Search on the sphere Sd-1 with respect to the Euclidean distance. Note that the angular distance can be expressed via the Euclidean distance between normal-
+
+ized vectors, so our results apply to the angular distance as well.
+
+Definition 1. Given an n-point dataset P  Sd-1 on the sphere, the goal of the (c, r)-Approximate Near Neighbor problem (ANN) is to build a data structure that, given a query q  Sd-1 with the promise that there exists a datapoint p  P with p - q  r, reports a datapoint p  P within distance cr from q.
+
+Definition 2. We say that a hash family H on the sphere Sd-1 is (r1, r2, p1, p2)-sensitive, if for
+
+every
+
+p,
+
+q
+
+
+
+S d-1
+
+one
+
+has
+
+Pr [h(x)
+hH
+
+=
+
+h(y)]
+
+
+
+p1
+
+if
+
+x-y
+
+
+
+r1,
+
+and
+
+Pr [h(x)
+hH
+
+=
+
+h(y)]
+
+
+
+p2
+
+if
+
+x - y  r2,
+
+It is known [6] that an efficient (r, cr, p1, p2)-sensitive hash family implies a data structure for (c, r)-
+
+ANN
+
+with
+
+space
+
+O(n1+/p1
+
++
+
+dn)
+
+and
+
+query
+
+time
+
+O(d
+
+*
+
+n/p1),
+
+where
+
+
+
+=
+
+log(1/p1 log(1/p2
+
+) )
+
+.
+
+3 Cross-polytope LSH
+
+In this section, we describe the cross-polytope LSH, analyze it, and show how to make it practical. First, we recall the definition of the cross-polytope LSH [15]: Consider the following hash family
+
+3
+
+H for points on a unit sphere Sd-1  Rd. Let A  Rdxd be a random matrix with i.i.d. Gaussian entries ("a random rotation"). To hash a point x  Sd-1, we compute y = Ax/ Ax  Sd-1 and then find the point closest to y from {ei}1id, where ei is the i-th standard basis vector of Rd.
+We use the closest neighbor as a hash of x.
+
+The following theorem bounds the collision probability for two points under the above family H. Theorem 1. Suppose that p, q  Sd-1 are such that p - q =  , where 0 <  < 2. Then,
+
+ln
+
+Pr
+
+1 h(p) = h(q)
+
+=
+
+4
+
+2 - 2
+
+*
+
+ln d
+
++
+
+O (ln ln d)
+
+.
+
+hH
+
+Before we show how to prove this theorem, we briefly describe its implications. Theorem 1 shows that the cross-polytope LSH achieves essentially the same bounds on the collision probabilities as the (theoretically) optimal LSH for the sphere from [2] (see Section "Spherical LSH" there). In particular, substituting the bounds from Theorem 1 for the cross-polytope LSH into the standard reduction from Near Neighbor Search to LSH [6], we obtain the following data structure with sub-quadratic space and sublinear query time for Near Neighbor Search on a sphere.
+
+Corollary 1. The (c, r)-ANN on a unit sphere Sd-1 can be solved in space O(n1+ + dn) and query
+
+time
+
+O(d * n),
+
+where
+
+
+
+=
+
+1 c2
+
+*
+
+4-c2 r2 4-r2
+
++ o(1)
+
+.
+
+We now outline the proof of Theorem 1. For the full proof, see Appendix B. Due to the spherical symmetry of Gaussians, we can assume that p = e1 and q = e1 + e2, where ,  are such that 2 + 2 = 1 and ( - 1)2 + 2 =  2. Then, we expand the collision probability:
+
+Pr [h(p) = h(q)] = 2d * Pr [h(p) = h(q) = e1]
+
+hH
+
+hH
+
+= 2d * Pr [i |ui|  u1 and |ui + vi|  u1 + v1]
+u,vN (0,1)d
+
+d-1
+
+= 2d * E Pr |X2|  X1 and |X2 + Y2|  X1 + Y1
+
+,
+
+X1,Y1 X2,Y2
+
+(1)
+
+where X1, Y1, X2, Y2  N (0, 1). Indeed, the first step is due to the spherical symmetry of the hash
+family, the second step follows from the above discussion about replacing a random orthogonal
+matrix with a Gaussian one and that one can assume w.l.o.g. that p = e1 and q = e1 + e2; the last step is due to the independence of the entries of u and v.
+
+Thus, proving Theorem 1 reduces to estimating the right-hand side of (1). Note that the probability
+Pr[|X2|  X1 and |X2 + Y2|  X1 + Y1] is equal to the Gaussian area of the planar set SX1,Y1 shown in Figure 1a. The latter is heuristically equal to 1 - e-2/2, where  is the distance from
+the origin to the complement of SX1,Y1 , which is easy to compute (see Appendix A for the precise statement of this argument). Using this estimate, we compute (1) by taking the outer expectation.
+
+3.1 Making the cross-polytope LSH practical
+As described above, the cross-polytope LSH is not quite practical. The main bottleneck is sampling, storing, and applying a random rotation. In particular, to multiply a random Gaussian matrix with a vector, we need time proportional to d2, which is infeasible for large d.
+
+Pseudo-random rotations. To rectify this issue, we instead use pseudo-random rotations. Instead of multiplying an input vector x by a random Gaussian matrix, we apply the following linear transformation: x  HD3HD2HD1x, where H is the Hadamard transform, and Di for i  {1, 2, 3} is a random diagonal 1-matrix. Clearly, this is an orthogonal transformation, which one can store in space O(d) and evaluate in time O(d log d) using the Fast Hadamard Transform. This is simi-
+lar to pseudo-random rotations used in the context of LSH [21], dimensionality reduction [17], or
+compressed sensing [22]. While we are currently not aware how to prove rigorously that such pseudo-
+random rotations perform as well as the fully random ones, empirical evaluations show that three applications of HDi are exactly equivalent to applying a true random rotation (when d tends to infinity). We note that only two applications of HDi are not sufficient.
+
+4
+
+Figure 1
+
+x = -X1
+
+x + y = X1 + Y1
+
+x = X1
+x + y = -(X1 + Y1) (a) The set appearing in the analysis of the crosspolytope LSH: SX1Y1 = {|x|  X1 and |x + y|  X1 + Y1}.
+
+Sensitivity 
+
+0.4 Cross-polytope LSH
+0.35 Lower bound
+0.3
+0.25
+0.2
+0.15 100 104 108 1012 1016 Number of parts T
+(b) Trade-off between  and the number of parts for distances 2/2 and 2 (approximation c = 2); both bounds tend to 1/7 (see discussion in Section 4).
+
+Feature hashing. While we can apply a pseudo-random rotation in time O(d log d), even this can be too slow. E.g., consider an input vector x that is sparse: the number of non-zero entries of x is s much smaller than d. In this case, we can evaluate the hyperplane LSH from [3] in time O(s), while computing the cross-polytope LSH (even with pseudo-random rotations) still takes time O(d log d). To speed-up the cross-polytope LSH for sparse vectors, we apply feature hashing [18]: before performing a pseudo-random rotation, we reduce the dimension from d to d d by applying a linear map x  Sx, where S is a random sparse d x d matrix, whose columns have one non-zero 1 entry sampled uniformly. This way, the evaluation time becomes O(s + d log d ). 3
+
+"Partial" cross-polytope LSH. In the above discussion, we defined the cross-polytope LSH as a hash family that returns the closest neighbor among {ei}1id as a hash (after a (pseudo-)random rotation). In principle, we do not have to consider all d basis vectors when computing the closest neighbor. By restricting the hash to d  d basis vectors instead, Theorem 1 still holds for the new hash family (with d replaced by d ) since the analysis is essentially dimension-free. This slight
+generalization of the cross-polytope LSH turns out to be useful for experiments (see Section 6). Note
+that the case d = 1 corresponds to the hyperplane LSH.
+
+4 Lower bound
+
+Let H be a hash family on Sd-1. For 0 < r1 < r2 < 2 we would like to understand the trade-off between p1 and p2, where p1 is the smallest probability of collision under H for points at distance at most r1 and p2is the largest probabilityof collision for points at distance at least r2. We focus on the case r2  2 because setting r2 to 2 - o(1) (as d tends to infinity) allows us to replace p2
+with the following quantity that is somewhat easier to handle:
+
+p2 =
+
+Pr [h(u) = h(v)].
+hH
+
+u,vSd-1
+
+TShd-is1qiusatnigtihtytlyiscaotnmceonsttrapt2ed+aor(o1u)n,dsinc2e. like to understand the upper bound on p1
+
+the distance between two random points
+
+So for a in terms
+
+hash of p2
+
+family H on a and 0 < r1 <
+
+unit 2.
+
+sphere
+
+on a S d-1
+
+unit , we
+
+sphere would
+
+
+
+For 0    2 and   R, we define
+
+(, ) = Pr X   and
+X,Y N (0,1)
+
+1
+
+-
+
+2 2
+
+*X +
+
+2 -
+
+4 4
+
+*Y
+
+
+
+Pr [X  ] .
+XN (0,1)
+
+3Note that one can apply Lemma 2 from the arXiv version of [18] to claim that--after such a dimension reduction--the distance between any two points remains sufficiently concentrated for the bounds from Theorem 1 to still hold (with d replaced by d ).
+
+5
+
+We are now ready to formulate the main result of this section.
+Theorem 2. Let H be a hash family on Sd-1 such that every function in H partitions the sphere into at most T parts of measure at most 1/2. Then we have p1  (r1, ) + o(1), where   R is such that c() = p2 and o(1) is a quantity that depends on T and r1 and tends to 0 as d tends to infinity.
+
+The idea of the proof is first to reason about one part of the partition using the isoperimetric inequality
+from [23], and then to apply a certain averaging argument by proving concavity of a function related to  using a delicate analytic argument. For the full proof, see Appendix C.
+
+We note that the above requirement of all parts induced by H having measure at most 1/2 is only a technicality. We conjecture that Theorem 2 holds without this restriction. In any case, as we will see below, in the interesting range of parameters this restriction is essentially irrelevant.
+
+One can observe that if every hash function in H partitions the sphere into at most T parts, then
+
+p2
+
+
+
+1 T
+
+(indeed, p2
+
+is precisely the average sum of squares of measures of the parts). This observation,
+
+combined with Theorem 2, leads to the following interesting consequence. Specifically, we can
+
+numerically
+
+estimate
+
+
+
+in
+
+order to
+
+give a
+
+lower bound
+
+on
+
+
+
+=
+
+log(1/p1 ) log(1/p2 )
+
+for any
+
+hash family
+
+H
+
+in
+
+which every function induces at most T parts of measure at most 1/2. See Figure 1b, where we plot
+
+this lower bound for r1 = 2/2,4 together with an upper bound that is given by the cross-polytope
+
+LSH5 (for which we use numerical estimates for (1)). We can make several conclusions from this
+
+plot. First, the cross-polytope LSH gives an almost optimal trade-off between  and T . Given that the
+
+evaluation time for the cross-polytope LSH is O(T log T ) (if one uses pseudo-random rotations), we
+
+conclude that in order to improve upon the cross-polytope LSH substantially in practice, one should
+
+design an LSH family with  being close to optimal and evaluation time that is sublinear in T . We
+
+note that none of the known LSH families for a sphere has been shown to have this property. This
+
+direction looks especially interesting since the convergence of  to the optimal value (as T tends to infinity) is extremely slow (for instance, according to Figure 1b, for r1 = 2/2 and r2  2 we need more than 105 parts to achieve   0.2, whereas the optimal  is 1/7  0.143).
+
+5 Multiprobe LSH for the cross-polytope LSH
+We now describe our multiprobe scheme for the cross-polytope LSH, which is a method for reducing the number of independent hash tables in an LSH data structure. Given a query point q, a "standard" LSH data structure considers only a single cell in each of the L hash tables (the cell is given by the hash value hi(q) for i  [L]). In multiprobe LSH, we consider candidates from multiple cells in each table [14]. The rationale is the following: points p that are close to q but fail to collide with q under hash function hi are still likely to hash to a value that is close to hi(q). By probing multiple hash locations close to hi(q) in the same table, multiprobe LSH achieves a given probability of success with a smaller number of hash tables than "standard" LSH. Multiprobe LSH has been shown to perform well in practice [14, 24].
+The main ingredient in multiprobe LSH is a probing scheme for generating and ranking possible modifications of the hash value hi(q). The probing scheme should be computationally efficient and ensure that more likely hash locations are probed first. For a single cross-polytope hash, the order of alternative hash values is straightforward: let x be the (pseudo-)randomly rotated version of query point q. Recall that the "main" hash value is hi(q) = arg maxj[d] |xj|.6 Then it is easy to see that the second highest probability of collision is achieved for the hash value corresponding to the coordinate with the second largest absolute value, etc. Therefore, we consider the indices i  [d] sorted by their absolute value as our probing sequence or "ranking" for a single cross-polytope.
+The remaining question is how to combine multiple cross-polytope rankings when we have more than one hash function. As in the analysis of the cross-polytope LSH (see Section 3, we consider two points q = e1 and p = e1 + e2 at distance R. Let A(i) be the i.i.d. Gaussian matrix of hash
+4The situation is qualitatively similar for other values of r1. 5More specifically, for the "partial" version from Section 3.1, since T should be constant, while d grows 6In order to simplify notation, we consider a slightly modified version of the cross-polytope LSH that maps both the standard basis vector +ej and its opposite -ej to the same hash value. It is easy to extend the multiprobe scheme defined here to the "full" cross-polytope LSH from Section 3.
+
+6
+
+function hi, and let x(i) = A(i)e1 be the randomly rotated version of point q. Given x(i), we are interested in the probability of p hashing to a certain combination of the individual cross-polytope rankings. More formally, let rv(ii) be the index of the vi-th largest element of |x(i)|, where v  [d]k specifies the alternative probing location. Then we would like to compute
+
+Pr
+A(1) ,...,A(k)
+
+hi(p) = rv(ii) for all i  [k] | A(i)q = x(i)
+
+k
+
+=
+
+Pr
+A(i) i=1
+
+arg max ( * A(i)e1 +  * A(i)e2)j
+j[d]
+
+= rv(ii)
+
+A(i)e1 = x(i)
+
+.
+
+If we knew this probability for all v  [d]k, we could sort the probing locations by their probability. We now show how to approximate this probability efficiently for a single value of i (and hence drop the superscripts to simplify notation). WLOG, we permute the rows of A so that rv = v and get
+
+Pr arg max (x +  * Ae2)j = v Ae1 = x
+A j[d]
+
+=
+
+Pr
+yN (0,Id)
+
+arg max
+j[d]
+
+(x
+
++
+
+ 
+
+*
+
+y)j
+
+=v
+
+.
+
+The RHS is the Gaussian measure of the set S = {y  Rd | arg maxj[d]
+
+(x
+
++
+
+ 
+
+y)j
+
+= v}. Similar
+
+to the analysis of the cross-polytope LSH, we approximate the measure of S by its distance to the
+
+origin. Then the probability of probing location v is proportional to exp(- yx,v 2), where yx,v is the
+
+shortest vector y such that arg maxj |x+y|j = v. Note that the factor / becomes a proportionality constant, and hence the probing scheme does not require to know the distance R. For computational
+
+performance and simplicity, we make a further approximation and use yx,v = (maxi |xi| - |xv|) * ev,
+
+i.e., we only consider modifying a single coordinate to reach the set S.
+
+Once we have estimated the probabilities for each vi  [d], we incrementally construct the probing sequence using a binary heap, similar to the approach in [14]. For a probing sequence of length m, the resulting algorithm has running time O(L * d log d + m log m). In our experiments, we found that the O(L * d log d) time taken to sort the probing candidates vi dominated the running time of the hash
+function evaluation. In order to circumvent this issue, we use an incremental sorting approach that only sorts the relevant parts of each cross-polytope and gives a running time of O(L * d + m log m).
+
+6 Experiments
+We now show that the cross-polytope LSH, combined with our multiprobe extension, leads to an algorithm that is also efficient in practice and improves over the hyperplane LSH on several data sets. The focus of our experiments is the query time for an exact nearest neighbor search. Since hyperplane LSH has been compared to other nearest-neighbor algorithms before [8], we limit our attention to the relative speed-up compared with hyperplane hashing.
+We evaluate the two hashing schemes on three types of data sets. We use a synthetic data set of randomly generated points because this allows us to vary a single problem parameter while keeping the remaining parameters constant. We also investigate the performance of our algorithm on real data: two tf-idf data sets [25] and a set of SIFT feature vectors [7]. We have chosen these data sets in order to illustrate when the cross-polytope LSH gives large improvements over the hyperplane LSH, and when the improvements are more modest. See Appendix D for a more detailed description of the data sets and our experimental setup (implementation details, CPU, etc.).
+In all experiments, we set the algorithm parameters so that the empirical probability of successfully finding the exact nearest neighbor is at least 0.9. Moreover, we set the number of LSH tables L so that the amount of additional memory occupied by the LSH data structure is comparable to the amount of memory necessary for storing the data set. We believe that this is the most interesting regime because significant memory overheads are often impossible for large data sets. In order to determine the parameters that are not fixed by the above constraints, we perform a grid search over the remaining parameter space and report the best combination of parameters. For the cross-polytope hash, we consider "partial" cross-polytopes in the last of the k hash functions in order to get a smooth trade-off between the various parameters (see Section 3.1).
+Multiprobe experiments. In order to demonstrate that the multiprobe scheme is critical for making the cross-polytope LSH competitive with hyperplane hashing, we compare the performance of a
+
+7
+
+Data set
+NYT NYT
+pubmed pubmed
+SIFT SIFT
+
+Method
+HP CP
+HP CP
+HP CP
+
+Query time (ms)
+120 ms 35 ms
+857 ms 213 ms
+3.7 ms 3.1 ms
+
+Speed-up vs HP
+3.4x
+4.0x
+1.2x
+
+Best k
+19 2 (64)
+20 2 (512)
+30 6 (1)
+
+Number of candidates
+57,200 17,900
+1,481,000 304,000
+18,600 13,400
+
+Hashing time (ms)
+16 3.0
+36 18
+0.2 0.6
+
+Distances time (ms)
+96 30
+762 168
+3.0 2.2
+
+Table 1: Average running times for a single nearest neighbor query with the hyperplane (HP) and
+cross-polytope (CP) algorithms on three real data sets. The cross-polytope LSH is faster than the
+hyperplane LSH on all data sets, with significant speed-ups for the two tf-idf data sets NYT and pubmed. For the cross-polytope LSH, the entries for k include both the number of individual hash functions per table and (in parenthesis) the dimension of the last of the k cross-polytopes.
+
+"standard" cross-polytope LSH data structure with our multiprobe variant on an instance of the random data set (n = 220, d = 128). As can be seen in Table 2 (Appendix D), the multiprobe variant is about 13x faster in our memory-constrained setting (L = 10). Note that in all of the following experiments, the speed-up of the multiprobe cross-polytope LSH compared to the multiprobe hyperplane LSH is less than 11x. Hence without our multiprobe addition, the cross-polytope LSH would be slower than the hyperplane LSH, for which a multiprobe scheme is already known [14].
+Experiments on random data. Next, we show that the better time complexity of the crosspolytope LSH already applies for moderate values of n. In particular, we compare the cross-polytope LSH, combined with fast rotations (Section 3.1) and our multiprobe scheme, to a multi-probe hyperplaneLSH on random data. We keep the dimension d = 128 and the distance to the nearest neighbor R = 2/2 fixed, and vary the size of the data set from 220 to 228. The number of hash tables L is set to 10. For 220 points, the cross-polytope LSH is already 3.5x faster than the hyperplane LSH, and for n = 228 the speedup is 10.3x (see Table 3 in Appendix D). Compared to a linear scan, the speed-up achieved by the cross-polytope LSH ranges from 76x for n = 220 to about 700x for n = 228.
+Experiments on real data. On the SIFT data set (n = 106 and d = 128), the cross-polytope LSH achieves a modest speed-up of 1.2x compared to the hyperplane LSH (see Table 1). On the other hand, the speed-up is is 3 - 4x on the two tf-idf data sets, which is a significant improvement considering the relatively small size of the NYT data set (n  300, 000). One important difference between the data sets is that the typical distance to the nearest neighbor is smaller in the SIFT data set, which can make the nearest neighbor problem easier (see Appendix D). Since the tf-idf data sets are very high-dimensional but sparse (d  100, 000), we use the feature hashing approach described in Section 3.1 in order to reduce the hashing time of the cross-polytope LSH (the standard hyperplane LSH already runs in time proportional to the sparsity of a vector). We use 1024 and 2048 as feature hashing dimensions for NYT and pubmed, respectively.
+Acknowledgments
+We thank Michael Kapralov for many valuable discussions during various stages of this work. We also thank Stefanie Jegelka and Rasmus Pagh for helpful conversations. This work was supported in part by the NSF and the Simons Foundation. Work done in part while the first author was at the Simons Institute for the Theory of Computing.
+
+8
+
+References
+[1] Alexandr Andoni, Piotr Indyk, Huy L. Nguyen, and Ilya Razenshteyn. Beyond locality-sensitive hashing. In SODA, 2014. Full version at http://arxiv.org/abs/1306.1547.
+[2] Alexandr Andoni and Ilya Razenshteyn. Optimal data-dependent hashing for approximate near neighbors. In STOC, 2015. Full version at http://arxiv.org/abs/1501.01062.
+[3] Moses S. Charikar. Similarity estimation techniques from rounding algorithms. In STOC, 2002. [4] Gregory Shakhnarovich, Trevor Darrell, and Piotr Indyk. Nearest-Neighbor Methods in Learning and
+Vision: Theory and Practice. MIT Press, Cambridge, MA, 2005. [5] Hanan Samet. Foundations of multidimensional and metric data structures. Morgan Kaufmann, 2006. [6] Sariel Har-Peled, Piotr Indyk, and Rajeev Motwani. Approximate nearest neighbor: Towards removing
+the curse of dimensionality. Theory of Computing, 8(14):321-350, 2012. [7] Herve Jegou, Matthijs Douze, and Cordelia Schmid. Product quantization for nearest neighbor search.
+IEEE Transactions on Pattern Analysis and Machine Intelligence, 33(1):117-128, 2011. [8] Ludwig Schmidt, Matthew Sharifi, and Ignacio Lopez Moreno. Large-scale speaker identification. In
+ICASSP, 2014. [9] Narayanan Sundaram, Aizana Turmukhametova, Nadathur Satish, Todd Mostak, Piotr Indyk, Samuel Mad-
+den, and Pradeep Dubey. Streaming similarity search over one billion tweets using parallel localitysensitive hashing. In VLDB, 2013. [10] Moshe Dubiner. Bucketing coding and information theory for the statistical high-dimensional nearestneighbor problem. IEEE Transactions on Information Theory, 56(8):4166-4179, 2010. [11] Alexandr Andoni and Ilya Razenshteyn. Tight lower bounds for data-dependent locality-sensitive hashing, 2015. Available at http://arxiv.org/abs/1507.04299. [12] Anshumali Shrivastava and Ping Li. Fast near neighbor search in high-dimensional binary data. In Machine Learning and Knowledge Discovery in Databases, pages 474-489. Springer, 2012. [13] Anshumali Shrivastava and Ping Li. Densifying one permutation hashing via rotation for fast near neighbor search. In ICML, 2014. [14] Qin Lv, William Josephson, Zhe Wang, Moses Charikar, and Kai Li. Multi-probe lsh: efficient indexing for high-dimensional similarity search. In VLDB, 2007. [15] Kengo Terasawa and Yuzuru Tanaka. Spherical lsh for approximate nearest neighbor search on unit hypersphere. In Algorithms and Data Structures, pages 27-38. Springer, 2007. [16] Kave Eshghi and Shyamsundar Rajaram. Locality sensitive hash functions based on concomitant rank order statistics. In KDD, 2008. [17] Nir Ailon and Bernard Chazelle. The fast Johnson-Lindenstrauss transform and approximate nearest neighbors. SIAM Journal on Computing, 39(1):302-322, 2009. [18] Kilian Q. Weinberger, Anirban Dasgupta, John Langford, Alexander J. Smola, and Josh Attenberg. Feature hashing for large scale multitask learning. In ICML, 2009. [19] Rajeev Motwani, Assaf Naor, and Rina Panigrahy. Lower bounds on locality sensitive hashing. SIAM Journal on Discrete Mathematics, 21(4):930-935, 2007. [20] Ryan O'Donnell, Yi Wu, and Yuan Zhou. Optimal lower bounds for locality-sensitive hashing (except when q is tiny). ACM Transactions on Computation Theory, 6(1):5, 2014. [21] Anirban Dasgupta, Ravi Kumar, and Tamas Sarlos. Fast locality-sensitive hashing. In KDD, 2011. [22] Nir Ailon and Holger Rauhut. Fast and RIP-optimal transforms. Discrete & Computational Geometry, 52(4):780-798, 2014. [23] Uriel Feige and Gideon Schechtman. On the optimality of the random hyperplane rounding technique for MAX CUT. Random Structures and Algorithms, 20(3):403-440, 2002. [24] Malcolm Slaney, Yury Lifshits, and Junfeng He. Optimal parameters for locality-sensitive hashing. Proceedings of the IEEE, 100(9):2604-2623, 2012. [25] Moshe Lichman. UCI machine learning repository, 2013. [26] Persi Diaconis and David Freedman. A dozen de Finetti-style results in search of a theory. Annales de l'institut Henri Poincare (B) Probabilites et Statistiques, 23(S2):397-423, 1987.
+9
+

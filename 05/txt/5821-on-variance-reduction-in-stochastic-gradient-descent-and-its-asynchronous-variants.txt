@@ -1,0 +1,969 @@
+On Variance Reduction in Stochastic Gradient Descent and its Asynchronous Variants
+
+Sashank J. Reddi Carnegie Mellon University sjakkamr@cs.cmu.edu
+
+Ahmed Hefny Carnegie Mellon University ahefny@cs.cmu.edu
+
+Suvrit Sra Massachusetts Institute of Technology
+suvrit@mit.edu
+
+Barnabas Poczos Carnegie Mellon University bapoczos@cs.cmu.edu
+
+Alex Smola Carnegie Mellon University
+alex@smola.org
+
+Abstract
+We study optimization algorithms based on variance reduction for stochastic gradient descent (SGD). Remarkable recent progress has been made in this direction through development of algorithms like SAG, SVRG, SAGA. These algorithms have been shown to outperform SGD, both theoretically and empirically. However, asynchronous versions of these algorithms--a crucial requirement for modern large-scale applications--have not been studied. We bridge this gap by presenting a unifying framework for many variance reduction techniques. Subsequently, we propose an asynchronous algorithm grounded in our framework, and prove its fast convergence. An important consequence of our general approach is that it yields asynchronous versions of variance reduction algorithms such as SVRG and SAGA as a byproduct. Our method achieves near linear speedup in sparse settings common to machine learning. We demonstrate the empirical performance of our method through a concrete realization of asynchronous SVRG.
+
+1 Introduction
+
+There has been a steep rise in recent work [5, 6, 8-11, 24, 26, 28] on "variance reduced" stochastic gradient algorithms for convex problems of the finite-sum form:
+
+min
+x2Rd
+
+f (x) :=
+
+1 n
+
+Xn i=1 fi(x).
+
+(1.1)
+
+Under strong convexity assumptions, such variance reduced (VR) stochastic algorithms attain better convergence rates (in expectation) than stochastic gradient descent (SGD) [17, 23], both in theory and practice.1 The key property of these VR algorithms is that by exploiting problem structure and by making suitable space-time tradeoffs, they reduce the variance incurred due to stochastic gradients. This variance reduction has powerful consequences: it bestows VR stochastic methods with linear convergence rates, and thereby circumvents slowdowns that usually hit SGD.
+
+1Though we should note that SGD also applies to the harder stochastic optimization problem min F (x) = E[f (x; )], which need not be a finite-sum.
+
+1
+
+Although these advances have great value in general, for large-scale problems we still require parallel or distributed processing. And in this setting, asynchronous variants of SGD remain indispensable [2, 7, 12, 20, 27, 29]. Therefore, a key question is how to extend the synchronous finite-sum VR algorithms to asynchronous parallel and distributed settings. We answer one part of this question by developing new asynchronous parallel stochastic gradient methods that provably converge at a linear rate for smooth strongly convex finite-sum problems. Our methods are inspired by the influential SVRG [9], S2GD [11], SAG [24] and SAGA [5] family of algorithms. We list our contributions more precisely below. Contributions. Our paper has two core components: (i) a formal general framework for variance reduced stochastic methods based on discussions in [5]; and (ii) asynchronous parallel VR algorithms within the framework. The general framework presents a formal unifying view of several VR methods (e.g., it includes SAGA and SVRG as special cases) while expressing key algorithmic and practical tradeoffs concisely. Thus, it yields a broader understanding of VR methods, which helps us obtain asynchronous parallel variants of VR methods. Under settings common to machine learning problems, our parallel algorithms attain speedups that scale near linearly with the number of processors. As a concrete illustration, we present a specialization to an asynchronous SVRG-like method. We compare this specialization with non-variance reduced asynchronous SGD methods, and observe strong empirical speedups that agree with the theory. Related work. As already mentioned, our work is closest to (and generalizes) SAG [24], SAGA [5], SVRG [9] and S2GD [11], which are primal methods. Also closely related are dual methods such as SDCA [26] and Finito [6], and in its convex incarnation MISO [15]; a more precise relation between these dual methods and VR stochastic methods is described in Defazio's thesis [4]. By their algorithmic structure, these VR methods trace back to classical non-stochastic incremental gradient algorithms [3], but by now it is well-recognized that randomization helps obtain much sharper convergence results (in expectation). Proximal [28] and accelerated VR methods have also been proposed [19, 25]; we leave a study of such variants of our framework as future work. Finally, there is recent work on lower-bounds for finite-sum problems [1]. Within asynchronous SGD algorithms, both parallel [20] and distributed [2, 16] variants are known. In this paper, we focus our attention on the parallel setting. A different line of methods is that of (primal) coordinate descent methods, and their parallel and distributed variants [13, 14, 18, 21, 22]. Our asynchronous methods share some structural assumptions with these methods. Finally, the recent work [10] generalizes S2GD to the mini-batch setting, thereby also permitting parallel processing, albeit with more synchronization and allowing only small mini-batches.
+
+2 A General Framework for VR Stochastic Methods
+
+We focus on instances of (1.1) where the cost function f (x) has an L-Lipschitz gradient, so that krf (x) rf (y)k  Lkx yk, and it is -strongly convex, i.e., for all x, y 2 Rd,
+
+f (x) f (y) + hrf (y), x yi + 2 kx yk2.
+
+(2.1)
+
+While our analysis focuses on strongly convex functions, we can extend it to just smooth convex functions along the lines of [5, 28].
+
+Inspired by the discussion on a general view of variance reduced techniques in [5], we now describe
+
+a formal general framework for variance reduction in stochastic gradient descent. We denote the
+
+collection {fi}ni=1 of functions that make up f in (1.1) by F . For our algorithm, we maintain an
+
+afrdadmiteiownoarlkpfaorramupedteartingit
+
+2 Rd for each fi 2 F . We use the parameters is presented as
+
+At to denote Algorithm 1.
+
+{Obit}seni=rv1e.
+
+The that
+
+general iterative the algorithm is
+
+still abstract, since it does not specify the subroutine SCHEDULEUPDATE. This subroutine deter-
+
+mines the crucial update give rise to different fast
+
+mfiresct-hoarndiesrmmoefth{odits}
+
+(and thereby of proposed in the
+
+At). As we will see different schedules literature. The part of the update based
+
+on At is the key for these approaches and is responsible for variance reduction.
+
+Next, we provide different instantiations of the framework and construct a new algorithm derived from it. In particular, we consider incremental methods SAG [24], SVRG [9] and SAGA [5], and classic gradient descent GRADIENTDESCENT for demonstrating our framework.
+
+2
+
+ALGORITHM 1: GENERIC STOCHASTIC VARIANCE REDUCTION ALGORITHM
+
+DRaantad:omx0ly2pRicdk, aIi0T==x{0 i08,i.
+
+2 ..
+
+[n] , iT
+
+, {1, . . } where
+
+., it
+
+n}, step 2 {1, . .
+
+size  > . , n} 8 t
+
+0 2
+
+{0,
+
+.
+
+.
+
+.
+
+,
+
+T
+
+}
+
+;
+
+for t = 0 to T do Update iterate as xt+1
+
+xt
+
+ rfit (xt)
+
+rfit (itt )
+
++
+
+1 n
+
+P
+i
+
+rfi(it)
+
+;
+
+At+1 end
+
+=
+
+SCHEDULEUPDATE({xi}ti=+01, At, t, IT )
+
+;
+
+return xT
+
+Figure 1 shows the schedules for the aforementioned algorithms. In case of SVRG,
+
+SCHEDULEUPDATE is triggered every m iterations (here m denotes precisely the number of in-
+
+ner the
+
+iterations used in [9]); so At remains unchanged for current iterate at the mth iteration. For SAGA, unlike
+
+the m iterations and all it are updated to SVRG, At changes at the tth iteration for
+
+all t 2 [T ]. This change is only to a single element of At, and is determined by the index it (the
+
+function chosen at iteration t). The update of SAG is similar to SAGA insofar that only one of the i
+
+is updated at each iteration. However, the update for At+1 is based on it+1 rather than it. This re-
+
+sults in a biased estimate of the gradient, unlike SVRG and SAGA. Finally, the schedule for gradient
+
+descent is similar to SAG, except that all the i's are updated at each iteration. Due to the full update we end up with the exact gradient at each iteration. SGD can also be captured in the framework by
+
+uscshinegdualnerAdtetwerhmerineesitth=e
+
+ for some  2 resulting gradient
+
+Rd and all method.
+
+i
+
+2
+
+[n].
+
+This
+
+discussion highlights
+
+how
+
+the
+
+To motivate the design of another schedule, let us consider the computational and storage costs of each of these algorithms. For SVRG, since we update At after every m iterations, it is enough to store a full gradient, and hence, the storage cost is O(d). However, the running time is O(d) at each iteration and O(nd) at the end of each epoch (for calculating the full gradient at the end of each epoch). In contrast, both SAG and SAGA have high storage costs of O(nd) and running time of O(d) per iteration. Finally, GRADIENTDESCENT has low storage cost since it needs to store the gradient at O(d) cost, but very high computational costs of O(nd) at each iteration.
+
+SVRG has an additional computation overhead at the end of each epoch due to calculation of the whole gradient. This is avoided in SAG and SAGA at the cost of additional storage. When m is very large, the additional computational overhead of SVRG amortized over all the iterations is small. However, as we will later see, this comes at the expense of slower convergence to the optimal solution. The tradeoffs between the epoch size m, additional storage, frequency of updates, and the convergence to the optimal solution are still not completely resolved.
+
+SVRG:SCHEDULE for i = 1 to n do
+
+U
+
+P
+
+DAT
+
+E({xi}ti=+01
+
+,
+
+At
+
+,
+
+t,
+
+IT
+
+)
+
+endit+1 = (m | t)xt + (m6 | t)it ;
+
+return At+1
+
+SAGA:S for i = 1
+
+CHE
+to n
+
+DU
+do
+
+LEUPDATE({xi}ti=+01,
+
+At
+
+,
+
+t,
+
+IT
+
+)
+
+endit+1 = (it = i)xt + (it 6= i)it ;
+
+return At+1
+
+SAG:SC for i = 1
+
+HE
+to
+
+D
+n
+
+ULEU do
+
+P
+
+DATE({xi}ti=+01
+
+,
+
+At
+
+,
+
+t,
+
+IT
+
+)
+
+endit+1 = (it+1 = i)xt+1 + (it+1 6= i)it ;
+
+return At+1
+
+GD:SCHEDU for i = 1 to n
+
+LEUP do
+
+DATE({xi}ti=+01,
+
+At
+
+,
+
+t,
+
+IT
+
+)
+
+endit+1 = xt+1 ;
+
+return At+1
+
+Figure 1: SCHEDULEUPDATE function for SVRG (top left), SAGA (top right), SAG (bottom left) and GRADIENTDESCENT (bottom right). While SVRG is epoch-based, rest of algorithms perform updates at each iteration. Here a|b denotes that a divides b.
+
+A straightforward approach to design a new scheduler is to combine the schedules of the above algorithms. This allows us to tradeoff between the various aforementioned parameters of our interest. We call this schedule hybrid stochastic average gradient (HSAG). Here, we use the schedules of
+
+3
+
+HS for
+
+AG:SCHEDUL i = 1 to ndo
+
+EUPDATE(xt,
+
+At,
+
+t,
+
+IT
+
+)
+
+it+1 =
+
+(it = i)xt + (it 6= i)it (si | t)xt + (si6 | t)it
+
+end
+
+return At+1
+
+if i 2 S if i 2/ S
+
+Figure 2: SCHEDULEUPDATE for HSAG. This algorithm assumes access to some index set S and the schedule frequency vector s. Recall that a|b denotes a divides b
+
+SVRG and SAGA to develop HSAG. However, in general, schedules of any of these algorithms can be combined to obtain a hybrid algorithm. Consider some S  [n], the indices that follow SAGA schedule. We assume that rest of the indices follow an SVRG-like schedule with schedule frequency si for all i 2 S , [n] \ S. Figure 2 shows the corresponding update schedule of HSAG. If S = [n] then HSAG is equivalent to SAGA, while at the other extreme, for S = ; and si = m for all i 2 [n], it corresponds to SVRG. HSAG exhibits interesting storage, computational and convergence tradeoffs that depend on S. In general, while large cardinality of S likely incurs high storage costs, the computational cost per iteration is relatively low. On the other hand, when cardinality of S is small and si's are large, storage costs are low but the convergence typically slows down.
+Before concluding our discussion on the general framework, we would like to draw the reader's attention to the advantages of studying Algorithm 1. First, note that Algorithm 1 provides a unifying framework for many incremental/stochastic gradient methods proposed in the literature. Second, and more importantly, it provides a generic platform for analyzing this class of algorithms. As we will see in Section 3, this helps us develop and analyze asynchronous versions for different finite-sum algorithms under a common umbrella. Finally, it provides a mechanism to derive new algorithms by designing more sophisticated schedules; as noted above, one such construction gives rise to HSAG.
+
+2.1 Convergence Analysis
+
+In this section, we provide convergence analysis for Algorithm 1 with HSAG schedules. As observed
+
+earlier, SVRG and SAGA are special cases of this setup. Our analysis assumes unbiasedness of the
+
+gradient estimates at each iteration, so it does not encompass SAG. For ease of exposition, we
+
+assume that all si = m for all i 2 [n]. Since HSAG is epoch-based, our analysis focuses on the
+
+iterates obtained after each epoch. Similar to [9] (see Option II of SVRG in [9]), our analysis will
+
+be for the case where the iterate at the end of (k + 1)st epoch, xkm+m, is replaced with an element
+
+chosen randomly from xk to denote the iterate
+
+{xkm, chosen
+
+.. at
+
+. , xkm+m 1} the kth epoch.
+
+with probability {p1, * * * , pm}. For brevity, we use We also need the following quantity for our analysis:
+
+Gk
+
+,
+
+1 n
+
+X
+
+fi(ikm)
+
+i2S
+
+fi(x)
+
+hrfi(x), ikm
+
+xi .
+
+Theorem 1. For any positive parameters c, ,  > 1, step size  and epoch size m, we define the
+
+following quantities:
+
+ = 1 1
+
+1 m 
+
+ 2c(1
+
+L(1 + ))
+
+1 n
+
+ 2c 
+
+   = max 2c 1
+
+1 m 
+
++
+
+2Lc2
+
+ 1
+
++
+
+ 1 1
+
+ 1
+
+1 m 
+
+ ,1
+
+1 m 
+
+.
+
+Suppose the probabilities pi / (1 such that the following conditions
+
+ar1e)smatiis,fiaendd:
+
+that
+
+c,
+
+, , step size  and epoch size m are chosen
+
+
+
+1 
+
++
+
+2Lc2
+
+1+ 1
+
+
+
+1 n
+
+,
+
+> 0,  < 1.
+
+Then, for iterates of Algorithm 1 under the HSAG schedule, we have
+
+h E f (xk+1)
+
+f (x)
+
++
+
+1 Gk+1i
+
+
+
+
+
+h E f (xk)
+
+f (x)
+
++
+
+1
+
+Gk
+
+i .
+
+4
+
+As a corollary, we immediately obtain an expected linear rate of convergence for HSAG.
+
+Corollary  =  (1 +
+
+1. 1/
+
+Note )<
+
+that 1 we
+
+Gk have
+
+0 and therefore, under the conditions specified in Theorem 1 and
+
+E
+
+ f
+
+(xk )
+
+f (x)
+
+
+
+k
+
+ f
+
+(x0
+
+)
+
+f (x) .
+
+We emphasize that there exist values of the parameters for which the conditions in Theorem 1 and Corollary 1 are easily satisfied. For instance, setting  = 1/16( n + L),  = 4/ ,
+= (2 n + L)/L and c = 2/n, the conditions in Theorem 1 are satisfied for sufficiently large m. Additionally, in the high condition number regime of L/ = n, we can obtain constant  < 1 (say 0.5) with m = O(n) epoch size (similar to [5, 9]). This leads to a computational complexity of O(n log(1/)) for HSAG to achieve  accuracy in the objective function as opposed to O(n2 log(1/)) for batch gradient descent method. Please refer to the appendix for more details on the parameters in Theorem 1.
+
+3 Asynchronous Stochastic Variance Reduction
+
+We are now ready to present asynchronous versions of the algorithms captured by our general framework. We first describe our setup before delving into the details of these algorithms. Our model of computation is similar to the ones used in Hogwild! [20] and AsySCD [14]. We assume a multicore architecture where each core makes stochastic gradient updates to a centrally stored vector x in an asynchronous manner. There are four key components in our asynchronous algorithm; these are briefly described below.
+
+1. Read: Read the iterate x and compute the gradient rfit (x) for a randomly chosen it. 2. Read schedule iterate: Read the schedule iterate A and compute the gradients required
+for update in Algorithm 1. 3. Update: Update the iterate x with the computed incremental update in Algorithm 1. 4. Schedule Update: Run a scheduler update for updating A.
+
+Each processor repeatedly runs these procedures concurrently, without any synchronization. Hence, x may change in between Step 1 and Step 3. Similarly, A may change in between Steps 2 and 4. In fact, the states of iterates x and A can correspond to different time-stamps. We maintain a global counter t to track the number of updates successfully executed. We use D(t) 2 [t] and D0(t) 2 [t] to denote the particular x-iterate and A-iterate used for evaluating the update at the tth iteration. We assume that the delay in between the time of evaluation and updating is bounded by a non-negative integer  , i.e., t D(t)   and t D0(t)   . The bound on the staleness captures the degree of parallelism in the method: such parameters are typical in asynchronous systems (see e.g., [14, 20]). Furthermore, we also assume that the system is synchronized after every epoch i.e., D(t) km for t km. We would like to emphasize that the assumption is not strong since such a synchronization needs to be done only once per epoch. For the purpose of our analysis, we assume a consistent read model. In particular, our analysis assumes that the vector x used for evaluation of gradients be a valid iterate that existed at some point in time. Such an assumption typically amounts to using locks in practice. This problem can be avoided by using random coordinate updates as in [20] (see Section 4 of [20]) but such a procedure is computationally wasteful in practice. We leave the analysis of inconsistent read model as future work. Nonetheless, we report results for both locked and lock-free implementations (see Section 4).
+
+3.1 Convergence Analysis
+
+The key ingredients to the success of asynchronous algorithms for multicore stochastic gradient
+
+descent are sparsity and "disjointness" of the data matrix [20]. More formally, suppose fi only
+
+dkxepke2inddesnoontexPei wj2heeirkexejik2;
+
+[d] i.e., fi acts only on then, the convergence
+
+the components of depends on , the
+
+x indexed by the set ei. smallest constant such
+
+Let that
+
+Ethie[kdxakta2i ]matrixk.xWk2e.
+
+Intuitively, are interested
+
+denotes the in situations
+
+average where
+
+frequency with which a  1. As a warm up,
+
+feature appears in let us first discuss
+
+convergence analysis for asynchronous SVRG. The general case is similar, but much more involved.
+
+Hence, it is instructive to first go through the analysis of asynchronous SVRG.
+
+5
+
+Theorem 2. Suppose step size , epoch size m are chosen such that the following condition holds:
+
+
+
+
+
+0 < s :=
+
+1
+m
+
++
+
+4L 
+
++L  22
+1 2L2 22 
+
+1
+
+4L
+
++L  22 1 2L2 2 2
+
+< 1.
+
+Then, for the iterates of an asynchronous variant of Algorithm 1 with SVRG schedule and probabilities pi = 1/m for all i 2 [m], we have
+
+E[f (xk+1) f (x)]  s E[f (xk) f (x)].
+
+The bound obtained in Theorem 2 is useful when is small. To see this, as earlier, consider the
+
+indicative case where L/ = n. The synchronous version of SVRG obtains a convergence rate of
+
+ = 0.5 for step size  = 0.1/L and epoch size m = O(n). For the asynchronous variant of SVRG,
+
+by setting  = 0.1/2(max{1, 1/2 }L), we obtain a similar rate with m = O(n + 1/2 n).
+
+To obtain this, set  = /L where  = 0.1/2(max{1, 1/2 }) and s = 0.5. Then, a simple calculation gives the following:
+
+m n
+
+=
+
+2 
+
+ 1
+
+12 12
+
+ 22 14 
+
+22
+
+
+
+
+
+c0
+
+max{1,
+
+1/2 },
+
+where c0 is some constant. This follows from the fact that  = 0.1/2(max{1, 1/2 }). Suppose  < 1/ 1/2. Then we can achieve nearly the same guarantees as the synchronous version, but  times faster since we are running the algorithm asynchronously. For example, consider the sparse setting where = o(1/n); then it is possible to get near linear speedup when  = o(n1/2). On the other hand, when 1/2 > 1, we can obtain a theoretical speedup of 1/ 1/2.
+
+We finally provide the convergence result for the asynchronous algorithm in the general case. The proof is complicated by the fact that set A, unlike in SVRG, changes during the epoch. The key idea is that only a single element of A changes at each iteration. Furthermore, it can only change to one of the iterates in the epoch. This control provides a handle on the error obtained due to the staleness. Due to space constraints, the proof is relegated to the appendix.
+
+Theorem 3. For any positive parameters c, ,  > 1, step size  and epoch size m, we define the
+
+following quantities:
+
+  = c2 + 1
+
+1 
+
+
+cL
+
+! 23 ,
+
+ a= 1
+
+ 1
+
+1 m 
+
+" 2c
+
+8L(1 + )
+
+2c 
+
+96 L n
+
+ 1
+
+1  
+
+#
+
+1 n
+
+,
+
+82
+
+a
+
+=
+
+<
+
+max
+
+4 :
+
+2c
+a
+
+ 1
+
+
+
+1 m 
+
++
+
+8 L
+
+1+ 1
+a
+
+ 1
+
+ 1
+
+1 m 
+
+3 5, 1
+
+1 
+
+m
+
+9 = ;
+
+.
+
+Ssuucphpothsaetptrhoebfaobllioliwtieinsgpci o/nd(i1tions1a)rme
+
+i, parameters satisfied:
+
+, , step-size , and epoch size m are chosen
+
+
+
+
+
+1 
+
++
+
+8 L
+
+1+ 1
+
++
+
+96 L n
+
+1
+
+ 1 
+
+
+
+
+
+1 n
+
+,
+
+2
+
+
+
+ 1
+
+1 m 1
+
+1
+
+ 12L2
+
+2,
+
+a > 0, a < 1.
+
+Then, for the iterates of asynchronous variant of Algorithm 1 with HSAG schedule we have 
+E f (xk+1) f (x) + 1 Gk+1  aE f (xk) f (x) + 1 Gk .
+aa
+
+Corollary a = a (1
+
+2. +
+
+Note that Gk 1/ a) < 1, we
+
+0 have
+
+and
+
+therefore,
+
+under
+
+the
+
+conditions
+
+specified
+
+in
+
+Theorem
+
+3
+
+and
+
+E
+
+ f
+
+(xk )
+
+f (x)
+
+
+
+ak
+
+ f
+
+(x0
+
+)
+
+f (x) .
+
+6
+
+Speedup Speedup Speedup Speedup
+
+3 Lock-Free SVRG Locked SVRG
+2
+1
+05 Threads
+
+5 Lock-Free SVRG Locked SVRG
+4
+
+3
+
+2
+
+1 10 0
+
+5 Threads
+
+5 Lock-Free SVRG Locked SVRG
+4
+
+3
+
+2
+
+1 10 0
+
+5 Threads
+
+5 Lock-Free SVRG Locked SVRG
+4
+
+3
+
+2
+
+1 10 0
+
+5 Threads
+
+10
+
+Figure 3: l2-regularized logistic regression. Speedup curves for Lock-Free SVRG and Locked SVRG on rcv1 (left), real-sim (left center), news20 (right center) and url (right) datasets. We report the speedup achieved by increasing the number of threads.
+
+By using step size normalized by 1/2 (similar to Theorem 2) and parameters similar to the ones specified after Theorem 1 we can show speedups similar to the ones obtained in Theorem 2. Please refer to the appendix for more details on the parameters in Theorem 3. Before ending our discussion on the theoretical analysis, we would like to highlight an important point. Our emphasis throughout the paper was on generality. While the results are presented here in full generality, one can obtain stronger results in specific cases. For example, in the case of SAGA, one can obtain per iteration convergence guarantees (see [5]) rather than those corresponding to per epoch presented in the paper. Also, SAGA can be analyzed without any additional synchronization per epoch. However, there is no qualitative difference in these guarantees accumulated over the epoch. Furthermore, in this case, our analysis for both synchronous and asynchronous cases can be easily modified to obtain convergence properties similar to those in [5].
+
+4 Experiments
+
+We present our empirical results in this section. For our experiments, we study the problem of binary classification via l2-regularized logistic regression. More formally, we are interested in the following optimization problem:
+
+min
+x
+
+1 n
+
+Xn
+
+log(1 + exp(yizi>x)) +
+
+kxk2
+
+,
+
+i=1
+
+(4.1)
+
+where zi 2 Rd and yi is the corresponding label for each i 2 [n]. In all our experiments, we set = 1/n. Note that such a choice leads to high condition number.
+
+A careful implementation of SVRG is required for sparse gradients since the implementation as stated in Algorithm 1 will lead to dense updates at each iteration. For an efficient implementation, a scheme like the 'just-in-time' update scheme, as suggested in [24], is required. Due to lack of space, we provide the implementation details in the appendix.
+
+We evaluate the following algorithms for our experiments:
+
+* Lock-Free SVRG: This is the lock-free asynchronous variant of Algorithm 1 using SVRG schedule; all threads can read and update the parameters with any synchronization. Parameter updates are performed through atomic compare-and-swap instruction [20]. A constant step size that gives the best convergence is chosen for the dataset.
+
+* Locked SVRG: This is the locked version of the asynchronous variant of Algorithm 1 using SVRG schedule. In particular, we use a concurrent read exclusive write locking model, where all threads can read the parameters but only one threads can update the parameters at a given time. The step size is chosen similar to Lock-Free SVRG.
+
+* Lock-Free SGD: This is the lock-free asynchronous variant of the SGD algorithm (see [20]).
+
+We compare two to as CSGD). (ii)
+
+different versions of SGD with decaying
+
+this step
+
+asilzgeorit0hpm:
+
+(i) SGD 0/(t +
+
+with constant 0) (referred to
+
+step size (referred as DSGD), where
+
+constants 0 and 0 specify the scale and speed of decay. For each of these versions, step size is tuned for each dataset to give the best convergence progress.
+
+7
+
+Objective Value - Optimal Objective Value - Optimal Objective Value-Optimal Objective Value - Optimal
+
+10 0 10 0
+
+10 -5
+
+10 -10 0
+
+Lock-Free SVRG DSGD CSGD
+0.5 1 1.5 Time(seconds)
+
+10 -5 10 -10
+0
+
+Lock-Free SVRG DSGD CSGD
+
+246 Time(seconds)
+
+8
+
+10 -5 10 -10 0
+
+10 -5
+
+Lock-Free SVRG DSGD CSGD
+
+5 Time(seconds)
+
+10
+
+10 -10 0
+
+Lock-Free SVRG DSGD CSGD
+50 100 Time(seconds)
+
+Figure 4: l2-regularized logistic regression. Training loss residual f (x) f (x) versus time plot of Lock-Free SVRG, DSGD and CSGD on rcv1 (left), real-sim (left center), news20 (right center) and url (right) datasets. The experiments are parallelized over 10 cores.
+
+All the algorithms were implemented in C++ 2. We run our experiments on datasets from LIBSVM website3. Similar to [28], we normalize each example in the dataset so that kzik2 = 1 for all i 2 [n]. Such a normalization leads to an upper bound of 0.25 on the Lipschitz constant of the gradient of fi. The epoch size m is chosen as 2n (as recommended in [9]) in all our experiments. In the first experiment, we compare the speedup achieved by our asynchronous algorithm. To this end, for each dataset we first measure the time required for the algorithm to each an accuracy of 10 10 (i.e., f (x) f (x) < 10 10). The speedup with P threads is defined as the ratio of the runtime with a single thread to the runtime with P threads. Results in Figure 3 show the speedup on various datasets. As seen in the figure, we achieve significant speedups for all the datasets. Not surprisingly, the speedup achieved by Lock-free SVRG is much higher than ones obtained by locking. Furthermore, the lowest speedup is achieved for rcv1 dataset. Similar speedup behavior was reported for this dataset in [20]. It should be noted that this dataset is not sparse and hence, is a bad case for the algorithm (similar to [20]). For the second set of experiments we compare the performance of Lock-Free SVRG with stochastic gradient descent. In particular, we compare with the variants of stochastic gradient descent, DSGD and CSGD, described earlier in this section. It is well established that the performance of variance reduced stochastic methods is better than that of SGD. We would like to empirically verify that such benefits carry over to the asynchronous variants of these algorithms. Figure 4 shows the performance of Lock-Free SVRG, DSGD and CSGD. Since the computation complexity of each epoch of these algorithms is different, we directly plot the objective value versus the runtime for each of these algorithms. We use 10 cores for comparing the algorithms in this experiment. As seen in the figure, Lock-Free SVRG outperforms both DSGD and CSGD. The performance gains are qualitatively similar to those reported in [9] for the synchronous versions of these algorithms. It can also be seen that the DSGD, not surprisingly, outperforms CSGD in all the cases. In our experiments, we observed that Lock-Free SVRG, in comparison to SGD, is relatively much less sensitive to the step size and more robust to increasing threads.
+5 Discussion & Future Work
+In this paper, we presented a unifying framework based on [5], that captures many popular variance reduction techniques for stochastic gradient descent. We use this framework to develop a simple hybrid variance reduction method. The primary purpose of the framework, however, was to provide a common platform to analyze various variance reduction techniques. To this end, we provided convergence analysis for the framework under certain conditions. More importantly, we propose an asynchronous algorithm for the framework with provable convergence guarantees. The key consequence of our approach is that we obtain asynchronous variants of several algorithms like SVRG, SAGA and S2GD. Our asynchronous algorithms exploits sparsity in the data to obtain near linear speedup in settings that are typically encountered in machine learning. For future work, it would be interesting to perform an empirical comparison of various schedules. In particular, it would be worth exploring the space-time-accuracy tradeoffs of these schedules. We would also like to analyze the effect of these tradeoffs on the asynchronous variants.
+2All experiments were conducted on a Google Compute Engine n1-highcpu-32 machine with 32 processors and 28.8 GB RAM.
+3http://www.csie.ntu.edu.tw/cjlin/libsvmtools/datasets/binary.html
+8
+
+Bibliography
+[1] Alekh Agarwal and Leon Bottou. A lower bound for the optimization of finite sums. arXiv:1410.0723, 2014.
+[2] Alekh Agarwal and John C Duchi. Distributed delayed stochastic optimization. In Advances in Neural Information Processing Systems, pages 873-881, 2011.
+[3] Dimitri P Bertsekas. Incremental gradient, subgradient, and proximal methods for convex optimization: A survey. Optimization for Machine Learning, 2010:1-38, 2011.
+[4] Aaron Defazio. New Optimization Methods for Machine Learning. PhD thesis, Australian National University, 2014.
+[5] Aaron Defazio, Francis Bach, and Simon Lacoste-Julien. SAGA: A fast incremental gradient method with support for non-strongly convex composite objectives. In NIPS 27, pages 1646-1654. 2014.
+[6] Aaron J Defazio, Tiberio S Caetano, and Justin Domke. Finito: A faster, permutable incremental gradient method for big data problems. arXiv:1407.2710, 2014.
+[7] Ofer Dekel, Ran Gilad-Bachrach, Ohad Shamir, and Lin Xiao. Optimal distributed online prediction using mini-batches. The Journal of Machine Learning Research, 13(1):165-202, 2012.
+[8] M. Gurbuzbalaban, A. Ozdaglar, and P. Parrilo. A globally convergent incremental Newton method. Mathematical Programming, 151(1):283-313, 2015.
+[9] Rie Johnson and Tong Zhang. Accelerating stochastic gradient descent using predictive variance reduction. In NIPS 26, pages 315-323. 2013.
+[10] Jakub Konecny, Jie Liu, Peter Richtarik, and Martin Takac. Mini-Batch Semi-Stochastic Gradient Descent in the Proximal Setting. arXiv:1504.04407, 2015.
+[11] Jakub Konecny and Peter Richtarik. Semi-Stochastic Gradient Descent Methods. arXiv:1312.1666, 2013. [12] Mu Li, David G Andersen, Alex J Smola, and Kai Yu. Communication Efficient Distributed Machine
+Learning with the Parameter Server. In NIPS 27, pages 19-27, 2014. [13] Ji Liu and Stephen J. Wright. Asynchronous stochastic coordinate descent: Parallelism and convergence
+properties. SIAM Journal on Optimization, 25(1):351-376, 2015. [14] Ji Liu, Steve Wright, Christopher Re, Victor Bittorf, and Srikrishna Sridhar. An asynchronous parallel
+stochastic coordinate descent algorithm. In ICML 2014, pages 469-477, 2014. [15] Julien Mairal. Optimization with first-order surrogate functions. arXiv:1305.3120, 2013. [16] A Nedic, Dimitri P Bertsekas, and Vivek S Borkar. Distributed asynchronous incremental subgradient
+methods. Studies in Computational Mathematics, 8:381-407, 2001. [17] A. Nemirovski, A. Juditsky, G. Lan, and A. Shapiro. Robust stochastic approximation approach to
+stochastic programming. SIAM Journal on Optimization, 19(4):1574-1609, 2009. [18] Yu Nesterov. Efficiency of coordinate descent methods on huge-scale optimization problems. SIAM
+Journal on Optimization, 22(2):341-362, 2012. [19] Atsushi Nitanda. Stochastic Proximal Gradient Descent with Acceleration Techniques. In NIPS 27, pages
+1574-1582, 2014. [20] Benjamin Recht, Christopher Re, Stephen Wright, and Feng Niu. Hogwild!: A Lock-Free Approach to
+Parallelizing Stochastic Gradient Descent. In NIPS 24, pages 693-701, 2011. [21] Sashank Reddi, Ahmed Hefny, Carlton Downey, Avinava Dubey, and Suvrit Sra. Large-scale randomized-
+coordinate descent methods with non-separable linear constraints. In UAI 31, 2015. [22] Peter Richtarik and Martin Takac. Iteration complexity of randomized block-coordinate descent methods
+for minimizing a composite function. Mathematical Programming, 144(1-2):1-38, 2014. [23] H. Robbins and S. Monro. A stochastic approximation method. Annals of Mathematical Statistics,
+22:400-407, 1951. [24] Mark W. Schmidt, Nicolas Le Roux, and Francis R. Bach. Minimizing Finite Sums with the Stochastic
+Average Gradient. arXiv:1309.2388, 2013. [25] Shai Shalev-Shwartz and Tong Zhang. Accelerated mini-batch stochastic dual coordinate ascent. In NIPS
+26, pages 378-385, 2013. [26] Shai Shalev-Shwartz and Tong Zhang. Stochastic dual coordinate ascent methods for regularized loss.
+The Journal of Machine Learning Research, 14(1):567-599, 2013. [27] Ohad Shamir and Nathan Srebro. On distributed stochastic optimization and learning. In Proceedings of
+the 52nd Annual Allerton Conference on Communication, Control, and Computing, 2014. [28] Lin Xiao and Tong Zhang. A proximal stochastic gradient method with progressive variance reduction.
+SIAM Journal on Optimization, 24(4):2057-2075, 2014. [29] Martin Zinkevich, Markus Weimer, Lihong Li, and Alex J Smola. Parallelized stochastic gradient descent.
+In NIPS, pages 2595-2603, 2010.
+9
+

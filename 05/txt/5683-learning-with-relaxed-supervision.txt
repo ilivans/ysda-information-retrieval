@@ -1,0 +1,530 @@
+Learning with Relaxed Supervision
+
+Jacob Steinhardt Stanford University jsteinhardt@cs.stanford.edu
+
+Percy Liang Stanford University pliang@cs.stanford.edu
+
+Abstract
+For weakly-supervised problems with deterministic constraints between the latent variables and observed output, learning necessitates performing inference over latent variables conditioned on the output, which can be intractable no matter how simple the model family is. Even finding a single latent variable setting that satisfies the constraints could be difficult; for instance, the observed output may be the result of a latent database query or graphics program which must be inferred. Here, the difficulty lies in not the model but the supervision, and poor approximations at this stage could lead to following the wrong learning signal entirely. In this paper, we develop a rigorous approach to relaxing the supervision, which yields asymptotically consistent parameter estimates despite altering the supervision. Our approach parameterizes a family of increasingly accurate relaxations, and jointly optimizes both the model and relaxation parameters, while formulating constraints between these parameters to ensure efficient inference. These efficiency constraints allow us to learn in otherwise intractable settings, while asymptotic consistency ensures that we always follow a valid learning signal.
+
+1 Introduction
+We are interested in the problem of learning from intractable supervision. For example, for a question answering application, we might want to learn a semantic parser that maps a question x (e.g., "Which president is from Arkansas?") to a logical form z (e.g., USPresident(e)  PlaceOfBirth(e, Arkansas)) that executes to the answer y (e.g., BillClinton). If we are only given (x, y) pairs as training data [1, 2, 3], then even if the model p(z | x) is tractable, it is still intractable to incorporate the hard supervision constraint [S(z, y) = 1] since z and y live in a large space and S(z, y) can be complex (e.g., S(z, y) = 1 iff z executes to y on a database). In addition to semantic parsing, intractable supervision also shows up in inverse graphics [4, 5, 6], relation extraction [7, 8], program induction [9], and planning tasks with complex, long-term goals [10]. As we scale to weaker supervision and richer output spaces, such intractabilities will become the norm.
+One can handle the intractable constraints in various ways: by relaxing them [11], by applying them in expectation [12], or by using approximate inference [8]. However, as these constraints are part of the supervision rather than the model, altering them can fundamentally change the learning process; this raises the question of when such approximations are faithful enough to learn a good model.
+In this paper, we propose a framework that addresses these questions formally, by constructing a relaxed supervision function with well-characterized statistical and computational properties. Our approach is sketched in Figure 1: we start with an intractable supervision function q(y | z) (given by the constraint S), together with a model family p(z | x). We then replace q by a family of functions q(y | z) which contains q, giving rise to a joint model p,(y, z | x). We ensure tractability of inference by constraining p(z | x) and p,(z | x, y) to stay close together, so that the supervision y is never too surprising to the model. Finally, we optimize  and  subject to this tractability constraint; when q(y | z) is properly normalized, there is always pressure to use the true
+1
+
+more exact
+
+intractable region
+ learning trajectory
+tractable region
+
+Figure 1: Sketch of our approach; we define a family of relaxations q of the supervision, and then jointly optimize both  and . If the supervision q is too harsh relative to the accuracy of the current model p, inference becomes intractable. In Section 4, we formulate
+constraints to avoid this intractable region and
+learn within the tractable region.
+
+less exact
+
+less accurate
+
+ more accurate
+
+supervision q, and we can prove that the global optimum of p, is an asymptotically consistent estimate of the true model.
+
+Section 2 introduces the relaxed supervision model q(y | z)  exp( (z, y)), where (z, y) = 0 iff the constraint S(z, y) is satisfied (the original supervision is then obtained when  = ). Section 3 studies the statistical properties of this relaxation, establishing asymptotic consistency as well as characterizing the properties for any fixed : we show roughly that both the loss and statistical efficiency degrade by a factor of m-i1n, the inverse of the smallest coordinate of . In Section 4, we introduce novel tractability constraints, show that inference is efficient if the constraints are satis-
+fied, and present an EM-like algorithm for constrained optimization of the likelihood. Finally, in
+Section 5, we explore the empirical properties of this algorithm on two illustrative examples.
+
+2 Framework
+
+We assume that we are given a partially supervised problem x  z  y where (x, y)  X x Y
+are observed and z  Z is unobserved. We model z given x as an exponential family p(z | x) = exp( (x, z)-A(; x)), and assume that y = f (z) is a known deterministic function of z. Hence:
+
+p(y | x) = S(z, y) exp( (x, z) - A(; x)),
+z
+
+(1)
+
+where S(z, y)  {0, 1} encodes the constraint [f (z) = y]. In general, f could have complicated
+
+structure, rendering inference (i.e., computing p(z | x, y), which is needed for learning) intractable.
+
+To alleviate this, we consider projections j mapping Y to some smaller set Yj; we then obtain the
+
+(hopefully simpler) constraint that f (z) and y match under j: Sj(z, y) d=ef [j(f (z)) = j(y)]. We
+
+assume 1 x * * * x k is injective, which implies that S(z, y) equals the conjunction
+
+k j=1
+
+Sj
+
+(z,
+
+y).
+
+We also assume that some part of S (call it T(z, y)) can be imposed tractably. We can always take
+
+T  1, but it is better to include as much of S as possible because T will be handled exactly while S
+
+will be approximated. We record our assumptions below:
+
+Definition 2.1. Let S(z, y) encode the constraint f (z) = y. We say that (T, 1, . . . , k) logically decomposes S if (1) S implies T and (2) 1 x * * * x k is injective.
+
+Before continuing, we give three examples to illustrate the definitions above.
+Example 2.2 (Translation from unordered supervision). Suppose that given an input sentence x, each word is passed through the same unknown 1-to-1 substitution cipher to obtain an enciphered sentence z, and then ordering is removed to obtain an output y = multiset(z). For example, we might have x = abaa, z = dcdd, and y = {c : 1, d : 3}. Suppose the vocabulary is {1, . . . , V }. Our constraint is S(z, y) = [y = multiset(z)], which logically decomposes as
+
+f (z)
+
+V j (y)
+
+[y = multiset(z)]  [zi  y for all i]  [count(z, j) = count(y, j)],
+
+S(z,y)
+
+T(z,y)
+
+j=1
+
+Sj (z,y)
+
+(2)
+
+where count(*, j) counts the number of occurrences of the word j. The constraint T is useful because it lets us restrict attention to words in y (rather than all of {1, . . . , V }), which dramatically reduces the search space. If each sentence has length L, then Yj = j(Y) = {0, . . . , L}.
+Example 2.3 (Conjunctive semantic parsing). Suppose again that x is an input sentence, and that each input word xi  {1, . . . , V } maps to a predicate (set) zi  {Q1, . . . , Qm}, and the meaning y
+
+2
+
+of the sentence is the intersection of the predicates. For instance, if the sentence x is "brown dog",
+and Q6 is the set of all brown objects and Q11 is the set of all dogs, then z1 = Q6, z2 = Q11, and y = Q6  Q11 is the set of all brown dogs. In general, we define y = z d=ef z1  * * *  zl. This is a simplified form of learning semantic parsers from denotations [2].
+
+We let Y be every set that is obtainable as an intersection of predicates Q, and define j(y) = [y  Qj] for j = 1, . . . , m (so Yj = {0, 1}). Note that for all y  Y, we have y = j:j(y)=1Qj, so 1 x * * * x m is injective. We then have the following logical decomposition:
+
+y= z
+S(z,y)
+
+
+
+m
+
+[zi  y for all i]  [ z
+
+T(z,y)
+
+j=1
+
+j (y)
+ Qj] = [y  Qj] .
+Sj (z,y)
+
+(3)
+
+The first constraint T factors across i, so it can be handled tractably.
+Example 2.4 (Predicate abstraction). Next, we consider a program induction task; here the input x might be "smallest square divisible by six larger than 1000", z would be argmin{i1 | mod(i1,6) = 0 and i1 = i2*i2 and i1 > 1000}, and y would be 1296; hence S(z, y) = 1 if z evaluates to y. Suppose that we have a collection of predicates j, such as 1(y) = mod(y, 6), 2(y) = isPrime(y), etc. These predicates are useful for giving partial credit; for instance, it is easier to satisfy mod(y, 6) = 0 than y = 1296, but many programs that satisfy the former will have pieces that are also in the correct z. Using the j to decompose S will therefore provide a more tractable learning signal that still yields useful information.
+
+Relaxing the supervision. Returning to the general framework, let us now use Sj and T to relax S, and thus also p(y | x). First, define penalty features j(z, y) = Sj(z, y) - 1, and also define q(y | z)  T(z, y) exp  (z, y) for any vector   0. Then, - log q(y | z) measures how far S(z, y) is from being satisfied: for each violated Sj, we incur a penalty j (or infinite penalty if T is violated). Note that the original q(y | z) = S(z, y) corresponds to 1 = * * * = k = +.
+Normalization constant. The log-normalization constant A(; z) for q is equal to log( yY T(z, y) exp( (z, y))); this is in general difficult to compute, since  could have arbitrary structure. Fortunately, we can uniformly upper-bound A(; z) by a tractable quantity A():
+Proposition 2.5. For any z, we have the following bound:
+
+k
+A(; z)  log (1 + (|Yj|-1) exp(-j)) d=ef A().
+j=1
+
+(4)
+
+See the supplement for proof; the intuition is that, by injectivity of 1 x * * * x k, we can bound Y
+
+by the product set
+
+k j=1
+
+Yj .
+
+We
+
+now
+
+define
+
+our
+
+joint
+
+model,
+
+which
+
+is
+
+a
+
+relaxation
+
+of
+
+(1):
+
+q(y | z) = T(z, y) exp  (z, y) - A() ,
+
+(5)
+
+p,(y | x) = T(z, y) exp( (x, z) +  (z, y) - A(; x) - A()),
+z
+L(, ) = Ex,yp [- log p,(y | x)], where p is the true distribution.
+
+(6) (7)
+
+The relaxation parameter  provides a trade-off between faithfulness to the original objective (large ) and tractability (small ). Importantly, p,(y | x) produces valid probabilities which can be meaningfully compared across different ; this will be important later in allowing us to optimize . (Note that while y p,(y | x) < 1 if the bound (4) is not tight, this gap vanishes as   .)
+
+3 Analysis
+
+We now analyze the effects of relaxing supervision (i.e., taking  < ); proofs may be found in the supplement. We will analyze the following properties:
+1. Effect on loss: How does the value of the relaxation parameter  affect the (unrelaxed) loss of the learned parameters  (assuming we had infinite data and perfect optimization)?
+
+3
+
+2. Amount of data needed to learn: How does  affect the amount of data needed in order to identify the optimal parameters?
+3. Optimizing  and consistency: What happens if we optimize  jointly with ? Is there natural pressure to increase  and do we eventually recover the unrelaxed solution?
+
+Notation. Let Ep denote the expectation under x, y  p, and let L(, ) denote the unrelaxed loss (see (5)-(7)). Let L = inf L(, ) be the optimal unrelaxed loss and  be the minimizing
+argument. Finally, let E and Cov denote the expectation and covariance, respectively, under p(z | x). To simplify expressions, we will often omit the arguments from (x, z) and (z, y), and use S and S for the events [S(z, y) = 1] and [S(z, y) = 0]. For simplicity, assume that T(z, y)  1.
+
+Effect on loss. Suppose we set  to some fixed value (1, . . . , k) and let  be the minimizer of L(, ). Since  is optimized for L(*, ) rather than L(*, ), it is possible that L( , ) is very large; indeed, if p (y | x) is zero for even a single outlier (x, y), then L( , ) will be infinite. However, we can bound  under an alternative loss that is less sensitive to outliers:
+
+Proposition 3.1.
+
+Let min = minkj=1 j . Then, Ep [1 - p (y | x)] 
+
+.L
+1-exp(-min )
+
+The key idea in the proof is that replacing S with exp( ) in p, does not change the loss too much, in the sense that S  exp( )  exp(-min) + (1 - exp(-min))S.
+
+When min
+
+1,
+
+L 1-exp(-min )
+
+
+
+.L
+min
+
+Hence, the error increases roughly linearly with m-i1n.
+
+If
+
+min is large and the original loss L is small, then L(*, ) is a good surrogate. Of particular interest
+
+is the case L = 0 (perfect predictions); in this case, the relaxed loss L(*, ) also yields a perfect
+
+predictor for any  > 0. Note conversely that Proposition 3.1 is vacuous when L  1.
+
+We show in the supplement that Proposition 3.1 is essentially tight:
+Lemma 3.2. For any 0 < min < L, there exists a model with loss L and a relaxation parameter  = (min, , . . . , ), such that Ep [p (y | x)] = 0.
+
+Amount of data needed to learn. To estimate how much data is needed to learn, we compute the Fisher information I d=ef 2L( , ), which measures the statistical efficiency of the maximum likelihood estimator [13]. All of the equations below follow from standard properties of exponential
+families [14], with calculations in the supplement. For the unrelaxed loss, the Fisher information is:
+
+I = Ep [P [S] (E [   | S] - E [   | S])] .
+
+(8)
+
+Hence  is easy to estimate if the features have high variance when S = 0 and low variance when S = 1. This should be true if all z with S(z, y) = 1 have similar feature values while the z with S(z, y) = 0 have varying feature values.
+
+In the relaxed case, the Fisher information can be written to first order as
+
+I = Ep Cov (x, z)  (x, z), - (z, y) + O 2 .
+
+(9)
+
+In other words, I, to first order, is the covariance of the penalty -  with the second-order statistics of . To interpret this, we will make the simplifying assumptions that (1) j = min for all
+j, and (2) the events Sj are all disjoint. In this case, -  = minS, and the covariance in (9) simplifies to
+
+Cov   , -  = minP [S]P [S] E [   | S] - E [   | S] . (10)
+Relative to (8), we pick up a P [S] factor. If we further assume that P [S]  1, we see that the amount of data required to learn under the relaxation increases by a factor of roughly m-i1n.
+Optimizing . We now study the effects of optimizing both  and  jointly. Importantly, joint optimization recovers the true distribution p in the infinite data limit: Proposition 3.3. Suppose the model is well-specified: p(y | x) = p (y | x) for all x, y. Then, all global optima of L(, ) satisfy p,(y | x) = p(y | x); one such optimum is  = ,  = .
+
+4
+
+There is thus always pressure to send  to  and  to . The key fact in the proof is that the log-loss L(, ) is never smaller than the conditional entropy Hp (y | x), with equality iff p, = p.
+Summary. Based on our analyses above, we can conclude that relaxation has the following impact:
+* Loss: The loss increases by a factor of m-i1n in the worst case. * Amount of data: In at least one regime, the amount of data needed to learn is m-i1n times larger.
+The general theme is that the larger  is, the better the statistical properties of the maximumlikelihood estimator. However, larger  also makes the distribution p, less tractable, as q(y | z) becomes concentrated on a smaller set of y's. This creates a trade-off between computational efficiency (small ) and statistical accuracy (large ). We explore this trade-off in more detail in the next section, and show that in some cases we can get the best of both worlds.
+
+4 Constraints for Efficient Inference
+
+In light of the previous section, we would like to make  as large as possible; on the other hand, if  is too large, we are back to imposing S exactly and inference becomes intractable. We would therefore like to optimize  subject to a tractability constraint ensuring that we can still perform efficient inference, as sketched earlier in Figure 1. We will use rejection sampling as the inference procedure, with the acceptance rate as a measure of tractability.
+To formalize our approach, we assume that the model p(z | x) and the constraint T(z, y) are jointly tractable, so that we can efficiently draw exact samples from
+
+p,T(z | x, y) d=ef T(z, y) exp  (x, z) - AT(; x, y) ,
+
+(11)
+
+where AT(; x, y) = log( z T(z, y) exp( (x, z))). Most learning algorithms require the conditional expectations of  and  given x and y; we therefore need to sample the distribution
+
+p,(z | x, y) = T(z, y) exp  (x, z) +  (z, y) - A(, ; x, y) , where
+
+(12)
+
+A(, ; x, y) d=ef log
+
+T(z, y) exp( (x, z) +  (z, y)) .
+
+z
+
+(13)
+
+Since    0, we can draw exact samples from p, using rejection sampling: (1) sample z from p,T(* | x, y), and (2) accept with probability exp( (z, y)). If the acceptance rate is high, this algorithm lets us tractably sample from (12). Intuitively, when  is far from the optimum, the model p and constraints Sj will clash, necessitating a small value of  to stay tractable. As  improves, more of the constraints Sj will be satisfied automatically under p, allowing us to increase .
+Formally, the expected number of samples is the inverse of the acceptance probability and can be expressed as (see the supplement for details)
+
+-1
+p,T(z | x, y) exp( (z, y)) = exp (AT(; x, y) - A(, ; x, y)) .
+z
+
+(14)
+
+We can then minimize the loss L(, ) = A(; x) + A() - A(, ; x, y) (see (6)-(7) and (13)) subject to the tractability constraint Ex,y[exp (AT(; x, y) - A(, ; x, y))]   , where  is our computational budget. While one might have initially worried that rejection sampling will perform
+poorly, this constraint guarantees that it will perform well by bounding the number of rejections.
+
+Implementation details. To minimize L subject to a constraint on (14), we will develop an EM-like
+algorithm; the algorithm maintains an inner approximation to the constraint set as well as an upper
+bound on the loss, both of which will be updated with each iteration of the algorithm. These bounds are obtained by linearizing A(, ; x, y); more precisely, for any (, ) we have by convexity:
+
+A(, ; x, y)  A(, ; x, y) d=ef A(, ; x, y) + ( - )  + ( - ) ,
+where  d=ef p,(z | x, y)(x, z),  d=ef p,(z | x, y)(z, y).
+zz
+
+(15)
+
+5
+
+We thus obtain a bound L on the loss L, as well as a tractability constraint C1, which are both convex:
+
+minimize Ep A(; x) + A() - A(, ; x, y)
+
+(L)
+
+subject to Ep exp AT(; x, y) - A(, ; x, y)  .
+
+(C1)
+
+We will iteratively solve the above minimization, and then update L and C1 using the minimizing (, ) from the previous step. Note that the minimization itself can be done without inference; we only need to do inference when updating  and . Since inference is tractable at (, ) by design, we can obtain unbiased estimates of  and  using the rejection sampler described earlier. We can also estimate A(, ; x, y) at the same time by using samples from p,T and the relation (14).
+
+A practical issue is that C1 becomes overly stringent when (, ) is far away from (, ). It is therefore difficult to make large moves in parameter space, which is especially bad for getting started
+initially. We can solve this using the trivial constraint
+
+k
+exp j  ,
+j=1
+
+(C0)
+
+which will also ensure tractability. We use (C0) for several initial iterations, then optimize the rest of the way using (C1). To avoid degeneracies at  = 0, we also constrain   in all iterations. We will typically take = 1/k, which is feasible for (C0) assuming   exp(1).1
+
+To summarize, we have obtained an iterative algorithm for jointly minimizing L(, ), such that p,(z | x, y) always admits efficient rejection sampling. Pseudocode is provided in Algorithm 1; note that all population expectations Ep should now be replaced with sample averages.
+
+Algorithm 1 Minimizing L(, ) while guaranteeing tractable inference.
+
+Input training data (x(i), y(i))ni=1. Initialize  = 0, j = for j = 1, . . . , k.
+while not converged do Estimate (i), (i), and A(, ; x(i), y(i)) for i = 1, . . . , n by sampling p,(z | x(i), y(i)). Estimate the functions A(, ; x(i), y(i)) using the output from the preceding step.
+Let (, ) be the solution to
+
+1n minimize
+, n
+i=1
+subject to (C0),
+
+A(; x(i)) + A() - A(, ; x(i), y(i)) j  for j = 1, . . . , k
+
+Update (, )  (, ).
+
+end while
+Repeat the same loop as above, with the constraint (C0) replaced by (C1). Output (, ).
+
+5 Experiments
+We now empirically explore our method's behavior. All of our code, data, and experiments may be found on the CodaLab worksheet for this paper at https://www.codalab.org/worksheets/ 0xc9db508bb80446d2b66cbc8e2c74c052/, which also contains more detailed plots beyond those shown here. We would like to answer the following questions:
+* Fixed : For a fixed , how does the relaxation parameter  affect the learned parameters? What is the trade-off between accuracy and computation as we vary ?
+1If only some of the constraints Sj are active for each y (e.g. for translation we only have to worry about the words that actually appear in the output sentence), then we need only include those j in the sum for (C0). This can lead to substantial gains, since now k is effectively the sentence length rather than the vocabulary size.
+6
+
+1.0
+AdaptFull(50) AdaptTied(50)
+0.8 Fixed(0.8)
+Fixed(0.5) Fixed(0.2)
+0.6 Fixed(0.1)
+0.4
+
+1.0
+
+AdaptFull(200)
+
+AdaptTied(200)
+
+0.8 AdaptFull(100)
+AdaptFull(50)
+
+Fixed(0.5)
+
+0.6
+
+Fixed(0.3) Fixed(0.2)
+
+0.4
+
+accuracy accuracy
+
+0.2 0.2
+
+0.0 104
+
+105 106 107
+number of samples
+
+108 0.0 104
+
+105 106 107 108
+number of samples
+
+109
+
+(a) (b)
+Figure 2: (a) Accuracy versus computation (measured by number of samples drawn by the rejection sampler) for the unordered translation task. (b) Corresponding plot for the conjunctive semantic parsing task. For both tasks, the FIXED method needs an order of magnitude more samples to achieve comparable accuracy to either adaptive method.
+
+* Adapting : Does optimizing  affect performance? Is the per-coordinate adaptivity of our relaxation advantageous, or can we set all coordinates of  to be equal? How does the computational budget  (from C0 and C1) impact the optimization?
+To answer these questions, we considered using a fixed  (FIXED()), optimizing  with a computational constraint  (ADAPTFULL( )), and performing the same optimization with all coordinates of  constrained to be equal (ADAPTTIED( )). For optimization, we used Algorithm 1, using S = 50 samples to approximate each (i) and (i), and using the solver SNOPT [15] for the inner optimization. We ran Algorithm 1 for 50 iterations; when  is not fixed, we apply the constraint (C0) for the first 10 iterations and (C1) for the remaining 40 iterations; when it is fixed, we do not apply any constraint.
+
+Unordered translation. We first consider the translation task from Example 2.2. Recall that we
+
+are given a vocabulary [V ] d=ef {1, . . . , V }, and wish to recover an unknown 1-1 substitution cipher
+
+c : [V ]  [V ]. Given an input sentence x1:L, the latent z is the result of applying c, where zi is
+
+c(xi) with probability 1 -  and uniform over [V ] with probability . To model this, we define a
+
+feature u,v(x, z) that counts the number of times that xi = u and zi = v; hence, p(z | x) 
+
+exp(
+
+L i=1
+
+xi,zi ).
+
+Recall
+
+also
+
+that
+
+the
+
+output
+
+y
+
+=
+
+multiset(z).
+
+In our experiments, we generated n = 100 sentences of length L = 20 with vocabulary size V =
+102. For each pair of adjacent words (x2i-1, x2i), we set x2i-1 = 3j + 1 with j drawn from a power law distribution on {0, . . . , V /3 - 1} with exponent r  0; we then set x2i to 3j + 2 or 3j + 3 with equal probability. This ensures that there are pairs of words that co-occur often (without which the
+constraint T would already solve the problem).
+
+We set r = 1.2 and  = 0.1, which produces a moderate range of word frequencies as well as
+
+a moderate noise level (we also considered setting either r or  to 0, but omitted these results be-
+
+cause essentially all methods achieved ceiling accuracy; the interested reader may find them in our
+
+CodaLab worksheet). We set the computational budget  = 50 for the constraints C0 and C1, and
+
+=
+
+1 L
+
+as
+
+the
+
+lower
+
+bound
+
+on
+
+.
+
+To
+
+measure
+
+accuracy,
+
+we
+
+look
+
+at
+
+the
+
+fraction
+
+of
+
+words
+
+whose
+
+modal
+
+prediction under the model corresponds to the correct mapping.
+
+We plot accuracy versus computation (i.e., cumulative number of samples drawn by the rejection sampler up through the current iteration) in Figure 2a; note that the number of samples is plotted on a log-scale. For the FIXED methods, there is a clear trade-off between computation and accuracy, with multiplicative increases in computation needed to obtain additive increases in accuracy. The adaptive methods completely surpass this trade-off curve, achieving higher accuracy than FIXED(0.8) while using an order of magnitude less computation. The ADAPTFULL and ADAPTTIED methods achieve similar results to each other; in both cases, all coordinates of  eventually obtained their maximum value of 5.0, which we set as a cap for numerical reasons, and which corresponds closely to imposing the exact supervision signal.
+
+7
+
+Conjunctive semantic parsing. We also ran experiments on the semantic parsing task from Example 2.3. We used vocabulary size V = 150, and represented each predicate Q as a subset of [U ], where U = 300. The five most common words in [V ] mapped to the empty predicate Q = [U ], and the remaining words mapped to a random subset of 85% of [U ]. We used n = 100 and sentence length L = 25. Each word in the input was drawn independently from a power law with r = 0.8. A word was mapped to its correct predicate with probability 1 -  and to a uniformly random predicate with probability , with  = 0.1. We constrained the denotation y = z to have non-zero size by re-generating each examples until this constraint held. We used the same model p(z | x) as before, and again measured accuracy based on the fraction of the vocabulary for which the modal prediction was correct. We set  = 50, 100, 200 to compare the effect of different computational budgets.
+Results are shown in Figure 2b. Once again, the adaptive methods substantially outperform the FIXED methods. We also see that the accuracy of the algorithm is relatively invariant to the computational budget  -- indeed, for all of the adaptive methods, all coordinates of  eventually obtained their maximum value, meaning that we were always using the exact supervision signal by the end of the optimization. These results are broadly similar to the translation task, suggesting that our method generalizes across tasks.
+6 Related Work and Discussion
+For a fixed relaxation , our loss L(, ) is similar to the Jensen risk bound defined by Gimpel and Smith [16]. For varying , our framework is similar in spirit to annealing, where the entire objective is relaxed by exponentiation, and the relaxation is reduced over time. An advantage of our method is that we do not have to pick a fixed annealing schedule; it falls out of learning, and moreover, each constraint can be annealed at its own pace.
+Under model well-specification, optimizing the relaxed likelihood recovers the same distribution as optimizing the original likelihood. In this sense, our approach is similar in spirit to approaches such as pseudolikelihood [17, 18] and, more distantly, reward shaping in reinforcement learning [19].
+There has in the past been considerable interest in specifying and learning under constraints on model predictions, leading to a family of ideas including constraint-driven learning [11], generalized expectation criteria [20, 21], Bayesian measurements [22], and posterior regularization [23]. These ideas are nicely summarized in Section 4 of [23], and involve relaxing the constraint either by using a variational approximation or by applying the constraint in expectation rather than pointwise (e.g., replacing the constraint h(x, z, y)  1 with E[h(x, z, y)]  1). This leads to tractable inference when the function h can be tractably incorporated as a factor in the model, which is the case for many problems of interest (including the translation task in this paper). In general, however, inference will be intractable even under the relaxation, or the relaxation could lead to different learned parameters; this motivates our framework, which handles a more general class of problems and has asymptotic consistency of the learned parameters.
+The idea of learning with explicit constraints on computation appears in the context of prioritized search [24], MCMC [25, 26], and dynamic feature selection [27, 28, 29]. These methods focus on keeping the model tractable; in contrast, we assume a tractable model and focus on the supervision. While the parameters of the model can be informed by the supervision, relaxing the supervision as we do could fundamentally alter the learning process, and requires careful analysis to ensure that we stay grounded to the data. As an analogy, consider driving a car with a damaged steering wheel (approximate model) versus not being able to see the road (approximate supervision); intuitively, the latter appears to pose a more fundamental challenge.
+Intractable supervision is a key bottleneck in many applications, and will only become more so as we incorporate more sophisticated logical constraints into our statistical models. While we have laid down a framework that grapples with this issue, there is much to be explored--e.g., deriving stochastic updates for optimization, as well as tractability constraints for more sophisticated inference methods.
+Acknowledgments. The first author was supported by a Fannie & John Hertz Fellowship and an NSF Graduate Research Fellowship. The second author was supported by a Microsoft Research Faculty Fellowship. We are also grateful to the referees for their valuable comments.
+8
+
+References
+[1] J. Clarke, D. Goldwasser, M. Chang, and D. Roth. Driving semantic parsing from the world's response. In Computational Natural Language Learning (CoNLL), pages 18-27, 2010.
+[2] P. Liang, M. I. Jordan, and D. Klein. Learning dependency-based compositional semantics. In Association for Computational Linguistics (ACL), pages 590-599, 2011.
+[3] Y. Artzi and L. Zettlemoyer. Weakly supervised learning of semantic parsers for mapping instructions to actions. Transactions of the Association for Computational Linguistics (TACL), 1:49-62, 2013.
+[4] M. Fisher, D. Ritchie, M. Savva, T. Funkhouser, and P. Hanrahan. Example-based synthesis of 3D object arrangements. ACM SIGGRAPH Asia, 12, 2012.
+[5] V. Mansinghka, T. D. Kulkarni, Y. N. Perov, and J. Tenenbaum. Approximate Bayesian image interpretation using generative probabilistic graphics programs. In Advances in Neural Information Processing Systems (NIPS), pages 1520-1528, 2013.
+[6] A. X. Chang, M. Savva, and C. D. Manning. Learning spatial knowledge for text to 3D scene generation. In Empirical Methods in Natural Language Processing (EMNLP), 2014.
+[7] M. Mintz, S. Bills, R. Snow, and D. Jurafsky. Distant supervision for relation extraction without labeled data. In Association for Computational Linguistics (ACL), pages 1003-1011, 2009.
+[8] S. Riedel, L. Yao, and A. McCallum. Modeling relations and their mentions without labeled text. In Machine Learning and Knowledge Discovery in Databases (ECML PKDD), pages 148-163, 2010.
+[9] S. Gulwani. Automating string processing in spreadsheets using input-output examples. ACM SIGPLAN Notices, 46(1):317-330, 2011.
+[10] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, et al. Human-level control through deep reinforcement learning. Nature, 518(7540):529-533, 2015.
+[11] M. Chang, L. Ratinov, and D. Roth. Guiding semi-supervision with constraint-driven learning. In Association for Computational Linguistics (ACL), pages 280-287, 2007.
+[12] J. Graca, K. Ganchev, and B. Taskar. Expectation maximization and posterior constraints. In NIPS, 2008.
+[13] A. W. van der Vaart. Asymptotic statistics. Cambridge University Press, 1998.
+[14] F. Nielsen and V. Garcia. Statistical exponential families: A digest with flash cards. arXiv preprint arXiv:0911.4863, 2009.
+[15] P. E. Gill, W. Murray, and M. A. Saunders. SNOPT: An SQP algorithm for large-scale constrained optimization. SIAM Journal on Optimization, 12(4):979-1006, 2002.
+[16] K. Gimpel and N. A. Smith. Softmax-margin CRFs: Training log-linear models with cost functions. In North American Association for Computational Linguistics (NAACL), pages 733-736, 2010.
+[17] J. Besag. The analysis of non-lattice data. The Statistician, 24:179-195, 1975.
+[18] P. Liang and M. I. Jordan. An asymptotic analysis of generative, discriminative, and pseudolikelihood estimators. In International Conference on Machine Learning (ICML), pages 584-591, 2008.
+[19] A. Y. Ng, D. Harada, and S. Russell. Policy invariance under reward transformations: Theory and application to reward shaping. In International Conference on Machine Learning (ICML), 1999.
+[20] G. Mann and A. McCallum. Generalized expectation criteria for semi-supervised learning of conditional random fields. In HLT/ACL, pages 870-878, 2008.
+[21] G. Druck, G. Mann, and A. McCallum. Learning from labeled features using generalized expectation criteria. In ACM Special Interest Group on Information Retreival (SIGIR), pages 595-602, 2008.
+[22] P. Liang, M. I. Jordan, and D. Klein. Learning from measurements in exponential families. In International Conference on Machine Learning (ICML), 2009.
+[23] K. Ganchev, J. Graca, J. Gillenwater, and B. Taskar. Posterior regularization for structured latent variable models. Journal of Machine Learning Research (JMLR), 11:2001-2049, 2010.
+[24] J. Jiang, A. Teichert, J. Eisner, and H. Daume. Learned prioritization for trading off accuracy and speed. In Advances in Neural Information Processing Systems (NIPS), 2012.
+[25] T. Shi, J. Steinhardt, and P. Liang. Learning where to sample in structured prediction. In AISTATS, 2015.
+[26] J. Steinhardt and P. Liang. Learning fast-mixing models for structured prediction. In ICML, 2015.
+[27] H. He, H. Daume, and J. Eisner. Cost-sensitive dynamic feature selection. In ICML Inferning Workshop, 2012.
+[28] H. He, H. Daume, and J. Eisner. Dynamic feature selection for dependency parsing. In EMNLP, 2013.
+[29] D. J. Weiss and B. Taskar. Learning adaptive value of information for structured prediction. In Advances in Neural Information Processing Systems (NIPS), pages 953-961, 2013.
+9
+

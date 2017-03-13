@@ -1,0 +1,562 @@
+Max-Margin Deep Generative Models
+Chongxuan Li, Jun Zhu, Tianlin Shi, Bo Zhang Dept. of Comp. Sci. & Tech., State Key Lab of Intell. Tech. & Sys., TNList Lab, Center for Bio-Inspired Computing Research, Tsinghua University, Beijing, 100084, China
+Dept. of Comp. Sci., Stanford University, Stanford, CA 94305, USA {licx14@mails., dcszj@, dcszb@}tsinghua.edu.cn; stl501@gmail.com
+Abstract
+Deep generative models (DGMs) are effective on learning multilayered representations of complex data and performing inference of input data by exploring the generative ability. However, little work has been done on examining or empowering the discriminative ability of DGMs on making accurate predictions. This paper presents max-margin deep generative models (mmDGMs), which explore the strongly discriminative principle of max-margin learning to improve the discriminative power of DGMs, while retaining the generative capability. We develop an efficient doubly stochastic subgradient algorithm for the piecewise linear objective. Empirical results on MNIST and SVHN datasets demonstrate that (1) maxmargin learning can significantly improve the prediction performance of DGMs and meanwhile retain the generative ability; and (2) mmDGMs are competitive to the state-of-the-art fully discriminative networks by employing deep convolutional neural networks (CNNs) as both recognition and generative models.
+1 Introduction
+Max-margin learning has been effective on learning discriminative models, with many examples such as univariate-output support vector machines (SVMs) [5] and multivariate-output max-margin Markov networks (or structured SVMs) [30, 1, 31]. However, the ever-increasing size of complex data makes it hard to construct such a fully discriminative model, which has only single layer of adjustable weights, due to the facts that: (1) the manually constructed features may not well capture the underlying high-order statistics; and (2) a fully discriminative approach cannot reconstruct the input data when noise or missing values are present.
+To address the first challenge, previous work has considered incorporating latent variables into a max-margin model, including partially observed maximum entropy discrimination Markov networks [37], structured latent SVMs [32] and max-margin min-entropy models [20]. All this work has primarily focused on a shallow structure of latent variables. To improve the flexibility, learning SVMs with a deep latent structure has been presented in [29]. However, these methods do not address the second challenge, which requires a generative model to describe the inputs. The recent work on learning max-margin generative models includes max-margin Harmoniums [4], maxmargin topic models [34, 35], and nonparametric Bayesian latent SVMs [36] which can infer the dimension of latent features from data. However, these methods only consider the shallow structure of latent variables, which may not be flexible enough to describe complex data.
+Much work has been done on learning generative models with a deep structure of nonlinear hidden variables, including deep belief networks [25, 16, 23], autoregressive models [13, 9], and stochastic variations of neural networks [3]. For such models, inference is a challenging problem, but fortunately there exists much recent progress on stochastic variational inference algorithms [12, 24]. However, the primary focus of deep generative models (DGMs) has been on unsupervised learning,
+1
+
+with the goals of learning latent representations and generating input samples. Though the latent representations can be used with a downstream classifier to make predictions, it is often beneficial to learn a joint model that considers both input and response variables. One recent attempt is the conditional generative models [11], which treat labels as conditions of a DGM to describe input data. This conditional DGM is learned in a semi-supervised setting, which is not exclusive to ours.
+In this paper, we revisit the max-margin principle and present a max-margin deep generative model (mmDGM), which learns multi-layer representations that are good for both classification and input inference. Our mmDGM conjoins the flexibility of DGMs on describing input data and the strong discriminative ability of max-margin learning on making accurate predictions. We formulate mmDGM as solving a variational inference problem of a DGM regularized by a set of max-margin posterior constraints, which bias the model to learn representations that are good for prediction. We define the max-margin posterior constraints as a linear functional of the target variational distribution of the latent presentations. Then, we develop a doubly stochastic subgradient descent algorithm, which generalizes the Pagesos algorithm [28] to consider nontrivial latent variables. For the variational distribution, we build a recognition model to capture the nonlinearity, similar as in [12, 24].
+We consider two types of networks used as our recognition and generative models: multiple layer perceptrons (MLPs) as in [12, 24] and convolutional neural networks (CNNs) [14]. Though CNNs have shown promising results in various domains, especially for image classification, little work has been done to take advantage of CNN to generate images. The recent work [6] presents a type of CNN to map manual features including class labels to RBG chair images by applying unpooling, convolution and rectification sequentially; but it is a deterministic mapping and there is no random generation. Generative Adversarial Nets [7] employs a single such layer together with MLPs in a minimax two-player game framework with primary goal of generating images. We propose to stack this structure to form a highly non-trivial deep generative network to generate images from latent variables learned automatically by a recognition model using standard CNN. We present the detailed network structures in experiments part. Empirical results on MNIST [14] and SVHN [22] datasets demonstrate that mmDGM can significantly improve the prediction performance, which is competitive to the state-of-the-art methods [33, 17, 8, 15], while retaining the capability of generating input samples and completing their missing values.
+
+2 Basics of Deep Generative Models
+
+We start from a general setting, where we have N i.i.d. data X = {xn}Nn=1. A deep generative model (DGM) assumes that each xn  RD is generated from a vector of latent variables zn  RK , which itself follows some distribution. The joint probability of a DGM is as follows:
+
+N
+p(X, Z|, ) = p(zn|)p(xn|zn, ),
+
+(1)
+
+n=1
+
+where p(zn|) is the prior of the latent variables and p(xn|zn, ) is the likelihood model for generating observations. For notation simplicity, we define  = (, ). Depending on the structure of z, various DGMs have been developed, such as the deep belief networks [25, 16], deep sigmoid networks [21], deep latent Gaussian models [24], and deep autoregressive models [9]. In this paper, we focus on the directed DGMs, which can be easily sampled from via an ancestral sampler.
+
+However, in most cases learning DGMs is challenging due to the intractability of posterior inference.
+The state-of-the-art methods resort to stochastic variational methods under the maximum likelihood estimation (MLE) framework,  = argmax log p(X|). Specifically, let q(Z) be the variational distribution that approximates the true posterior p(Z|X, ). A variational upper bound of the per sample negative log-likelihood (NLL) - log p(xn|, ) is:
+
+L(, q(zn); xn) KL(q(zn)||p(zn|)) - Eq(zn)[log p(xn|zn, )],
+
+(2)
+
+where KL(q||p) is the Kullback-Leibler (KL) divergence between distributions q and p. Then,
+
+L(, q(Z); X) nL(, q(zn); xn) upper bounds the full negative log-likelihood - log p(X|).
+
+It is important to notice that if we do not make restricting assumption on the variational distribution q, the lower bound is tight by simply setting q(Z) = p(Z|X, ). That is, the MLE is equivalent to solving the variational problem: min,q(Z) L(, q(Z); X). However, since the true posterior is intractable except a handful of special cases, we must resort to approximation methods. One common
+
+2
+
+assumption is that the variational distribution is of some parametric form, q(Z), and then we optimize the variational bound w.r.t the variational parameters . For DGMs, another challenge arises that the variational bound is often intractable to compute analytically. To address this challenge, the early work further bounds the intractable parts with tractable ones by introducing more variational parameters [26]. However, this technique increases the gap between the bound being optimized and the log-likelihood, potentially resulting in poorer estimates. Much recent progress [12, 24, 21] has been made on hybrid Monte Carlo and variational methods, which approximates the intractable expectations and their gradients over the parameters (, ) via some unbiased Monte Carlo estimates. Furthermore, to handle large-scale datasets, stochastic optimization of the variational objective can be used with a suitable learning rate annealing scheme. It is important to notice that variance reduction is a key part of these methods in order to have fast and stable convergence.
+Most work on directed DGMs has been focusing on the generative capability on inferring the observations, such as filling in missing values [12, 24, 21], while little work has been done on investigating the predictive power, except the semi-supervised DGMs [11] which builds a DGM conditioned on the class labels and learns the parameters via MLE. Below, we present max-margin deep generative models, which explore the discriminative max-margin principle to improve the predictive ability of the latent representations, while retaining the generative capability.
+
+3 Max-margin Deep Generative Models
+
+We consider supervised learning, where the training data is a pair (x, y) with input features x  RD and the ground truth label y. Without loss of generality, we consider the multi-class classification, where y  C = {1, . . . , M }. A max-margin deep generative model (mmDGM) consists of two components: (1) a deep generative model to describe input features; and (2) a max-margin classifier to consider supervision. For the generative model, we can in theory adopt any DGM that defines a joint distribution over (X, Z) as in Eq. (1). For the max-margin classifier, instead of fitting the input features into a conventional SVM, we define the linear classifier on the latent representations, whose learning will be regularized by the supervision signal as we shall see. Specifically, if the latent representation z is given, we define the latent discriminant function F (y, z, ; x) =  f (y, z), where f (y, z) is an M K-dimensional vector that concatenates M subvectors, with the yth being z and all others being zero, and  is the corresponding weight vector.
+
+We consider the case that  is a random vector, following some prior distribution p0(). Then our goal is to infer the posterior distribution p(, Z|X, Y), which is typically approximated by a variational distribution q(, Z) for computational tractability. Notice that this posterior is different
+from the one in the vanilla DGM. We expect that the supervision information will bias the learned
+representations to be more powerful on predicting the labels at testing. To account for the uncertainty of (, Z), we take the expectation and define the discriminant function F (y; x) = Eq  f (y, z) , and the final prediction rule that maps inputs to outputs is:
+
+y = argmax F (y; x).
+yC
+
+(3)
+
+Note that different from the conditional DGM [11], which puts the class labels upstream, the above classifier is a downstream model, in the sense that the supervision signal is determined by conditioning on the latent representations.
+
+3.1 The Learning Problem
+
+We want to jointly learn the parameters  and infer the posterior distribution q(, Z). Based on the equivalent variational formulation of MLE, we define the joint learning problem as solving:
+
+N
+
+min L(, q(, Z); X) + C n
+,q(,Z), n=1
+
+n, y  C, s.t. :
+
+Eq[ fn(y)]  ln(y) - n n  0,
+
+(4)
+
+where fn(y) = f (yn, zn) - f (y, zn) is the difference of the feature vectors; ln(y) is the loss function that measures the cost to predict y if the true label is yn; and C is a nonnegative regularization parameter balancing the two components. In the objective, the variational bound is defined
+
+3
+
+as L(, q(, Z); X) = KL(q(, Z)||p0(, Z|)) - Eq [log p(X|Z, )], and the margin constraints are from the classifier (3). If we ignore the constraints (e.g., setting C at 0), the solution of q(, Z)
+will be exactly the Bayesian posterior, and the problem is equivalent to do MLE for .
+
+By absorbing the slack variables, we can rewrite the problem in an unconstrained form:
+min L(, q(, Z); X) + CR(q(, Z; X)),
+,q(,Z)
+
+(5)
+
+where the hinge loss is: R(q(, Z); X) =
+
+N n=1
+
+maxyC
+
+(ln
+
+(y)
+
+-
+
+Eq
+
+[
+
+fn(y)]). Due to the
+
+convexity of max function, it is easy to verify that the hinge loss is an upper bound of the training er-
+
+ror of classifier (3), that is, R(q(, Z); X)  n ln(yn). Furthermore, the hinge loss is a convex functional over the variational distribution because of the linearity of the expectation operator. These
+
+properties render the hinge loss as a good surrogate to optimize over. Previous work has explored
+
+this idea to learn discriminative topic models [34], but with a restriction on the shallow structure of
+
+hidden variables. Our work presents a significant extension to learn deep generative models, which
+
+pose new challenges on the learning and inference.
+
+3.2 The Doubly Stochastic Subgradient Algorithm
+
+The variational formulation of problem (5) naturally suggests that we can develop a variational algorithm to address the intractability of the true posterior. We now present a new algorithm to solve problem (5). Our method is a doubly stochastic generalization of the Pegasos (i.e., Primal Estimated sub-GrAdient SOlver for SVM) algorithm [28] for the classic SVMs with fully observed input features, with the new extension of dealing with a highly nontrivial structure of latent variables.
+
+First, we make the structured mean-field (SMF) assumption that q(, Z) = q()q(Z). Under the
+assumption, we have the discriminant function as Eq[ fn(y)] = Eq()[ ]Eq(z(n))[fn(y)]. Moreover, we can solve for the optimal solution of q() in some analytical form. In fact, by the calculus of variations, we can show that given the other parts the solution is q() 
+
+p0() exp  n,y ny Eq [fn(y)] , where  are the Lagrange multipliers (See [34] for de-
+
+tails). If the prior is normal, p0() = N (0, 2I), we have the normal posterior: q() = N (, 2I), where  = 2 n,y ny Eq [fn(y)]. Therefore, even though we did not make a para-
+
+metric form assumption of q(), the above results show that the optimal posterior distribution of 
+
+is Gaussian. Since we only use the expectation in the optimization problem and in prediction, we
+
+can directly solve for the mean parameter  instead of q(). Further, in this case we can verify that
+
+KL(q()||p0())
+
+=
+
+||||2 22
+
+and then
+
+the
+
+equivalent
+
+objective
+
+function
+
+in
+
+terms of 
+
+can
+
+be
+
+written
+
+as:
+
+||||2
+
+min L(, ; X) +
+,,
+
+22
+
++ CR(, ; X),
+
+(6)
+
+where R(, ; X) =
+
+N n=1
+
+(, ; xn) is the total hinge loss, and the per-sample hinge-loss is
+
+(, ; xn) = maxyC(ln(y) -  Eq [fn(y)]). Below, we present a doubly stochastic subgra-
+
+dient descent algorithm to solve this problem.
+
+The first stochasticity arises from a stochastic estimate of the objective by random mini-batches. Specifically, the batch learning needs to scan the full dataset to compute subgradients, which is often too expensive to deal with large-scale datasets. One effective technique is to do stochastic subgradient descent [28], where at each iteration we randomly draw a mini-batch of the training data and then do the variational updates over the small mini-batch. Formally, given a mini batch of size m, we get an unbiased estimate of the objective:
+
+Lm
+
+:=
+
+N m
+
+m
+
+||||2 N C L(, ; xn) + 22 + m
+
+m
+
+(, ; xn).
+
+n=1
+
+n=1
+
+The second stochasticity arises from a stochastic estimate of the per-sample variational bound
+and its subgradient, whose intractability calls for another Monte Carlo estimator. Formally, let zln  q(z|xn, yn) be a set of samples from the variational distribution, where we explicitly put the conditions. Then, an estimate of the per-sample variational bound and the per-sample hinge-loss is
+
+L(,
+
+;
+
+xn
+
+)=
+
+1 L
+
+log p(xn, zln|)-log q(zln);
+
+(,
+
+;
+
+xn
+
+)=max
+y
+
+ln(y)-L1
+
+ fn(y, zln) ,
+
+ll
+
+4
+
+where fn(y, zln) = f (yn, zln) - f (y, zln). Note that L is an unbiased estimate of L, while  is a biased estimate of . Nevertheless, we can still show that  is an upper bound estimate of under
+expectation. Furthermore, this biasedness does not affect our estimate of the gradient. In fact, by using the equality q(z) = q(z) log q(z), we can construct an unbiased Monte Carlo estimate of (L(, ; xn) + (, ; xn)) as:
+
+1L g = L
+
+log p(zln, xn) - log q(zln) + C fn(yn, zln)  log q(zln),
+
+l=1
+
+(7)
+
+where the last term roots from the hinge loss with the loss-augmented prediction yn =
+
+argmaxy (ln (y)
+
++
+
+1 L
+
+l  f (y, zln)). For  and , the estimates of the gradient L(, ; xn)
+
+and the subgradient  (, ; xn) are easier, which are:
+
+1 g = L
+
+ log p(xn, zln|),
+
+1 g = L
+
+f (yn, zln) - f (yn, zln) .
+
+ll
+
+Notice that the sampling and the gradient  log q(zln) only depend on the variational distribution, not the underlying model.
+
+The above estimates consider the gen- Algorithm 1 Doubly Stochastic Subgradient Algorithm
+
+eral case where the variational bound is Initialize , , and 
+
+intractable. In some cases, we can com- repeat
+
+pute the KL-divergence term analyti-
+
+draw a random mini-batch of m data points
+
+cally, e.g., when the prior and the variational distribution are both Gaussian. In such cases, we only need to estimate
+
+draw random samples from noise distribution p( ) compute subgradient g = ,,L(, , ; Xm, ) update parameters (, , ) using subgradient g.
+
+the rest intractable part by sampling, until Converge
+
+which often reduces the variance [12]. return , , and 
+
+Similarly, we could use the expectation
+
+of the features directly, if it can be computed analytically, in the computation of subgradients (e.g.,
+
+g and g) instead of sampling, which again can lead to variance reduction.
+
+With the above estimates of subgradients, we can use stochastic optimization methods such as SGD [28] and AdaM [10] to update the parameters, as outlined in Alg. 1. Overall, our algorithm is a doubly stochastic generalization of Pegasos to deal with the highly nontrivial latent variables.
+
+Now, the remaining question is how to define an appropriate variational distribution q(z) to obtain a robust estimate of the subgradients as well as the objective. Two types of methods have been devel-
+oped for unsupervised DGMs, namely, variance reduction [21] and auto-encoding variational Bayes
+(AVB) [12]. Though both methods can be used for our models, we focus on the AVB approach. For continuous variables Z, under certain mild conditions we can reparameterize the variational distribution q(z) using some simple variables . Specifically, we can draw samples from some simple distribution p( ) and do the transformation z = g( , x, y) to get the sample of the distribution q(z|x, y). We refer the readers to [12] for more details. In our experiments, we consider the special
+Gaussian case, where we assume that the variational distribution is a multivariate Gaussian with a
+diagonal covariance matrix:
+
+q(z|x, y) = N ((x, y; ), 2(x, y; )),
+
+(8)
+
+whose mean and variance are functions of the input data. This defines our recognition model. Then, the reparameterization trick is as follows: we first draw standard normal variables l  N (0, I) and then do the transformation zln = (xn, yn; ) + (xn, yn; ) l to get a sample. For simplicity, we assume that both the mean and variance are function of x only. However, it is worth to emphasize
+that although the recognition model is unsupervised, the parameters  are learned in a supervised
+manner because the subgradient (7) depends on the hinge loss. Further details of the experimental
+settings are presented in Sec. 4.1.
+
+4 Experiments
+We now present experimental results on the widely adopted MNIST [14] and SVHN [22] datasets. Though mmDGMs are applicable to any DGMs that define a joint distribution of X and Z, we
+
+5
+
+concentrate on the Variational Auto-encoder (VA) [12], which is unsupervised. We denote our
+mmDGM with VA by MMVA. In our experiments, we consider two types of recognition models:
+multiple layer perceptrons (MLPs) and convolutional neural networks (CNNs). We implement all experiments based on Theano [2]. 1
+
+4.1 Architectures and Settings
+In the MLP case, we follow the settings in [11] to compare both generative and discriminative capacity of VA and MMVA. In the CNN case, we use standard convolutional nets [14] with convolution and max-pooling operation as the recognition model to obtain more competitive classification results. For the generative model, we use unconvnets [6] with a "symmetric" structure as the recognition model, to reconstruct the input images approximately. More specifically, the top-down generative model has the same structure as the bottom-up recognition model but replacing max-pooling with unpooling operation [6] and applies unpooling, convolution and rectification in order. The total number of parameters in the convolutional network is comparable with previous work [8, 17, 15]. For simplicity, we do not involve mlpconv layers [17, 15] and contrast normalization layers in our recognition model, but they are not exclusive to our model. We illustrate details of the network architectures in appendix A.
+In both settings, the mean and variance of the latent z are transformed from the last layer of the recognition model through a linear operation. It should be noticed that we could use not only the expectation of z but also the activation of any layer in the recognition model as features. The only theoretical difference is from where we add a hinge loss regularization to the gradient and backpropagate it to previous layers. In all of the experiments, the mean of z has the same nonlinearity but typically much lower dimension than the activation of the last layer in the recognition model, and hence often leads to a worse performance. In the MLP case, we concatenate the activations of 2 layers as the features used in the supervised tasks. In the CNN case, we use the activations of the last layer as the features. We use AdaM [10] to optimize parameters in all of the models. Although it is an adaptive gradient-based optimization method, we decay the global learning rate by factor three periodically after sufficient number of epochs to ensure a stable convergence.
+We denote our mmDGM with MLPs by MMVA. To perform classification using VA, we first learn the feature representations by VA, and then build a linear SVM classifier on these features using the Pegasos stochastic subgradient algorithm [28]. This baseline will be denoted by VA+Pegasos. The corresponding models with CNNs are denoted by CMMVA and CVA+Pegasos respectively.
+
+4.2 Results on the MNIST dataset
+
+We present both the prediction performance and the results on generating samples of MMVA and
+
+VA+Pegasos with both kinds of recognition models on the MNIST [14] dataset, which consists of
+
+images of 10 different classes (0 to 9) of size 28x28 with 50,000 training samples, 10,000 validating
+
+samples and 10,000 testing samples.
+
+Table 1: Error rates (%) on MNIST dataset.
+
+4.2.1 Predictive Performance
+In the MLP case, we only use 50,000 training data, and the parameters for classification are
+
+MODEL VA+Pegasos VA+Class-conditionVA MMVA
+
+ERROR RATE 1.04 0.96 0.90
+
+optimized according to the validation set. We CVA+Pegasos
+
+1.35
+
+choose C = 15 for MMVA and initialize it with CMMVA
+
+0.45
+
+an unsupervised pre-training procedure in classi-
+
+Stochastic Pooling [33]
+
+0.47
+
+fication. First three rows in Table 1 compare VA+Pegasos, VA+Class-condtionVA and MMVA, where VA+Class-condtionVA refers to the best fully
+
+Network in Network [17] Maxout Network [8] DSN [15]
+
+0.47 0.45 0.39
+
+supervised model in [11]. Our model outperforms the baseline significantly. We further use the
+
+t-SNE algorithm [19] to embed the features learned by VA and MMVA on 2D plane, which again
+
+demonstrates the stronger discriminative ability of MMVA (See Appendix B for details).
+
+In the CNN case, we use 60,000 training data. Table 2 shows the effect of C on classification error
+rate and variational lower bound. Typically, as C gets lager, CMMVA learns more discriminative
+features and leads to a worse estimation of data likelihood. However, if C is too small, the supervision is not enough to lead to predictive features. Nevertheless, C = 103 is quite a good trade-off
+
+1The source code is available at https://github.com/zhenxuan00/mmdgm.
+
+6
+
+(a) VA
+
+(b) MMVA
+
+(c) CVA
+
+(d) CMMVA
+
+Figure 1: (a-b): randomly generated images by VA and MMVA, 3000 epochs; (c-d): randomly generated images by CVA and CMMVA, 600 epochs.
+
+between the classification performance and generative performance and this is the default setting of CMMVA on MNIST throughout this paper. In this setting, the classification performance of our CMMVA model is comparable to the recent state-of-the-art fully discriminative networks (without data augmentation), shown in the last four rows of Table 1.
+
+4.2.2 Generative Performance
+We further investigate the generative capability of MMVA on generating samples. Fig. 1 illustrates the images randomly sampled from VA and MMVA models where we output the expectation of the gray value at each pixel to get a smooth visualization. We do not pre-train our model in all settings when generating data to prove that MMVA (CMMVA) remains the generative capability of DGMs.
+
+Table 2: Effects of C on MNIST dataset with a CNN recognition model.
+
+C ERROR RATE (%) LOWER BOUND
+
+0 1.35
+
+-93.17
+
+1 1.86
+
+-95.86
+
+10 0.88
+
+-95.90
+
+102 0.54
+
+-96.35
+
+103 0.45
+
+-99.62
+
+104 0.43
+
+-112.12
+
+4.3 Results on the SVHN (Street View House Numbers) dataset
+
+SVHN [22] is a large dataset consisting of color images of size 32 x 32. The task is to recognize center digits in natural scene images, which is significantly harder than classification of hand-written digits. We follow the work [27, 8] to split the dataset into 598,388 training data, 6000 validating data and 26, 032 testing data and preprocess the data by Local Contrast Normalization (LCN).
+
+We only consider the CNN recognition model here. The network structure is similar to that in MNIST. We set C = 104 for our CMMVA model on SVHN by default.
+
+Table 3 shows the predictive performance. In this more challenging problem, we observe a larger improvement by CMMVA as compared to CVA+Pegasos, suggesting that DGMs benefit a lot from max-margin learning on image classification. We also compare CMMVA with state-of-the-art results. To the best of our knowledge, there is no competitive generative models to classify digits on SVHN dataset with full labels.
+
+Table 3: Error rates (%) on SVHN dataset.
+
+MODEL
+
+ERROR RATE
+
+CVA+Pegasos
+
+25.3
+
+CMMVA
+
+3.09
+
+CNN [27]
+
+4.9
+
+Stochastic Pooling [33]
+
+2.80
+
+Maxout Network [8]
+
+2.47
+
+Network in Network [17] 2.35
+
+DSN [15]
+
+1.92
+
+We further compare the generative capability of CMMVA and CVA to examine the benefits from jointly training of DGMs and max-margin classifiers. Though CVA gives a tighter lower bound of data likelihood and reconstructs data more elaborately, it fails to learn the pattern of digits in a complex scenario and could not generate meaningful images. Visualization of random samples from CVA and CMMVA is shown in Fig. 2. In this scenario, the hinge loss regularization on recognition model is useful for generating main objects to be classified in images.
+
+4.4 Missing Data Imputation and Classification
+Finally, we test all models on the task of missing data imputation. For MNIST, we consider two types of missing values [18]: (1) Rand-Drop: each pixel is missing randomly with a pre-fixed probability; and (2) Rect: a rectangle located at the center of the image is missing. Given the perturbed images, we uniformly initialize the missing values between 0 and 1, and then iteratively do the following steps: (1) using the recognition model to sample the hidden variables; (2) predicting the missing values to generate images; and (3) using the refined images as the input of the next round. For SVHN, we do the same procedure as in MNIST but initialize the missing values with Guassian
+
+7
+
+(a) Training data
+
+(b) CVA
+
+(c) CMMVA (C = 103) (d) CMMVA (C = 104)
+
+Figure 2: (a): training data after LCN preprocessing; (b): random samples from CVA; (c-d): random samples from CMMVA when C = 103 and C = 104 respectively.
+
+random variables as the input distribution changes. Visualization results on MNIST and SVHN are presented in Appendix C and Appendix D respectively.
+
+Intuitively, generative models with CNNs could be more powerful on learning patterns and high-level structures, while generative models with MLPs lean more to reconstruct the pixels in detail. This conforms to the MSE results shown in Table 4: CVA and CMMVA outperform VA and MMVA with a missing rectangle, while VA and MMVA outperform
+
+Table 4: MSE on MNIST data with missing values in the testing procedure.
+
+NOISE TYPE
+
+VA MMVA CVA CMMVA
+
+RAND-DROP (0.2) 0.0109 0.0110 0.0111 0.0147
+
+RAND-DROP (0.4) 0.0127 0.0127 0.0127 0.0161
+
+RAND-DROP (0.6) 0.0168 0.0165 0.0175 0.0203
+
+RAND-DROP (0.8) 0.0379 0.0358 0.0453 0.0449
+
+RECT (6 x 6)
+
+0.0637 0.0645 0.0585 0.0597
+
+RECT (8 x 8)
+
+0.0850 0.0841 0.0754 0.0724
+
+CVA and CMMVA with random miss- RECT (10 x 10) 0.1100 0.1079 0.0978 0.0884
+
+ing values. Compared with the baseline, RECT (12 x 12) 0.1450 0.1342 0.1299 0.1090
+
+mmDGMs also make more accurate com-
+
+pletion when large patches are missing. All of the models infer missing values for 100 iterations.
+
+We also compare the classification performance of CVA, CNN and CMMVA with Rect missing values in testing procedure in Appendix E. CMMVA outperforms both CVA and CNN.
+
+Overall, mmDGMs have comparable capability of inferring missing values and prefer to learn highlevel patterns instead of local details.
+
+5 Conclusions
+We propose max-margin deep generative models (mmDGMs), which conjoin the predictive power of max-margin principle and the generative ability of deep generative models. We develop a doubly stochastic subgradient algorithm to learn all parameters jointly and consider two types of recognition models with MLPs and CNNs respectively. In both cases, we present extensive results to demonstrate that mmDGMs can significantly improve the prediction performance of deep generative models, while retaining the strong generative ability on generating input samples as well as completing missing values. In fact, by employing CNNs in both recognition and generative models, we achieve low error rates on MNIST and SVHN datasets, which are competitive to the state-of-the-art fully discriminative networks. Acknowledgments
+The work was supported by the National Basic Research Program (973 Program) of China (Nos. 2013CB329403, 2012CB316301), National NSF of China (Nos. 61322308, 61332007), Tsinghua TNList Lab Big Data Initiative, and Tsinghua Initiative Scientific Research Program (Nos. 20121088071, 20141080934).
+References
+[1] Y. Altun, I. Tsochantaridis, and T. Hofmann. Hidden Markov support vector machines. In ICML, 2003.
+[2] F. Bastien, P. Lamblin, R. Pascanu, J. Bergstra, I. Goodfellow, A. Bergeron, N. Bouchard, D. WardeFarley, and Y. Bengio. Theano: new features and speed improvements. In Deep Learning and Unsupervised Feature Learning NIPS Workshop, 2012.
+[3] Y. Bengio, E. Laufer, G. Alain, and J. Yosinski. Deep generative stochastic networks trainable by backprop. In ICML, 2014.
+[4] N. Chen, J. Zhu, F. Sun, and E. P. Xing. Large-margin predictive latent subspace learning for multi-view data analysis. IEEE Trans. on PAMI, 34(12):2365-2378, 2012.
+
+8
+
+[5] C. Cortes and V. Vapnik. Support-vector networks. Journal of Machine Learning, 20(3):273-297, 1995.
+[6] A. Dosovitskiy, J. T. Springenberg, and T. Brox. Learning to generate chairs with convolutional neural networks. arXiv:1411.5928, 2014.
+[7] I. J. Goodfellow, J. P. Abadie, M. Mirza, B. Xu, D. W. Farley, S.ozair, A. Courville, and Y. Bengio. Generative adversarial nets. In NIPS, 2014.
+[8] I. J. Goodfellow, D.Warde-Farley, M. Mirza, A. C. Courville, and Y. Bengio. Maxout networks. In ICML, 2013.
+[9] K. Gregor, I. Danihelka, A. Mnih, C. Blundell, and D. Wierstra. Deep autoregressive networks. In ICML, 2014.
+[10] D. P. Kingma and J. L. Ba. Adam: A method for stochastic optimization. In ICLR, 2015.
+[11] D. P. Kingma, D. J. Rezende, S. Mohamed, and M. Welling. Semi-supervised learning with deep generative models. In NIPS, 2014.
+[12] D. P. Kingma and M. Welling. Auto-encoding variational Bayes. In ICLR, 2014.
+[13] H. Larochelle and I. Murray. The neural autoregressive distribution estimator. In AISTATS, 2011.
+[14] Y. Lecun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learning applied to document recognition. In Proceedings of the IEEE, 1998.
+[15] C. Lee, S. Xie, P. Gallagher, Z. Zhang, and Z. Tu. Deeply-supervised nets. In AISTATS, 2015.
+[16] H. Lee, R. Grosse, R. Ranganath, and A. Y. Ng. Convolutional deep belief networks for scalable unsupervised learning of hierarchical representations. In ICML, 2009.
+[17] M. Lin, Q. Chen, and S. Yan. Network in network. In ICLR, 2014.
+[18] R. J. Little and D. B. Rubin. Statistical analysis with missing data. JMLR, 539, 1987.
+[19] L. V. Matten and G. Hinton. Visualizing data using t-SNE. JMLR, 9:2579-2605, 2008.
+[20] K. Miller, M. P. Kumar, B. Packer, D. Goodman, and D. Koller. Max-margin min-entropy models. In AISTATS, 2012.
+[21] A. Mnih and K. Gregor. Neural variational inference and learning in belief networks. In ICML, 2014.
+[22] Y. Netzer, T. Wang, A. Coates, A. Bissacco, B. Wu, and A. Y. Ng. Reading digits in natural images with unsupervised feature learning. NIPS Workshop on Deep Learning and Unsupervised Feature Learning, 2011.
+[23] M. Ranzato, J. Susskind, V. Mnih, and G. E. Hinton. On deep generative models with applications to recognition. In CVPR, 2011.
+[24] D. J. Rezende, S. Mohamed, and D. Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In ICML, 2014.
+[25] R. Salakhutdinov and G. E. Hinton. Deep Boltzmann machines. In AISTATS, 2009.
+[26] L. Saul, T. Jaakkola, and M. Jordan. Mean field theory for sigmoid belief networks. Journal of AI Research, 4:61-76, 1996.
+[27] P. Sermanet, S. Chintala, and Y. Lecun. Convolutional neural networks applied to house numbers digit classification. In ICPR, 2012.
+[28] S. Shalev-Shwartz, Y. Singer, N. Srebro, and A. Cotter. Pegasos: Primal estimated sub-gradient solver for SVM. Mathematical Programming, Series B, 2011.
+[29] Y. Tang. Deep learning using linear support vector machines. In Challenges on Representation Learning Workshop, ICML, 2013.
+[30] B. Taskar, C. Guestrin, and D. Koller. Max-margin Markov networks. In NIPS, 2003.
+[31] I. Tsochantaridis, T. Hofmann, T. Joachims, and Y. Altun. Support vector machine learning for interdependent and structured output spaces. In ICML, 2004.
+[32] C. J. Yu and T. Joachims. Learning structural SVMs with latent variables. In ICML, 2009.
+[33] M. D. Zeiler and R. Fergus. Stochastic pooling for regularization of deep convolutional neural networks. In ICLR, 2013.
+[34] J. Zhu, A. Ahmed, and E. P. Xing. MedLDA: Maximum margin supervised topic models. JMLR, 13:2237- 2278, 2012.
+[35] J. Zhu, N. Chen, H. Perkins, and B. Zhang. Gibbs max-margin topic models with data augmentation. JMLR, 15:1073-1110, 2014.
+[36] J. Zhu, N. Chen, and E. P. Xing. Bayesian inference with posterior regularization and applications to infinite latent SVMs. JMLR, 15:1799-1847, 2014.
+[37] J. Zhu, E.P. Xing, and B. Zhang. Partially observed maximum entropy discrimination Markov networks. In NIPS, 2008.
+9
+

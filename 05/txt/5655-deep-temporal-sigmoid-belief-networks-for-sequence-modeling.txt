@@ -1,0 +1,444 @@
+Deep Temporal Sigmoid Belief Networks for Sequence Modeling
+Zhe Gan, Chunyuan Li, Ricardo Henao, David Carlson and Lawrence Carin Department of Electrical and Computer Engineering Duke University, Durham, NC 27708
+{zhe.gan, chunyuan.li, r.henao, david.carlson, lcarin}@duke.edu
+Abstract
+Deep dynamic generative models are developed to learn sequential dependencies in time-series data. The multi-layered model is designed by constructing a hierarchy of temporal sigmoid belief networks (TSBNs), defined as a sequential stack of sigmoid belief networks (SBNs). Each SBN has a contextual hidden state, inherited from the previous SBNs in the sequence, and is used to regulate its hidden bias. Scalable learning and inference algorithms are derived by introducing a recognition model that yields fast sampling from the variational posterior. This recognition model is trained jointly with the generative model, by maximizing its variational lower bound on the log-likelihood. Experimental results on bouncing balls, polyphonic music, motion capture, and text streams show that the proposed approach achieves state-of-the-art predictive performance, and has the capacity to synthesize various sequences.
+1 Introduction
+Considerable research has been devoted to developing probabilistic models for high-dimensional time-series data, such as video and music sequences, motion capture data, and text streams. Among them, Hidden Markov Models (HMMs) [1] and Linear Dynamical Systems (LDS) [2] have been widely studied, but they may be limited in the type of dynamical structures they can model. An HMM is a mixture model, which relies on a single multinomial variable to represent the history of a time-series. To represent N bits of information about the history, an HMM could require 2N distinct states. On the other hand, real-world sequential data often contain complex non-linear temporal dependencies, while a LDS can only model simple linear dynamics.
+Another class of time-series models, which are potentially better suited to model complex probability distributions over high-dimensional sequences, relies on the use of Recurrent Neural Networks (RNNs) [3, 4, 5, 6], and variants of a well-known undirected graphical model called the Restricted Boltzmann Machine (RBM) [7, 8, 9, 10, 11]. One such variant is the Temporal Restricted Boltzmann Machine (TRBM) [8], which consists of a sequence of RBMs, where the state of one or more previous RBMs determine the biases of the RBM in the current time step. Learning and inference in the TRBM is non-trivial. The approximate procedure used in [8] is heuristic and not derived from a principled statistical formalism.
+Recently, deep directed generative models [12, 13, 14, 15] are becoming popular. A directed graphical model that is closely related to the RBM is the Sigmoid Belief Network (SBN) [16]. In the work presented here, we introduce the Temporal Sigmoid Belief Network (TSBN), which can be viewed as a temporal stack of SBNs, where each SBN has a contextual hidden state that is inherited from the previous SBNs and is used to adjust its hidden-units bias. Based on this, we further develop a deep dynamic generative model by constructing a hierarchy of TSBNs. This can be considered
+1
+
+W1
+W2 W3 W4
+
+Time
+
+Time
+
+(a) Generative model U1
+U2 U3
+(b) Recognition model
+
+(c) Generative model
+
+(d) Recognition model
+
+Figure 1: Graphical model for the Deep Temporal Sigmoid Belief Network. (a,b) Generative and recognition model of the TSBN. (c,d) Generative and recognition model of a two-layer Deep TSBN.
+as a deep SBN [15] with temporal feedback loops on each layer. Both stochastic and deterministic hidden layers are considered.
+Compared with previous work, our model: (i) can be viewed as a generalization of an HMM with distributed hidden state representations, and with a deep architecture; (ii) can be seen as a generalization of a LDS with complex non-linear dynamics; (iii) can be considered as a probabilistic construction of the traditionally deterministic RNN; (iv) is closely related to the TRBM, but it has a fully generative process, where data are readily generated from the model using ancestral sampling; (v) can be utilized to model different kinds of data, e.g., binary, real-valued and counts.
+The "explaining away" effect described in [17] makes inference slow, if one uses traditional inference methods. Another important contribution we present here is to develop fast and scalable learning and inference algorithms, by introducing a recognition model [12, 13, 14], that learns an inverse mapping from observations to hidden variables, based on a loss function derived from a variational principle. By utilizing the recognition model and variance-reduction techniques from [13], we achieve fast inference both at training and testing time.
+
+2 Model Formulation
+
+2.1 Sigmoid Belief Networks
+
+Deep dynamic generative models are considered, based on the Sigmoid Belief Network (SBN) [16]. An SBN is a Bayesian network that models a binary visible vector v  {0, 1}M , in terms of binary hidden variables h  {0, 1}J and weights W  RMxJ with
+
+p(vm = 1|h) = (wmh + cm), p(hj = 1) = (bj),
+
+(1)
+
+where v = [v1, . . . , vM ] , h = [h1, . . . , hJ ] , W = [w1, . . . , wM ] , c = [c1, . . . , cM ] , b = [b1, . . . , bJ ] , and the logistic function, (x) 1/(1 + e-x). The parameters W, b and c characterize all data, and the hidden variables, h, are specific to particular visible data, v.
+
+The SBN is closely related to the RBM [18], which is a Markov random field with the same bipartite structure as the SBN. The RBM defines a distribution over a binary vector that is proportional to the exponential of its energy, defined as -E(v, h) = v c + v Wh + h b. The conditional distributions, p(v|h) and p(h|v), in the RBM are factorial, which makes inference fast, while parameter estimation usually relies on an approximation technique known as Contrastive Divergence (CD) [18].
+
+The energy function of an SBN may be written as -E(v, h) = v c+v Wh+h b- m log(1+ exp(wmh + cm)). SBNs explicitly manifest the generative process to obtain data, in which the hidden layer provides a directed "explanation" for patterns generated in the visible layer. However,
+the "explaining away" effect described in [17] makes inference inefficient, the latter can be alleviated
+by exploiting recent advances in variational inference methods [13].
+
+2
+
+2.2 Temporal Sigmoid Belief Networks
+
+The proposed Temporal Sigmoid Belief Network (TSBN) model is a sequence of SBNs arranged
+in such way that at any given time step, the SBN's biases depend on the state of the SBNs in the
+previous time steps. Specifically, assume we have a length-T binary visible sequence, the tth time step of which is denoted vt  {0, 1}M . The TSBN describes the joint probability as
+
+T
+p(V, H) = p(h1)p(v1|h1) * p(ht|ht-1, vt-1) * p(vt|ht, vt-1),
+t=2
+
+(2)
+
+where V = [v1, . . . , vT ], H = [h1, . . . , hT ], and each ht  {0, 1}J represents the hidden state corresponding to time step t. For t = 1, . . . , T , each conditional distribution in (2) is expressed as
+
+p(hjt = 1|ht-1, vt-1) = (w1j ht-1 + w3j vt-1 + bj ),
+
+(3)
+
+p(vmt = 1|ht, vt-1) = (w2mht + w4mvt-1 + cm),
+
+(4)
+
+where h0 and v0, needed for the prior model p(h1) and p(v1|h1), are defined as zero vectors, respectively, for conciseness. The model parameters, , are specified as W1  RJxJ , W2  RMxJ , W3  RJxM , W4  RMxM . For i = 1, 2, 3, 4, wij is the transpose of the jth row of Wi,
+and c = [c1, . . . , cM ] and b = [b1, . . . , bJ ] are bias terms. The graphical model for the TSBN is shown in Figure 1(a).
+
+By setting W3 and W4 to be zero matrices, the TSBN can be viewed as a Hidden Markov Model [1] with an exponentially large state space, that has a compact parameterization of the transition and the emission probabilities. Specifically, each hidden state in the HMM is represented as a one-hot length-J vector, while in the TSBN, the hidden states can be any length-J binary vector. We note that the transition matrix is highly structured, since the number of parameters is only quadratic w.r.t. J. Compared with the TRBM [8], our TSBN is fully directed, which allows for fast sampling of "fantasy" data from the inferred model.
+
+2.3 TSBN Variants
+
+Modeling real-valued data The model above can be readily extended to model real-valued sequence data, by substituting (4) with p(vt|ht, vt-1) = N (t, diag(t2)), where
+
+mt = w2mht + w4mvt-1 + cm, log m2 t = (w2m) ht + (w4m) vt-1 + cm,
+
+(5)
+
+and mt and m2 t are elements of t and t2, respectively. W2 and W4 are of the same size of W2 and W4, respectively. Compared with the Gaussian TRBM [9], in which mt is fixed to 1, our
+formalism uses a diagonal matrix to parameterize the variance structure of vt.
+
+Modeling count data We also introduce an approach for modeling time-series data with count
+
+observations, by replacing (4) with p(vt|ht, vt-1) =
+
+M m=1
+
+ymvmtt
+
+,
+
+where
+
+ymt =
+
+M m
+
+exp(w2mht + w4mvt-1 + cm) =1 exp(w2m ht + w4m vt-1 +
+
+cm
+
+)
+
+.
+
+(6)
+
+This formulation is related to the Replicated Softmax Model (RSM) described in [19], however, our approach uses a directed connection from the binary hidden variables to the visible counts, while also learning the dynamics in the count sequences.
+
+Furthermore, rather than assuming that ht and vt only depend on ht-1 and vt-1, in the experiments, we also allow for connections from the past n time steps of the hidden and visible states, to the
+current states, ht and vt. A sliding window is then used to go through the sequence to obtain n frames at each time. We refer to n as the order of the model.
+
+2.4 Deep Architecture for Sequence Modeling with TSBNs
+Learning the sequential dependencies with the shallow model in (2)-(4) may be restrictive. Therefore, we propose two deep architectures to improve its representational power: (i) adding stochastic hidden layers; (ii) adding deterministic hidden layers. The graphical model for the deep TSBN
+
+3
+
+is shown in Figure 1(c). Specifically, we consider a deep TSBN with hidden layers h(t ) for t = 1, . . . , T and = 1, . . . , L. Assume layer contains J( ) hidden units, and denote the visi-
+ble layer vt = h(t0) and let h(tL+1) = 0, for convenience. In order to obtain a proper generative model, the top hidden layer h(L) contains stochastic binary hidden variables.
+
+For the middle layers, = 1, . . . , L-1, if stochastic hidden layers are utilized, the generative process
+
+is expressed as p(h(t )) =
+
+J( ) j=1
+
+p(h(jt)|h(t
+
++1), ht(-)1,
+
+ht(--11)),
+
+where
+
+each
+
+conditional
+
+distribution
+
+is parameterized via a logistic function, as in (4). If deterministic hidden layers are employed,
+
+we obtain h(t ) = f (h(t +1), h(t-)1, ht(--11)), where f (*) is chosen to be a rectified linear function. Although the differences between these two approaches are minor, learning and inference algorithms
+
+can be quite different, as shown in Section 3.3.
+
+3 Scalable Learning and Inference
+
+Computation of the exact posterior over the hidden variables in (2) is intractable. Approximate Bayesian inference, such as Gibbs sampling or mean-field variational Bayes (VB) inference, can be implemented [15, 16]. However, Gibbs sampling is very inefficient, due to the fact that the conditional posterior distribution of the hidden variables does not factorize. The mean-field VB indeed provides a fully factored variational posterior, but this technique increases the gap between the bound being optimized and the true log-likelihood, potentially resulting in a poor fit to the data. To allow for tractable and scalable inference and parameter learning, without loss of the flexibility of the variational posterior, we apply the Neural Variational Inference and Learning (NVIL) algorithm described in [13].
+
+3.1 Variational Lower Bound Objective
+
+We are interested in training the TSBN model, p(V, H), described in (2), with parameters . Given an observation V, we introduce a fixed-form distribution, q(H|V), with parameters , that approximates the true posterior distribution, p(H|V). We then follow the variational principle to derive a lower bound on the marginal log-likelihood, expressed as1
+
+L(V, , ) = Eq(H|V)[log p(V, H) - log q(H|V)] .
+
+(7)
+
+We construct the approximate posterior q(H|V) as a recognition model. By using this, we avoid
+
+the need to compute variational parameters per data point; instead we compute a set of parameters
+
+ used for all V. In order to achieve fast inference, the recognition model is expressed as
+
+T
+q(H|V) = q(h1|v1) * q(ht|ht-1, vt, vt-1) ,
+
+(8)
+
+t=2
+and each conditional distribution is specified as
+
+q(hjt = 1|ht-1, vt, vt-1) = (u1j ht-1 + u2j vt + u3j vt-1 + dj ) ,
+
+(9)
+
+where h0 and v0, for q(h1|v1), are defined as zero vectors. The recognition parameters  are specified as U1  RJxJ , U2  RJxM , U3  RJxM . For i = 1, 2, 3, uij is the transpose of the jth
+
+row of Ui, and d = [d1, . . . , dJ ] is the bias term. The graphical model is shown in Figure 1(b).
+
+The recognition model defined in (9) has the same form as in the approximate inference used for the TRBM [8]. Exact inference for our model consists of a forward and backward pass through the entire sequence, that requires the traversing of each possible hidden state. Our feedforward approximation allows the inference procedure to be fast and implemented in an online fashion.
+
+3.2 Parameter Learning
+
+To optimize (7), we utilize Monte Carlo methods to approximate expectations and stochastic gradient descent (SGD) for parameter optimization. The gradients can be expressed as
+
+L(V) = Eq(H|V)[ log p(V, H)], L(V) = Eq(H|V)[(log p(V, H) - log q(H|V)) x  log q(H|V)].
+
+(10) (11)
+
+1This lower bound is equivalent to the marginal log-likelihood if q(H|V) = p(H|V).
+
+4
+
+Specifically, in the TSBN model, if we define vmt = (w2mht + w4mvt-1 + cm) and hjt = (u1jht-1 + u2jvt + u3jvt-1 + dj), the gradients for w2m and u2j can be calculated as
+
+
+
+log p(V, H) w2mj
+
+=
+
+T
+(vmt
+t=1
+
+-
+
+vmt)
+
+*
+
+hjt,
+
+
+
+log q(H|V) u2jm
+
+=
+
+T
+(hjt
+t=1
+
+-
+
+h j t )
+
+*
+
+vmt.
+
+(12)
+
+Other update equations, along with the learning details for the TSBN variants in Section 2.3, are
+provided in the Supplementary Section B. We observe that the gradients in (10) and (11) share many
+similarities with the wake-sleep algorithm [20]. Wake-sleep alternates between updating  in the
+wake phase and updating  in the sleep phase. The update of  is based on the samples generated from q(H|V), and is identical to (10). However, in contrast to (11), the recognition parameters  are estimated from samples generated by the model, i.e., L(V) = Ep(V,H)[ log q(H|V)]. This update does not optimize the same objective as in (10), hence the wake-sleep algorithm is not
+guaranteed to converge [13].
+
+Inspecting (11), we see that we are using l(V, H) = log p(V, H) - log q(H|V) as the learning signal for the recognition parameters . The expectation of this learning signal is exactly the lower bound (7), which is easy to evaluate. However, this tractability makes the estimated gradients of the recognition parameters very noisy. In order to make the algorithm practical, we employ the variance reduction techniques proposed in [13], namely: (i) centering the learning signal, by subtracting the data-independent baseline and the data-dependent baseline; (ii) variance normalization, by dividing the centered learning signal by a running estimate of its standard deviation. The data-dependent baseline is implemented using a neural network. Additionally, RMSprop [21], a form of SGD where the gradients are adaptively rescaled by a running average of their recent magnitude, were found in practice to be important for fast convergence; thus utilized throughout all the experiments. The outline of the NVIL algorithm is provided in the Supplementary Section A.
+
+3.3 Extension to deep models
+The recognition model corresponding to the deep TSBN is shown in Figure 1(d). Two kinds of deep architectures are discussed in Section 2.4. We illustrate the difference of their learning algorithms in two respects: (i) the calculation of the lower bound; and (ii) the calculation of the gradients.
+The top hidden layer is stochastic. If the middle hidden layers are also stochastic, the calculation of the lower bound is more involved, compared with the shallow model; however, the gradient evaluation remain simple as in (12). On the other hand, if deterministic middle hidden layers (i.e., recurrent neural networks) are employed, the lower bound objective will stay the same as a shallow model, since the only stochasticity in the generative process lies in the top layer; however, the gradients have to be calculated recursively through the back-propagation through time algorithm [22]. All details are provided in the Supplementary Section C.
+
+4 Related Work
+The RBM has been widely used as building block to learn the sequential dependencies in time-series data, e.g., the conditional-RBM-related models [7, 23], and the temporal RBM [8]. To make exact inference possible, the recurrent temporal RBM was also proposed [9], and further extended to learn the dependency structure within observations [11].
+In the work reported here, we focus on modeling sequences based on the SBN [16], which recently has been shown to have the potential to build deep generative models [13, 15, 24]. Our work serves as another extension of the SBN that can be utilized to model time-series data. Similar ideas have also been considered in [25] and [26]. However, in [25], the authors focus on grammar learning, and use a feed-forward approximation of the mean-field VB to carry out the inference; while in [26], the wake-sleep algorithm was developed. We apply the model in a different scenario, and develop a fast and scalable inference algorithm, based on the idea of training a recognition model by leveraging the stochastic gradient of the variational bound.
+There exist two main methods for the training of recognition models. The first one, termed Stochastic Gradient Variational Bayes (SGVB), is based on a reparameterization trick [12, 14], which can be only employed in models with continuous latent variables, e.g., the variational auto-encoder [12]
+
+5
+
+Top: Generated from Piano midi
+20 40 60 80
+50 100 150 200 250 300
+Bottom: Generated from Nottingham
+20 40 60 80
+20 40 60 80 100 120 140 160 180
+
+1 Topic 29
+0.5 Nicaragua v. U.S.
+
+0 1800
+1
+
+1850
+
+0.5 War of 1812
+
+1900
+
+1950
+
+2000
+
+Topic 30 World War II
+
+Iraq War
+
+0 1800
+1
+
+1850
+
+1900
+
+1950
+
+Topic 130
+
+0.5 The age of American revolution
+
+2000
+
+0 1800
+
+1850
+
+1900
+
+1950
+
+2000
+
+Figure 2: (Left) Dictionaries learned using the HMSBN for the videos of bouncing balls. (Middle) Samples generated from the HMSBN trained on the polyphonic music. Each column is a sample vector of notes. (Right) Time evolving from 1790 to 2014 for three selected topics learned from the STU dataset. Plotted values represent normalized probabilities that the topic appears in a given year. Best viewed electronically.
+
+and all the recent recurrent extensions of it [27, 28, 29]. The second one, called Neural Variational Inference and Learning (NVIL), is based on the log-derivative trick [13], which is more general and can also be applicable to models with discrete random variables. The NVIL algorithm has been previously applied to the training of SBN in [13]. Our approach serves as a new application of this algorithm for a SBN-based time-series model.
+
+5 Experiments
+We present experimental results on four publicly available datasets: the bouncing balls [9], polyphonic music [10], motion capture [7] and state-of-the-Union [30]. To assess the performance of the TSBN model, we show sequences generated from the model, and report the average log-probability that the model assigns to a test sequence, and the average squared one-step-ahead prediction error per frame. Code is available at https://github.com/zhegan27/TSBN_code_NIPS2015.
+The TSBN model with W3 = 0 and W4 = 0 is denoted Hidden Markov SBN (HMSBN), the deep TSBN with stochastic hidden layer is denoted DTSBN-S, and the deep TSBN with deterministic hidden layer is denoted DTSBN-D.
+Model parameters were initialized by sampling randomly from N (0, 0.0012I), except for the bias parameters, that were initialized as 0. The TSBN model is trained using a variant of RMSprop [6], with momentum of 0.9, and a constant learning rate of 10-4. The decay over the root mean squared gradients is set to 0.95. The maximum number of iterations we use is 105. The gradient estimates were computed using a single sample from the recognition model. The only regularization we used was a weight decay of 10-4. The data-dependent baseline was implemented by using a neural network with a single hidden layer with 100 tanh units.
+For the prediction of vt given v1:t-1, we (i) first obtain a sample from q(h1:t-1|v1:t-1); (ii) calculate the conditional posterior p(ht|h1:t-1, v1:t-1) of the current hidden state ; (iii) make a prediction for vt using p(vt|h1:t, v1:t-1). On the other hand, synthesizing samples is conceptually simper. Sequences can be readily generated from the model using ancestral sampling.
+5.1 Bouncing balls dataset
+We conducted the first experiment on synthetic videos of 3 bouncing balls, where pixels are binary valued. We followed the procedure in [9], and generated 4000 videos for training, and another 200 videos for testing. Each video is of length 100 and of resolution 30 x 30.
+The dictionaries learned using the HMSBN are shown in Figure 2 (Left). Compared with previous work [9, 10], our learned bases are more spatially localized. In Table 1, we compare the average squared prediction error per frame over the 200 test videos, with recurrent temporal RBM (RTRBM) and structured RTRBM (SRTRBM). As can be seen, our approach achieves better performance compared with the baselines in the literature. Furthermore, we observe that a high-order TSBN reduces the prediction error significantly, compared with an order-one TSBN. This is due to the fact
+
+6
+
+Table 1: Average prediction error for the bouncing balls dataset. ( ) taken from [11].
+
+MODEL DTSBN-S DTSBN-D TSBN TSBN RTRBM SRTRBM
+
+DIM 100-100 100-100 100 100 3750 3750
+
+ORDER 2 2 4 1 1 1
+
+PRED. ERR. 2.79  0.39 2.99  0.42 3.07  0.40 9.48  0.38 3.88  0.33 3.31  0.33
+
+Table 2: Average prediction error obtained for the motion capture dataset. ( ) taken from [11].
+
+MODEL DTSBN-S DTSBN-D TSBN HMSBN SS-SRTRBM G-RTRBM
+
+WALKING 4.40  0.28 4.62  0.01 5.12  0.50 10.77  1.15 8.13  0.06 14.41  0.38
+
+RUNNING 2.56  0.40 2.84  0.01 4.85  1.26 7.39  0.47 5.88  0.05 10.91  0.27
+
+that by using a high-order TSBN, more information about the past is conveyed. We also examine the advantage of employing deep models. Using stochastic, or deterministic hidden layer improves performances. More results, including log-likelihoods, are provided in Supplementary Section D.
+5.2 Motion capture dataset
+In this experiment, we used the CMU motion capture dataset, that consists of measured joint angles for different motion types. We used the 33 running and walking sequences of subject 35 (23 walking sequences and 10 running sequences). We followed the preprocessing procedure of [11], after which we were left with 58 joint angles. We partitioned the 33 sequences into training and testing set: the first of which had 31 sequences, and the second had 2 sequences (one walking and another running). We averaged the prediction error over 100 trials, as reported in Table 2. The TSBN we implemented is of size 100 in each hidden layer and order 1. It can be seen that the TSBN-based models improves over the Gaussian (G-)RTRBM and the spike-slab (SS-)SRTRBM significantly.
+
+Figure 3: Motion trajectories generated from the HMSBN trained on the motion capture dataset. (Left) Walking. (Middle) Running-running-walking. (Right) Running-walking.
+Another popular motion capture dataset is the MIT dataset2. To further demonstrate the directed, generative nature of our model, we give our trained HMSBN model different initializations, and show generated, synthetic data and the transitions between different motion styles in Figure 3. These generated data are readily produced from the model and demonstrate realistic behavior. The smooth trajectories are walking movements, while the vibrating ones are running. Corresponding video files (AVI) are provided as mocap 1, 2 and 3 in the Supplementary Material.
+5.3 Polyphonic music dataset
+The third experiment is based on four different polyphonic music sequences of piano [10], i.e., Piano-midi.de (Piano), Nottingham (Nott), MuseData (Muse) and JSB chorales (JSB). Each of these datasets are represented as a collection of 88-dimensional binary sequences, that span the whole range of piano from A0 to C8.
+The samples generated from the trained HMSBN model are shown in Figure 2 (Middle). As can be seen, different styles of polyphonic music are synthesized. The corresponding MIDI files are provided as music 1 and 2 in the Supplementary Material. Our model has the ability to learn basic harmony rules and local temporal coherence. However, long-term structure and musical melody remain elusive. The variational lower bound, along with the estimated log-likelihood in [10], are presented in Table 3. The TSBN we implemented is of size 100 and order 1. Empirically, adding layers did not improve performance on this dataset, hence no such results are reported. The results of RNN-NADE and RTRBM [10] were obtained by only 100 runs of the annealed importance sampling, which has the potential to overestimate the true log-likelihood. Our variational lower bound provides a more conservative estimate. Though, our performance is still better than that of RNN.
+2Quantitative results on the MIT dataset are provided in Supplementary Section D.
+7
+
+Table 3: Test log-likelihood for the polyphonic music dataset. ( ) taken from [10].
+
+MODEL TSBN RNN-NADE RTRBM RNN
+
+PIANO. -7.98 -7.05 -7.36 -8.37
+
+NOTT. -3.67 -2.31 -2.62 -4.46
+
+MUSE. -6.81 -5.60 -6.35 -8.13
+
+JSB. -7.48 -5.56 -6.35 -8.71
+
+Table 4: Average prediction precision for STU. ( ) taken from [31].
+
+MODEL HMSBN DHMSBN-S GP-DPFA DRFM
+
+DIM 25 25-25 100 25
+
+MP 0.327  0.002 0.299  0.001 0.223  0.001 0.217  0.003
+
+PP 0.353  0.070 0.378  0.006 0.189  0.003 0.177  0.010
+
+5.4 State of the Union dataset
+
+The State of the Union (STU) dataset contains the transcripts of T = 225 US State of the Union addresses, from 1790 to 2014. Two tasks are considered, i.e., prediction and dynamic topic modeling.
+
+Prediction The prediction task is concerned with estimating the held-out words. We employ the setup in [31]. After removing stop words and terms that occur fewer than 7 times in one document or less than 20 times overall, there are 2375 unique words. The entire data of the last year is held-out. For the documents in the previous years, we randomly partition the words of each document into 80%/20% split. The model is trained on the 80% portion, and the remaining 20% held-out words are used to test the prediction at each year. The words in both held-out sets are ranked according to the probability estimated from (6).
+
+To evaluate the prediction performance, we calculate the precision @top-M as in [31], which is given by the fraction of the top-M words, predicted by the model, that matches the true ranking of the word counts. M = 50 is used. Two recent works are compared, GP-DPFA [31] and DRFM [30]. The results are summarized in Table 4. Our model is of order 1. The column MP denotes the mean precision over all the years that appear in the training set. The column PP denotes the predictive precision for the final year. Our model achieves significant improvements in both scenarios.
+
+Dynamic Topic Modeling The setup described in [30] is employed, and the number of topics is 200. To understand the temporal dynamic per topic, three topics are selected and the normalized probability that a topic appears at each year are shown in Figure 2 (Right). Their associated top 6 words per topic are shown in Table 5. The learned trajectory exhibits different temporal patterns across the topics. Clearly, we can identify jumps associated with some key historical events. For instance, for Topic 29, we observe a positive jump in 1986 related to military and paramilitary activities in and against Nicaragua brought by the U.S. Topic 30 is related with war, where the War of 1812, World War II and Iraq War all spike up in their corresponding years. In Topic 130, we observe consistent positive jumps from 1890 to 1920, when the American revolution was taking place. Three other interesting topics are also shown in Table 5. Topic 64 appears to be related to education, Topic 70 is about Iraq, and Topic 74 is Axis and World War II. We note that the words for these topics are explicitly related to these matters.
+
+Table 5: Top 6 most probable words associated with the STU topics.
+
+Topic #29 family budget
+Nicaragua free future
+freedom
+
+Topic #30 officer civilized warfare enemy whilst gained
+
+Topic #130 government
+country public
+law present citizens
+
+Topic #64 generations generation recognize
+brave crime race
+
+Topic #70 Iraqi Qaida Iraq Iraqis AI
+Saddam
+
+Topic #74 Philippines
+islands axis Nazis
+Japanese Germans
+
+6 Conclusion
+We have presented the Deep Temporal Sigmoid Belief Networks, an extension of SBN, that models the temporal dependencies in high-dimensional sequences. To allow for scalable inference and learning, an efficient variational optimization algorithm is developed. Experimental results on several datasets show that the proposed approach obtains superior predictive performance, and synthesizes interesting sequences.
+In this work, we have investigated the modeling of different types of data individually. One interesting future work is to combine them into a unified framework for dynamic multi-modality learning. Furthermore, we can use high-order optimization methods to speed up inference [32].
+Acknowledgements This research was supported in part by ARO, DARPA, DOE, NGA and ONR.
+
+8
+
+References
+[1] L. Rabiner and B. Juang. An introduction to hidden markov models. In ASSP Magazine, IEEE, 1986. [2] R. Kalman. Mathematical description of linear dynamical systems. In J. the Society for Industrial &
+Applied Mathematics, Series A: Control, 1963. [3] M. Hermans and B. Schrauwen. Training and analysing deep recurrent neural networks. In NIPS, 2013. [4] J. Martens and I. Sutskever. Learning recurrent neural networks with hessian-free optimization. In ICML,
+2011. [5] R. Pascanu, T. Mikolov, and Y. Bengio. On the difficulty of training recurrent neural networks. In ICML,
+2013. [6] A. Graves. Generating sequences with recurrent neural networks. In arXiv:1308.0850, 2013. [7] G. Taylor, G. Hinton, and S. Roweis. Modeling human motion using binary latent variables. In NIPS,
+2006. [8] I. Sutskever and G. Hinton. Learning multilevel distributed representations for high-dimensional se-
+quences. In AISTATS, 2007. [9] I. Sutskever, G. Hinton, and G. Taylor. The recurrent temporal restricted boltzmann machine. In NIPS,
+2009. [10] N. Boulanger-Lewandowski, Y. Bengio, and P. Vincent. Modeling temporal dependencies in high-
+dimensional sequences: Application to polyphonic music generation and transcription. In ICML, 2012. [11] R. Mittelman, B. Kuipers, S. Savarese, and H. Lee. Structured recurrent temporal restricted boltzmann
+machines. In ICML, 2014. [12] D. P. Kingma and M. Welling. Auto-encoding variational Bayes. In ICLR, 2014. [13] A. Mnih and K. Gregor. Neural variational inference and learning in belief networks. In ICML, 2014. [14] D. Rezende, S. Mohamed, and D. Wierstra. Stochastic backpropagation and approximate inference in
+deep generative models. In ICML, 2014. [15] Z. Gan, R. Henao, D. Carlson, and L. Carin. Learning deep sigmoid belief networks with data augmenta-
+tion. In AISTATS, 2015. [16] R. Neal. Connectionist learning of belief networks. In Artificial intelligence, 1992. [17] G. Hinton, S. Osindero, and Y. Teh. A fast learning algorithm for deep belief nets. In Neural computation,
+2006. [18] G. Hinton. Training products of experts by minimizing contrastive divergence. In Neural computation,
+2002. [19] G. Hinton and R. Salakhutdinov. Replicated softmax: an undirected topic model. In NIPS, 2009. [20] G. Hinton, P. Dayan, B. Frey, and R. Neal. The "wake-sleep" algorithm for unsupervised neural networks.
+In Science, 1995. [21] T. Tieleman and G. Hinton. Lecture 6.5-rmsprop: Divide the gradient by a running average of its recent
+magnitude. In COURSERA: Neural Networks for Machine Learning, 2012. [22] P. Werbos. Backpropagation through time: what it does and how to do it. In Proc. of the IEEE, 1990. [23] G. Taylor and G. Hinton. Factored conditional restricted boltzmann machines for modeling motion style.
+In ICML, 2009. [24] Z. Gan, C. Chen, R. Henao, D. Carlson, and L. Carin. Scalable deep poisson factor analysis for topic
+modeling. In ICML, 2015. [25] J. Henderson and I. Titov. Incremental sigmoid belief networks for grammar learning. In JMLR, 2010. [26] G. Hinton, P. Dayan, A. To, and R. Neal. The helmholtz machine through time. In Proc. of the ICANN,
+1995. [27] J. Bayer and C. Osendorfer. Learning stochastic recurrent networks. In arXiv:1411.7610, 2014. [28] O. Fabius, J. R. van Amersfoort, and D. P. Kingma. Variational recurrent auto-encoders. In
+arXiv:1412.6581, 2014. [29] J. Chung, K. Kastner, L. Dinh, K. Goel, A. Courville, and Y. Bengio. A recurrent latent variable model
+for sequential data. In NIPS, 2015. [30] S. Han, L. Du, E. Salazar, and L. Carin. Dynamic rank factor model for text streams. In NIPS, 2014. [31] A. Acharya, J. Ghosh, and M. Zhou. Nonparametric Bayesian factor analysis for dynamic count matrices.
+In AISTATS, 2015. [32] K. Fan, Z. Wang, J. Kwok, and K. Heller. Fast Second-Order Stochastic Backpropagation for Variational
+Inference. In NIPS, 2015.
+9
+

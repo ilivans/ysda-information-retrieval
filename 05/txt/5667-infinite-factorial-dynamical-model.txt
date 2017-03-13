@@ -1,0 +1,799 @@
+Infinite Factorial Dynamical Model
+
+Isabel Valera Max Planck Institute for
+Software Systems ivalera@mpi-sws.org
+Lennart Svensson Department of Signals and Systems Chalmers University of Technology lennart.svensson@chalmers.se
+
+Francisco J. R. Ruiz Department of Computer Science
+Columbia University f.ruiz@columbia.edu
+Fernando Perez-Cruz Universidad Carlos III de Madrid, and
+Bell Labs, Alcatel-Lucent fernandop@ieee.org
+
+Abstract
+We propose the infinite factorial dynamic model (iFDM), a general Bayesian nonparametric model for source separation. Our model builds on the Markov Indian buffet process to consider a potentially unbounded number of hidden Markov chains (sources) that evolve independently according to some dynamics, in which the state space can be either discrete or continuous. For posterior inference, we develop an algorithm based on particle Gibbs with ancestor sampling that can be efficiently applied to a wide range of source separation problems. We evaluate the performance of our iFDM on four well-known applications: multitarget tracking, cocktail party, power disaggregation, and multiuser detection. Our experimental results show that our approach for source separation does not only outperform previous approaches, but it can also handle problems that were computationally intractable for existing approaches.
+1 Introduction
+The central idea behind Bayesian nonparametrics (BNPs) is the replacement of classical finitedimensional prior distributions with general stochastic processes, allowing for an open-ended number of degrees of freedom in a model [8]. They constitute an approach to model selection and adaptation in which the model complexity is allowed to grow with data size [17]. In the literature, BNP priors have been applied for time series modeling. For example, the infinite hidden Markov model [2, 20] considers a potentially infinite cardinality of the state space; and the BNP construction of switching linear dynamical systems (LDS) [4] considers an unbounded number of dynamical systems with transitions among them occurring at any time during the observation period. In the context of signal processing, the source separation problem has captured the attention of the research community for decades due to its wide range of applications [12, 23, 7, 24]. The BNP literature for source separation includes [10], in which the authors introduce the nonparametric counterpart of independent component analysis (ICA), referred as infinite ICA (iICA); and [23], where the authors present the Markov Indian buffet process (mIBP), which places a prior over an infinite number of parallel Markov chains and is used to build the infinite factorial hidden Markov model (iFHMM) and the ICA iFHMM. These approaches can effectively adapt the number of hidden sources to fit the available data. However, they suffer from several limitations: i) the iFHMM is restricted to binary on/off hidden states, which may lead to hidden chains that do not match the actual hidden causes, and it is not able to deal with continuous-valued states, and ii) both the iICA and the ICA iFHMM make independence assumptions between consecutive values of active hidden states, which significantly restricts their ability to capture the underlying dynamical models. As a result, we find that existing approaches are not applicable to many well-known source separation
+ Both authors contributed equally.
+
+1
+
+problems, such as multitarget tracking [12], in which each target can be modeled as a Markov chain with continuous-valued states describing the target trajectory; or multiuser detection [24], in which the high cardinality of the hidden states makes this problem computationally intractable for the nonbinary extension of the iFHMM. Hence, there is a lack of both a general BNP model for source separation, and an efficient inference algorithm to address these limitations.
+
+In this paper, we provide a general BNP framework for source separation that can handle a wide range of dynamics and likelihood models. We assume a potentially infinite number of sources that are modeled as Markov chains that evolve according to some dynamical system model. We assume that only the active sources contribute to the observations, and the states of the Markov chains are not restricted to be discrete but they can also be continuous-valued. Moreover, we let the observations depend on both the current state of the hidden sequences, and on some previous states. This system memory is needed when dealing with applications in which the individual source signals propagate through the air and may thus suffer from some phenomena, such as reverberation, echo, or multipath propagation. Our approach results in a general and flexible dynamic model that we refer to as infinite factorial dynamical model (iFDM), and that can be particularized to recover other models previously proposed in the literature, e.g., the binary iFHMM.
+
+As for most BNP models, one of the main challenges of our iFDM is posterior inference. In discrete time series models, including the iFHMM, an approximate inference algorithm based on forwardfiltering backward-sampling (FFBS) sweeps is typically used [23, 5]. However, the exact FFBS algorithm has exponential computational complexity with respect to the memory length. The FFBS algorithm also becomes computationally intractable when dealing with on/off hidden states that are continuous-valued when active. In order to overcome these limitations, we develop a suitable inference algorithm for our iFDM by building a Markov chain Monte Carlo (MCMC) kernel using particle Gibbs with ancestor sampling (PGAS) [13]. This algorithm presents quadratic complexity with respect to the memory length and can easily handle a broad range of dynamical models.
+
+The versatility and efficiency of our approach is shown through a comprehensive experimental validation in which we tackle four well-known source separation problems: multitarget tracking [12], cocktail party [23], power disaggregation [7], and multiuser detection [24].1 Our results show that our iFDM provides meaningful estimations of the number of sources and their corresponding individual signal traces even in applications that previous approaches cannot handle. It also outperforms, in terms of accuracy, the iFHMM (extended to account for the actual state space cardinality) combined with FFBS-based inference in the cocktail party and power disaggregation problems.
+
+2 Infinite Factorial Dynamical Model
+
+In this section, we detail our proposed iFDM. We assume that there is a potentially infinite number of
+
+sources contributing to dynamic system model
+
+the observed in which the
+
+ssetaqtueeonfcteh{eymt}-Ttt=h 1s,oaunrcdeeaatchtimsoeutr,cedeisnomteoddeblyedxbtmy
+
+an 
+
+underlying X , evolves
+
+over time as a first-order Markov chain. Here, the state space X can be either discrete or continuous.
+
+In addition, we introduce the auxiliary binary variables stm  {0, 1} to indicate whether the m-th source is active at time t, such that the observations only depend on the active sources. We assume
+
+that the variables stm follow a first-order Markov chain and let the states xtm evolve according to p(xtm|stm, x(t-1)m, s(t-1)m), i.e., the dynamic system model may depend on whether the source is active or inactive. We assume dummy states stm = 0 for t  0. As an example, in the cocktail party problem, yt denotes a sample of the recorded audio signal, which depends on the individual voice signals of the active speakers. The latent states xtm in this example are real-valued and the transition model p(xtm|stm = 1, x(t-1)m, s(t-1)m) describes the dynamics of the voice signal.
+
+In many real applications, the individual signals propagate though the air until they are mixed and gathered by the receiver. In such propagation, different phenomena (e.g., refraction or reflexion of the signal in the walls) may occur, leading to multipath propagation of the signals and, therefore, to different delayed copies of the individual signals at the receiver. In order to account for this "memory" effect, we consider that the state of the m-th source at time t, xtm, influences not only the observation yt, but also the future L - 1 observations, yt+1, . . . , yt+L-1. Therefore, the likelihood of yt depends on the last L states of all the Markov chains, yielding
+
+p(yt|X, S) = p(yt|{xtm, stm, x(t-1)m, s(t-1)m, . . . , x(t-L+1)m, s(t-L+1)m}Mm=1), (1)
+
+1Code for these applications can be found at https://github.com/franrruiz/iFDM
+
+2
+
+ am
+
+m = 1, . . . , 1
+
+0, 1
+
+bm s0m s1m s2m s3m . . . sT m
+
+x0m x1m x2m x3m . . . xT m
+
+ am
+
+m = 1, . . . , 1
+
+0, 1
+
+bm s(0em) s(1em) s(2em) s(3em) . . . s(Tem)
+
+y1 y2 y3 . . . yT
+
+y1 y2 y3 . . . yT
+
+(a) (b) Figure 1: (a) Graphical representation of the iFDM with memory length L = 2. The dashed lines represent the memory. (b) Equivalent representation using extended states.
+
+where X and S are T x M matrices containing all the states xtm and stm, respectively. We remark that the likelihood of yt cannot depend on any hidden state xm if sm = 0.
+
+In order to be able to deal with an infinite number of sources, we place a BNP prior over the binary matrix S that contains all variables stm. In particular, we assume that S  mIBP(, 0, 1), i.e., S is distributed as a mIBP [23] with parameters , 0 and 1. The mIBP places a prior distribution over binary matrices with a finite number of rows T and an infinite number of columns M , in which each row represents a time instant, and each column represents a Markov chain. The mIBP ensures that, for any finite value of T , only a finite number of columns M+ in S are active almost surely, whereas the rest of them remain in the all-zero state and do not influence the observations. We make use of the stick-breaking construction of the mIBP, which is particularly useful to develop many practical inference algorithms [19, 23]. Under the stick-breaking construction, two hidden variables for each Markov chain are introduced, representing the transition probabilities between the active and inactive states. In particular, we define am = p(stm = 1|s(t-1)m = 0) as the transition probability from inactive to active, and bm = p(stm = 1|s(t-1)m = 1) as the selftransition probability of the active state of the m-th chain. In the stick-breaking representation, the columns of S are ordered according to their values of am, such that a1 > a2 > a3 > . . ., and the probability distribution over variables am is given by a1  Beta(, 1), and p(am|am-1)  (am)-1I(0  am  am-1), being I(*) the indicator function [19]. Finally, we place a beta distribution over the transition probabilities bm of the form bm  Beta(0, 1).
+
+The resulting iFDM model, particularized for L = 2, is shown in Figure 1a. Note that this model can be equivalently represented as shown in Figure 1b, using the extended states st(me), with
+
+s(tme) = xtm, stm, x(t-1)m, s(t-1)m, . . . , x(t-L+1)m, s(t-L+1)m .
+
+(2)
+
+This extended representation allows for an FFBS-based inference algorithm. However, the exponen-
+
+tial complexity of the FFBS with the memory parameter L and with continuous-valued hidden states
+
+xtm makes the algorithm intractable in many real scenarios. Hence, we maintain the representation in Figure 1a because it allows us to derive an efficient inference algorithm.
+
+The proposed iFDM in Figure 1a can be particularized to resemble some other models that have been proposed in the literature. In particular, we recover: i) the iFHMM in [23] by choosing the state space X = {0, 1}, xtm = stm and L = 1, ii) the ICA iFHMM in [23] if we set X = R, L = 1 and assume that p(xtm|stm = 1, x(t-1)m, s(t-1)m) = p(xtm|stm = 1) is a Gaussian distribution, and iii) a BNP counterpart of the LDS [9] with on/off states by assuming L = 1 and X = R, and letting the variables xtm be Gaussian distributed with linear relationships among them.
+
+3 Inference Algorithm
+We develop an inference algorithm for the proposed iFDM that can handle different dynamic and likelihood models. Our approach relies on a blocked Gibbs sampling algorithm that alternates between sampling the number of considered chains and the global variables conditioned on the current value of matrices S and X, and sampling matrices S and X conditioned on the current value of the remaining variables. In particular, the algorithm proceeds iteratively as follows:
+
+* Step 1: Add Mnew new inactive chains using an auxiliary slice variable and a slice sampling method. In this step, the number of considered chains is increased from its initial value M+ to M  = M+ + Mnew (M+ is not updated because stm = 0 for all t for the new chains).
+
+3
+
+270
+
+271
+
+272
+
+i=1 i=2 i=3
+
+x1t 1 x2t 1 x3t 1
+
+a1t = 1 x1t a2 t =1
+x2t a3 t =2
+x3t
+
+= 2 x1t+1 a1 t+1 a2t+1 = 2 x2t+1 a3t+1 = 3 x3t+1
+
+273 274 275 276 277 278
+
+(a)
+
+t1
+Example of
+
+the
+
+t
+connection
+
+t + 1 279 of partic2le8s0
+
+in PGAS. We represent P = 3 partic2le8s1
+
+xi for  = {t - 1, t, t + 1}. The index 2a8i2
+
+denotes the ancestor particle of xi . It c2a8n3 banedsxee21n:t+th1aot,nley.gd.i,fftehreattrtaijmecetoinrsietasnxt t11:+t22+1881.45
+
+286
+
+Algorithm 1 Particle Gibbs with ancestor sampling
+
+Input : Reference particle x0t for t = 1, . . . , T , and global variables.
+
+Output: Sample xo1u:Tt from the PGAS Markov kernel
+
+1 Draw xi1  r1(x1) for i = 1, . . . , P 1 (Eq. 4)
+
+2 Set xP1 = x01
+
+3 4
+
+Cfoormtp=ute2t,h.e.w. e,iTghdtsow1i = W1(xi1) for i = 1, . . . , P (Eq. 5)
+
+// Resampling and ancestor sampling
+
+5 Draw ait  Categorical(wt1 1, . . . , wtP 1) for i = 1, . . . , P 1 6 Compute weti 1|T for i = 1, . . . , P (Eq. 6) 7 Draw aPt  Categorical(wet1 1|T , . . . , wetP 1|T )
+// Particle propagation
+
+8 Draw xit  rt(xt|xa1it:t 1) for i = 1, . . . , P 1 (Eq. 4) 9 Set xPt = x0t 10 Set xi1:t = (xa1it:t 1, xit) for i = 1, . . . , P (Eq. 3)
+// Weighting
+
+11 Compute the weights wti = Wt(xi1:t) for i = 1, . . . , P (Eq. 5)
+
+12 Draw k  Categorical(wT1 , . . . , wTP ) 13 return xo1u:Tt = xk1:T
+
+287 (b) PGAS algorithm.
+caataawIbwophnelbprut(ghieehsylpftSoeohefltgmSetrilr|eeimeitMXvmetdpa**hpoemo,nomronbd1SooddSaStpvse,hicrn=e)eetterlnyXewe.eelsdrrer-isvppcFSrdeotlM[staeheehug1eed3t2fpnne(ceprii3,:o+Ivo:rgttte]eBclhleeieSnt.ylnoqos+hemnoJPadenunrpowEdm)inLeisteidMsev3hannet[rps,evata.1ceqittih1ltntoellaho9euaviyeee.lcvdon,wieoantuloiF.nAshnrs2spttprileiipaetI3dreimgafbaolrnamcetd]yibaugrynerenn,oatlrlapSrugtiefdomtewrslolothsperlebeaveneu2theremdlmashapltn:itaulwlieiecoohnunpncPtc3vrhf222222222222333333vieihieflsefhana,tn889999999999000000ieie,xhatrenrngsw890123456789012345gorhratfiipfgtegeinaerfsifaMeconPsonexbstsltttncmc.ceGtleshhhca+eeeeetsaeoheliAGnsnSm.gvtseaixdohtfamTdewns0sttigoeSneimlieunpepivbebret.iogallrhg,hrme0ompyrolcdiaoibslseoitmeertntwev1shehbctlshharcesta2reavfpreeIaieast,arelmeotenwovtth.lelto.i,aalndehrwmmocansaresrsntmTi-SdammvFioteewtstptssioiepianhtrasxiesmnnotpoofrjrmtesnecldhrdrcoesahtfxraetnirain=idtcoaeieinamsernaoixcamninsotegalvlmernvsb,setrtim,tcaFeasretnotaspi0al=tewhtrrdsysnbtceiotmrhhlel.istgusisichei=rsay5ofhhte(mentnsaowuem.eoGhnoRnyiotqfbgfgtacridcrdeaoersoi[ssuieeSlHlioihpxtixitecna,euelbtsocasnhmSnot[rl1xamseta(tnuaitdnhhs2oteBhcsm1nn)barmhiodntn(rep,0ibh)enainc.tooaNasedddeo,sl,aa,pitialncttsfnDie.eenxwnuabPii1lcneawec1dtwnlcdri8.dnh(titea.2gm)onteilsiem,2bm0eihmedtttevni]cdngn)cadtye0pet,ateaoot,is.optihhahitthrelw+otlntimnvnwSdjrsiedasaiodsenyoon-ts(ieuetraepemo=tM1GeupgegaFntlp8irrper)ltasnlvaomfiemeFeehap0,enaopsaualPtsdxmbnnetBmvl0sr,senelehuetivkaiasuut(iraStdaetwmecemmti2senomtayiametriitnhneo)olvndiogtPeoea=eot:]oadeltfdewsinie>nlGifstauicanibrgst,nfrttn.tntoiceminmsa264heAoaohetatmopsa(tnWehmsyer=foaroen.i,rfcSly,i.roarbdPtetl00101tetparoiaewihiihhtbasMeCs.aGGsvklenabP,egumeepesalheencodsGwArpaes0abptelIh0001emtvmmttunteiiinrsweharSa*renahlovcseeetodvliapurert,ohastltaarntiittdiaasi2aoora10T0arecrhaaeidsttNsaecogiit5nlnnnohdnieossmsdi--nlte.oreai0rs(jttnnssidte0jayctyon0T01o,dlonanfspIsinttposa)hsst+ottrmei375erirismsnsisatiibitnxasntccseauiorts(oetjomtdrmtven,,fajledoPiowt1ciutadatct)0wtnhsimteoainien=littrpfgtier+ohosmetw)dhur1smneazhiac2664o0ttethitintlcijroyamsoi0T0htTannsh2tissoy2htmnragahdeetnNi 3.1 Particle Gibbs with ancestor3s0a6mplinagnd d0 = 100 metres and = 2 are respectively the reference distance and the PapsaGrwtAiceSllel[1aG3si]bthibsesawsmtirteehnthgbotahdcsk,wwoiatfhrdisnesqtihmueeunfltra333iata000iml789onMewmoonerttkwpIehneoohvCrfdiiGcaosprhada[lmo2raot5cimfacc,nlloa1eed(u4n1Mn]Mg,,t1tCthCf)hoMaiMTrssCtCahi=tle[gst1oerp3]acrr0itdhith0ohinao.rmitqdpIcunircoesoamtsopnr.uiabbargiIulnnaistneotiisocfoebontnrehn.eemtcnroacmosnedtaveaietnllon.giiWooderntehieattlehsayr,mppwlyeosuarminpfleerethnecenaoligsoervitahrm
+
+afmPadcoplheGgarptomtoeAlsrririe.meSicntdTehi(snahmteonie(xsdXtntrPeieocsGn,sntaSdeoAl-melr)MySedbgdaaslitrveoeldkgsetuooantravcroinaiinctanohtgonhumiretnlndhaitiirettsneiefaaaafnolerlntrgyrsveMotahanpmrreiCcait333333perahMM111111tlbmie012345iclnCnel(peeeXwmkuxfieetonr,lcsdnteSuItItaleaweehhinnltrmtllgi,eee)s,otF,ioirph,wapnrnaiwrliing.oatitei.sertutdhucs,hhWafi.ritir,tajmteicgehevitmenhwouucte3dbhnbortsio,oeseacrdtge,iwrcthhemteeirwahaecleflrensuaeiaoseyneaissntronrwshnoe.had)uda,cboiW.tdettteeetswpsihossaaefTecutfrlraatrothetevhhihnwrrebnoeaeneeeaiefvonomttbwvthehftcttrehehaaueeesstsercetseaxotaaah:tprpcgmroPhaigtrhrneofGeneeepeendodvtpspplArseesuioayrtoieSotrhronsohudtiipeffkifnatsaecoointptsiotrhlisnnohieptrmneedeefweradeeridohaesalrpsayrimettrttdrachiredaroosadrohaedtgttrnneedjiaeebcPd-ntoero,ascleotGflespfrttlmahgatoasoaAtannreehrwcltioiSdrytdeeese,seusasniatlnodogrefpoa6trntwhimroteahatenmytmtasrmtreuihgssliae.ttaitttWtbsiatn,lhreeggaetndeaoptdotodtanrtsehnaiottceyetikoccttinetionmm isxixbInn-tui1i1attht::rttttoehwps=debeaue{prc(rxtrtexieohtcfma1peeltit:ehort,a-estasnoe1ttacdm,[tnexi1P}mcs3itteMmG)r]esa.=AtfltoFo1.Srpir.g,aTiauWwnthhrrdaeeieegotxa2dofiseaserspso,nsuauaohamrsittoitteiewaccnbola33333333seayr11112222arsl{67890123yxetenh1sstitpee,i,osx.oifv.aon.ee.Pmfdc.CpsscCw,,stteipoPrhoghpoiottltltehranaeocl}hboerelkaaxltltcftrieloleithitnaptsgcamnme.ncalodtigeohldrl.raiiasetSricenotiPrtdMarcpdhfmiwseoafoleemfteyrporreaxrapthortbtkttepyeaeohroomsae.rauefinocrosjdtsseWhpefstpneehce.seeosntm1teet.vhcritooimtaeieanainrtTfiGtreyeynieoaichsboic-lw.tavestientehhnhsltet.slaepwvasanytprtteood,atpeaaritdnewarchsskrttpnrepeei,eetraceirseeescrlrsarsaacetielekigeccufccacarinhhrolnoottsebahrgrmsitldlvdaeoieimeetfnponftomdlrdhrtpeyxereerusbsnsitteediel.p.PeccgtaenciAeeecLnWfiptoe.dhiaSenlcnmeWeelteChgs,sdeaappeAtsttlleehhhssseaaLoaeooieesprlkptea`gielCnrfieoratcHatwciialaiootMhlinnlsoaysEtnitaasm'oysrtsSekisgxp,eosievpatifhmeelas4ecnruohadsltttkeeaSiamnntenaotopeeeuw1a.ont0rucnaStesthtailisi
+1http://spandh.dcs.shef.ac.uk/projects/chime/PCC/datasets.html
+
+4
+
+6
+
+The algorithm is summarized in Figure 2b. For each time instant t, we first generate the ancestor
+
+indexes for the first P - 1 particles according to the importance cestors, the particles are then propagated across time according to simplicity, and dropping the global variables from the notation for
+
+awdeiisgthritbsuwtioti-n1r.t conciseness, we
+
+Given these (axsts|uxma1t:et-th1a)t.
+
+anFor
+
+M
+
+rt(xt|xa1t:t-1) = p(xt|xat-t 1) =
+
+p(xtm|stm, xa(tt-1)m, sa(tt-1)m)p(stm|sa(tt-1)m),
+
+(3)
+
+m=1
+i.e., particles are propagated as in Figure 1a using a simple bootstrap proposal kernel,
+
+p(xtm, stm|s(t-1)m, x(t-1)m). The P -th particle is instead deterministically set to the reference
+
+particle, xPt = xt, whereas the ancestor indexes aPt are sampled according to some weights wti-1|T . Indeed, this is a crucial step that vastly improves the mixing properties of the MCMC kernel.
+
+We now focus on the computation on the importance weights wti and the ancestor weights wti-1|T . For the former, the particles are weighted according to wti = Wt(xi1:t), where
+
+Wt(x1:t)
+
+=
+
+p(x1:t|y1:t) p(x1:t-1|y1:t-1)rt(xt|x1:t-1)
+
+
+
+p(yt|xt-L+1:t),
+
+(4)
+
+being y1:2 the set of observations {yt}t=2 1 . Eq. 4 implies that, in order to obtain the importance weights, it suffices to evaluate the likelihood at time t. The weights wti-1|T are given by
+
+wti-1|T
+
+=
+
+wti-1
+
+p(xi1:t-1, xt:T |y1:T p(xi1:t-1|y1:t-1)
+
+)
+
+
+
+t+L-2
+
+wti-1p(xt|xit-1)
+
+p(y |xi1:t-1, xt:T ).
+
+ =t
+
+(5)
+
+Note that, for memoryless models (i.e., L = 1), Eq. 5 can be simplified, since the product in the last term is not present and, therefore, wti-1|T  wti-1p(xt|xit-1). For L > 1, the computation of the weights wti-1|T in (5) for i = 1, . . . , P has computational time complexity scaling as O(P M L2). Since this computation needs to be performed for each time instant (and this is the most expensive calculation), the resulting algorithm complexity scales as O(P T M L2).
+
+4 Experiments
+
+We now evaluate the proposed model and inference algorithm on four different applications, which are detailed below and summarized in Table 1. For the PGAS kernel, we use P = 3, 000 particles in all our experiments. Additional details on the experiments are given in the Supplementary Material.
+
+Multitarget Tracking. In the multitarget tracking problem, we aim at locating the position of
+
+several moving targets based on noisy observations. Under a general setup, a varying number of
+
+indistinguishable targets are moving around in a region, appearing at random in space and time.
+
+Multitarget tracking plays an important role in many areas of engineering such as surveillance,
+
+computer vision and signal processing [18, 16, 21, 6, 12]. Here, we focus on a simple synthetic
+
+example to show that our proposed iFDM can handle time-dependent continuous-valued hidden
+
+states. We place three moving targets within a region of 800 x 800 metres, where 25 sensors are
+
+located on a position and
+
+square grid. velocity in a
+
+The state xtm two dimensional
+
+=plan[xe(t,m1a)n, dx(twm2)e,
+
+vat(sm1s)u,mvt(em2)a]
+
+of each target consists of its linear Gaussian dynamic model
+
+such that, while active, xtm evolves according to
+
+xtm = Gxx(t-1)m + Guut
+
+(6)
+
+where Gx = pling period,
+
+[1 0 and
+
+Ts ut
+
+0; 
+
+01 N
+
+0 Ts; 0 0 (0, I) is
+
+1 a
+
+0; 0 0 0 1], vector that
+
+Gu = [ models
+
+Tt2hs2e0a;c0ceT2ls2e;raTtsio0n;
+
+0 Ts], noise.
+
+Ts = 0.5 For each
+
+is the samconsidered
+
+target, we sample the initial position uniformly in the sensor network space, and assume that the
+
+initial velocity is Gaussian distributed with zero mean and covariance 0.01I. Following [21, 12], we
+
+generate (T = 300) observations based on the received signal strength (RSS), where the measure-
+
+
+
+ment of sensor j at time t is given by ytj =
+
+P *m:stm=1 0
+
+d0 dmjt
+
++ ntj. Here, ntj  N (0, 2)
+
+is the noise term, dmjt is the distance between target m and sensor j at time t, P0 = 10 is the
+
+transmitted power, and d0 = 100 metres and  = 2 are, respectively, the reference distance and the
+
+path loss exponent, which account for the radio propagation model. In our inference algorithm, we
+
+sample the noise variance by placing an InvGamma(1,1) distribution as its prior. Here, we compare
+
+5
+
+Application
+Multitarget Tracking Cocktail Party
+Power Dissagregation Multiuser Detection
+
+Model
+Infinite factorial LDS ICA iFHMM
+Non-binary iFHMM -
+
+X R4
+R {0, 1, . . . , Q - 1}
+A {0}
+
+p(xtm|stm = 1, x(t-1)m, s(t-1)m = 1)
+
+N (xtm|Gxx(t-1)m, GuGu )
+
+amjk
+
+=
+
+N (xtm|0, x2 ) p(xtm = k|x(t-1)m
+
+=
+
+j)
+
+U (A)
+
+Table 1: Applications of the iFDM.
+
+L
+1 1 1 N
+
+800 Target 1 Target 2 Target 3
+600 Inferred Target 1 Inferred Target 2 Inferred Target 3
+400 Sensors
+
+200
+
+0 0
+
+200 400 600 800
+
+(a) Target trajectories.
+
+Error (m)
+
+35 Target 1
+30 Target 2 Target 3
+25
+20
+15
+10
+5
+0 0 100 200 300 Time
+(b) Position error.
+
+Target 1 Target 2 Target 3 Average
+
+iFDM 7.0 5.9 6.3 6.4
+
+Genie-aided model 4.8 6.0 5.4 5.9
+
+(c) Average position error.
+
+Figure 3: Results for the multitarget tracking problem.
+
+the performance of the iFDM with a `genie-aided' finite factorial model with perfect knowledge of the number of targets and noise variance.
+
+In Figures 3a and 3b, we show the true and inferred trajectories of the targets, and the temporal evolution of the position error of the iFDM. Additionally, Figure 3c shows the average position error (in absolute value) for our iFDM and the genie-aided method. In these figures, we observe that the proposed model and algorithm is able to detect the three targets and their trajectories, providing similar performance to the genie-aided method. In particular, both approaches provide average position errors of around 6 metres, which is thrice the noise variance.
+
+Cocktail Party. We now address a blind speech separation task, also known as the cocktail party
+
+problem. Given the recorded audio signals from a set of microphones, the goal is to separate out the
+
+individual speech signals of multiple people who are speaking simultaneously. Speakers may start
+
+speaking or become silent at any time. Similarly to [23], we collect data from several speakers from
+
+the PASCAL `CHiME' Speech Separation and Recognition Challenge website.2 The voice signal
+
+for each speaker consists of 4 sentences, which we append with random pauses in between each sen-
+
+tence. We artificially mix the data 10 times (corresponding to 10 microphones) with mixing weights
+
+sampled from Uniform(0, 1), such that each microphone receives a linear combination of all the con-
+
+sidered signals, corrupted by Gaussian noise with standard deviation 0.3. We consider two scenarios,
+
+with 5 and 15 speakers, and subsample the data so that we learn from T = 1, 354 and T = 1, 087
+
+datapoints, respectively. Following [23], our model assumes p(xtm|stm = 1, x(t-1)m, s(t-1)m) =
+
+N (xtm|0, 2), and xtm = 0 whenever stm = 0. We also model yt as a linear combination of all
+
+the voice signals under Gaussian noise, i.e., yt =
+
+M+ m=1
+
+wmxtm
+
++ nt,
+
+where
+
+nt
+
+
+
+N (0, y2I)
+
+is the noise term, wm  N (0, I) is the 10-dimensional weighting vector associated to the m-th
+
+speaker, and y2  InvGamma(1, 1). We compare our iFDM with the ICA iFHMM in [23] using
+
+FFBS sweeps for inference, with (i) p(xtm|stm = 1) = N (xtm|0, 2) (denoted as FFBS-G), and (ii) p(xtm|stm = 1) = Laplace(xtm|0, 2) (denoted as FFBS-L).
+
+For the scenario with 5 speakers, we show the true and the inferred (after iteration 10, 000) number of speakers in Figures 4a, 4b, 4c and 4d, along with their activities during the observation period. In order to quantitatively evaluate the performance of the different algorithms, we show in Figure 4e (top) the activity detection error rate (ADER), which is computed as the probability of detecting activity (inactivity) of a speaker while that speaker is actually inactive (active). As the algorithms are unsupervised, we sort the estimated chains so that the ADER is minimized. If the inferred number of speakers M+ is smaller (larger) than the true number of speakers, we consider some extra inferred inactive chains (additional speakers). The PGAS-based approach outperforms the two FFBS-based methods because it can jointly sample the states of all chains (speakers) for each time instant, whereas the FFBS requires sampling each chain conditioned on the current states of the other chains, leading to poor mixing, as discussed in [22]. As a consequence, the FFBS tends to overestimate the number of speakers, as shown in Figure 4e (bottom).
+
+2http://spandh.dcs.shef.ac.uk/projects/chime/PCC/datasets.html
+
+6
+
+(a) Ground truth.
+
+Method
+
+# of Speakers 5 15
+
+M+ ADER
+
+PGAS FFBS-G FFBS-L
+
+0.08 0.25 0.14
+
+0.08 0.14 0.12
+
+PGAS
+
+5 15
+
+FFBS-G 7 15
+
+FFBS-L 8 15
+
+(b) PGAS.
+
+(c) FFBS-G.
+
+(d) FFBS-L.
+
+(e) ADER / Inferred M+.
+
+Figure 4: Results for the cocktail party problem.
+
+Algorithm PGAS FFBS
+
+H. 1
+0.68 0.59
+
+H. 2
+0.79 0.78
+
+H. 3
+0.60 0.56
+
+H. 4
+0.58 0.53
+
+H. 5
+0.55 0.43
+
+Algorithm PGAS FFBS
+
+Day 1
+0.76 0.67
+
+Day 2
+0.82 0.72
+
+(a) REDD (`H' stands for `House').
+
+(b) AMP.
+
+Table 2: Accuracy for the power disaggregation problem.
+
+Power Disaggregation. Given the aggregate whole-home power consumption signal, the power
+
+disaggregation problem consists in estimating both the number of active devices in the house and
+
+the power draw of each individual device [11, 7]. We validate the performance of the iFDM on
+
+two different real databases: the Reference Energy Disaggregation Data Set (REDD) [11], and the
+
+Almanac of Minutely Power Dataset (AMP) [15]. For the AMP database, we consider two 24-hour
+
+segments and 8 devices. For the REDD database, we consider a 24-hour segment across 5 houses
+
+and 6 devices. Our model assumes that each device can take Q = 4 different states (one inactive
+
+state and three active states with different power consumption), i.e., xtm  {0, 1, . . . , Q - 1}, with
+
+xtm = 0 if stm = 0. We place a symmetric Dirichlet prior over the transition probability vectors
+
+of the form amj  Dirichlet(1), where each element amjk = p(xtm = k|stm = 1, x(t-1)m =
+
+j, s(t-1)m). When xtm = 0, the power consumption of device m at time t is zero (P0m = 0), and
+
+when xtm  {1, . . . , Q - 1} its average power consumption is given by Pxmtm . Thus, the total power
+
+consumption is Gaussian noise. In this case, the
+
+given by yt = For q  {1, . . . , proposed model
+
+QfoMm-r=+th11e}P,ixFmwtDmeMa+ssrnuemste, emwabhlpeerrsieoarnnptoonw-ebNrinca(o0rny,s0iuF.m5H)pMtrieoMpnrePasnqemdn,tsthtehNree(fa1od5rde,i,1tiw0v)ee.
+
+can also apply the FFBS algorithm to infer the power consumption draws of each device.
+
+In order to evaluate the performance of the different algorithms, we compute the mean accuracy of
+
+the estimated consumption of each device (higher is better), i.e., acc = 1 -
+
+,T
+t=1
+
+M m=1
+
+|x(tm) -x(tm) |
+
+2
+
+T t=1
+
+M m=1
+
+x(tm)
+
+where device
+
+xm(tma)t
+
+atinmdext(t.mI)n=orPdexmrtmtoacroe,mrpeuspteectthievealcyc, uthraectyr,uwe eanadsstihgen
+
+estimated power consumption by each estimated chain to a device
+
+so that the accuracy is maximized. If the inferred number of devices M+ is smaller than the true noshufomdwebvetihrceeosrf,edsweuveltisgcerposr,uowpvieadlueldstehbexy(tembxot)rtha=ac0lhgafoionrristthhames sau.nnTd"ehutenekcPtnGeodAwdSne"vapidcpeervsoi.caIecfhaMnodu+tupisseerlfaxorg(trumenrks)thth=aen0Ft.hFeIBntSrTuaaelbgnloeurm2ithbwmeer
+
+in the five houses of the REDD database and the two selected days of the AMP database. This occurs
+
+because the PGAS can simultaneously sample the hidden states of all devices for each time instant,
+
+whereas the FFBS requires conditioning on the current states of all but one device.
+
+Multiuser Detection. We now consider a digital communication system in which users are allowed
+
+to enter or leave the system at any time, and several receivers cooperate to estimate the number of
+
+users, the (digital) symbols they transmit, and the propagation channels they face. Multipath propa-
+
+gation affects the radio signal, thus causing inter-symbol interference. To capture this phenomenon
+
+in our model, we use L  1 in this application. We consider a multiuser Wi-Fi communication sys-
+
+tem, and we use a ray tracing algorithm (WISE software [3]) to design a realistic indoor wireless sys-
+
+tem in an office located at Bell Labs Crawford Hill. We place 12 receivers and 6 transmitters across
+
+the office, in the positions respectively marked with circles and crosses in Figure 5 (all transmitters
+
+and receivers are placed at a height of 2 metres). Transmitted symbols belong to a quadrature phase-
+
+shift
+
+keying
+
+(QPSK)
+
+constellation,
+
+A
+
+=
+
+{
+
+1 2
+
+-1
+
+},
+
+such
+
+that,
+
+while
+
+active,
+
+the
+
+transmitted
+
+symbols
+
+are independent and uniformly distributed in A, i.e., p(xtm|stm = 1, x(t-1)m, s(t-1)m) = U (A).
+
+7
+
+7 8 9 10 11 12
+
+1
+
+54
+
+14m
+
+1
+
+2 3
+
+2
+
+3
+
+4
+
+5 66
+
+120m
+Figure 5: Plane of the office building at Bell Labs Crawford Hill.
+
+Model
+
+1
+
+L 2345
+
+Model
+
+1
+
+L 234
+
+5
+
+iFDM iFHMM
+
+6/6 6/6 6/6 6/6 6/6 3/11 3/11 3/8 1/10 -
+
+iFDM iFHMM
+
+2.58 2.51 0.80 0.30 0.16 2.79 1.38 5.53 1.90 -
+
+(a) # Recovered transmitters / Inferred M+. (b) MSE of the channel coefficients (x10-6).
+
+Table 3: Results for the multiuser detection problem.
+
+The observations of all the receivers are weighted replicas of the transmitted symbols under noise,
+
+yt =
+
+M+ m=1
+
+L =1
+
+hm
+
+x(t-
+
++1)m
+
++
+
+nt,
+
+where
+
+xtm
+
+=
+
+0
+
+for
+
+the
+
+inactive states,
+
+and the chan-
+
+snueml ceoRefafiyclieeingths-fhamdinagndchnaoninseelsvaarniadn, ctheerey2foarree,
+
+provided we place
+
+by WISE software. For inference, we asa circularly symmetric complex Gaussian
+
+prior distribution over the channel coefficients, hm|2  CN (0, 2I, 0), and over the noise term,
+
+nt  CN (0, y2I, 0). We place an inverse gamma prior over 2 with mean and standard deviation
+
+0.01e-0.5( -1). The choice of this particular prior is based on the assumption that the channel co-
+
+efficients hm are a priori expected to decay with the memory index , since the radio signal suffers
+
+more attenuation as it propagates through the walls or bounces off them. We use an observation
+
+period T = 2, 000, and vary L from 1 to 5. Five channel taps correspond to the radio signal trav-
+
+elling a distance of 750 m, which should be enough given the dimensions of this office space. We
+
+compare our iFDM with a non-binary iFHMM model with state space cardinality |X | = 5L using
+
+FFBS sweeps for inference (we do not run the FFBS algorithm for L = 5 due to its computational
+
+complexity).
+
+We show in Table 3a the number of recovered transmitters (i.e., the number of transmitters for which we recover all the transmitted symbols with no error) found after running the inference algorithms, together with the inferred value of M+. We see that the iFHMM tends to overestimate the number of transmitters, which deteriorates the overall symbol estimates and, as a consequence, not all the transmitted symbols are recovered. We additionally report in Table 3b the MSE of the first channel
+
+tsaop,thi.aet.,th6xe11M2 SEmis||hmm1in-imhim1ze|d|2,,
+
+being hm the inferred channel and ignore the extra inferred
+
+coefficients. transmitters.
+
+We In
+
+sort the transmitters general, the iFDM
+
+outperforms the iFHMM approach, as discussed above. Under our iFDM, the MSE decreases as we
+
+consider a larger value of L, since the model better fits the actual radio propagation model.
+
+5 Conclusions
+We have proposed a general BNP approach to solve source separation problems in which the number of sources is unknown. Our model builds on the mIBP to consider a potentially unbounded number of hidden Markov chains that evolve independently according to some dynamics, in which the state space can be either discrete or continuous. For posterior inference, we have developed an algorithm based on PGAS that solves the intractable complexity that the FFBS presents in many scenarios, enabling the application of our iFDM in problems such as multitarget tracking or multiuser detection. In addition, we have shown empirically that our PGAS approach outperforms the FFBS-based algorithm (in terms of accuracy) in the cocktail party and power disaggregation problems, since the FFBS gets more easily trapped in local modes of the posterior in which several Markov chains correspond to a single hidden source.
+Acknowledgments I. Valera is currently supported by the Humboldt research fellowship for postdoctoral researchers program and acknowledges the support of Plan Regional-Programas I+D of Comunidad de Madrid (AGES-CM S2010/BMD-2422). F. J. R. Ruiz is supported by an FPU fellowship from the Spanish Ministry of Education (AP2010-5333). This work is also partially supported by Ministerio de Economia of Spain (projects COMPREHENSION, id. TEC2012-38883-C02-01, and ALCIT, id. TEC2012-38800-C03-01), by Comunidad de Madrid (project CASI-CAM-CM, id. S2013/ICE2845), by the Office of Naval Research (ONR N00014-11-1-0651), and by the European Union 7th Framework Programme through the Marie Curie Initial Training Network `Machine Learning for Personalized Medicine' (MLPM2012, Grant No. 316861).
+
+8
+
+References
+[1] C. Andrieu, A. Doucet, and R. Holenstein. Particle Markov chain Monte Carlo methods. Journal of the Royal Statistical Society Series B, 72(3):269-342, 2010.
+[2] M. J. Beal, Z. Ghahramani, and C. E. Rasmussen. The infinite hidden Markov model. In Advances in Neural Information Processing Systems, volume 14, 2002.
+[3] S. J. Fortune, D. M. Gay, B. W. Kernighan, O. Landron, R. A. Valenzuela, and M. H. Wright. WISE design of indoor wireless systems: Practical computation and optimization. IEEE Computing in Science & Engineering, 2(1):58-68, March 1995.
+[4] E. B. Fox, E. B. Sudderth, M. I. Jordan, and A. S. Willsky. Bayesian nonparametric methods for learning Markov switching processes. IEEE Signal Processing Magazine, 27(6):43-54, 2010.
+[5] E. B. Fox, E. B. Sudderth, M. I. Jordan, and A. S. Willsky. A sticky HDP-HMM with application to speaker diarization. Annals of Applied Statistics, 5(2A):1020-1056, 2011.
+[6] L. Jiang, S. S. Singh, and S. Yildirim. Bayesian tracking and parameter learning for non-linear multiple target tracking models. arXiv preprint arXiv:1410.2046, 2014.
+[7] M. J. Johnson and A. S. Willsky. Bayesian nonparametric hidden semi-Markov models. Journal of Machine Learning Research, 14:673-701, February 2013.
+[8] M. I. Jordan. Hierarchical models, nested models and completely random measures. Springer, New York, (NY), 2010.
+[9] R. E. Kalman. A new approach to linear filtering and prediction problems. ASME Journal of Basic Engineering, 82(Series D):35-45, 1960.
+[10] D. Knowles and Z. Ghahramani. Nonparametric Bayesian sparse factor models with application to gene expression modeling. The Annals of Applied Statistics, 5(2B):1534-1552, June 2011.
+[11] J Z. Kolter and T. Jaakkola. Approximate inference in additive factorial hmms with application to energy disaggregation. In International conference on artificial intelligence and statistics, pages 1472-1482, 2012.
+[12] J. Lim and U. Chong. Multitarget tracking by particle filtering based on RSS measurement in wireless sensor networks. International Journal of Distributed Sensor Networks, March 2015.
+[13] F. Lindsten, M. I. Jordan, and T. B. Schon. Particle Gibbs with ancestor sampling. Journal of Machine Learning Research, 15(1):2145-2184, 2014.
+[14] F. Lindsten and T. B. Schon. Backward simulation methods for Monte Carlo statistical inference. Foundations and Trends in Machine Learning, 6(1):1-143, 2013.
+[15] S. Makonin, F. Popowich, L. Bartram, B. Gill, and I. V. Bajic. AMPds: A public dataset for load disaggregation and eco-feedback research. In Proceedings of the 2013 IEEE Electrical Power and Energy Conference (EPEC), 2013.
+[16] S. Oh, S. Russell, and S. Sastry. Markov chain Monte Carlo data association for general multiple-target tracking problems. In IEEE Conference on Decision and Control, volume 1, pages 735-742, Dec 2004.
+[17] P. Orbanz and Y. W. Teh. Bayesian nonparametric models. In Encyclopedia of Machine Learning. Springer, 2010.
+[18] S. Sarkka, A. Vehtari, and J. Lampinen. Rao-blackwellized particle filter for multiple target tracking. Information Fusion, 8(1):2-15, 2007.
+[19] Y. W. Teh, D. Gorur, and Z. Ghahramani. Stick-breaking construction for the Indian buffet process. In Proceedings of the International Conference on Artificial Intelligence and Statistics, volume 11, 2007.
+[20] Y. W. Teh, M. I. Jordan, M. J. Beal, and D. M. Blei. Hierarchical Dirichlet processes. Journal of the American Statistical Association, 101(476):1566-1581, 2006.
+[21] F. Thouin, S. Nannuru, and M. Coates. Multi-target tracking for measurement models with additive contributions. In Proceedings of the 14th International Conference on Information Fusion (FUSION), pages 1-8, July 2011.
+[22] M. K. Titsias and C. Yau. Hamming ball auxiliary sampling for factorial hidden Markov models. In Advances in Neural Information Processing Systems 27, 2014.
+[23] J. Van Gael, Y. W. Teh, and Z. Ghahramani. The infinite factorial hidden Markov model. In Advances in Neural Information Processing Systems, volume 21, 2009.
+[24] M. A. Vazquez and J. Miguez. User activity tracking in DS-CDMA systems. IEEE Transactions on Vehicular Technology, 62(7):3188-3203, 2013.
+[25] N. Whiteley, C. Andrieu, and A. Doucet. Efficient Bayesian inference for switching state-space models using particle Markov chain Monte Carlo methods. Technical report, Bristol Statistics Research Report 10:04, 2010.
+9
+

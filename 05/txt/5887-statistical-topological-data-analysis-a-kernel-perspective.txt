@@ -1,0 +1,367 @@
+Statistical Topological Data Analysis - A Kernel Perspective
+
+Roland Kwitt Department of Computer Science
+University of Salzburg rkwitt@gmx.at
+
+Stefan Huber IST Austria
+stefan.huber@ist.ac.at
+
+Marc Niethammer Department of Computer Science and BRIC
+UNC Chapel Hill mn@cs.unc.edu
+
+Weili Lin Department of Radiology and BRIC
+UNC Chapel Hill weili_lin@med.unc.edu
+
+Ulrich Bauer Department of Mathematics Technische Universitat Munchen (TUM)
+ulrich@bauer.org
+
+Abstract
+We consider the problem of statistical computations with persistence diagrams, a summary representation of topological features in data. These diagrams encode persistent homology, a widely used invariant in topological data analysis. While several avenues towards a statistical treatment of the diagrams have been explored recently, we follow an alternative route that is motivated by the success of methods based on the embedding of probability measures into reproducing kernel Hilbert spaces. In fact, a positive definite kernel on persistence diagrams has recently been proposed, connecting persistent homology to popular kernel-based learning techniques such as support vector machines. However, important properties of that kernel enabling a principled use in the context of probability measure embeddings remain to be explored. Our contribution is to close this gap by proving universality of a variant of the original kernel, and to demonstrate its effective use in twosample hypothesis testing on synthetic as well as real-world data.
+1 Introduction
+Over the past years, advances in adopting methods from algebraic topology to study the "shape" of data (e.g., point clouds, images, shapes) have given birth to the field of topological data analysis (TDA) [5]. In particular, persistent homology has been widely established as a tool for capturing "relevant" topological features at multiple scales. The output is a summary representation in the form of so called barcodes or persistence diagrams, which, roughly speaking, encode the life span of the features. These "topological summaries" have been successfully used in a variety of different fields, including, but not limited to, computer vision and medical imaging. Applications range from the analysis of cortical surface thickness [8] to the structure of brain networks [15], brain artery trees [2] or histology images for breast cancer analysis [22].
+Despite the success of TDA in these areas, a statistical treatment of persistence diagrams (e.g., computing means or variances) turns out to be difficult, not least because of the unusual structure of the barcodes as intervals, rather than numerical quantities [1]. While substantial advancements in
+1
+
+the direction of statistical TDA have been made by studying the structure of the space of persistence diagrams endowed with p-Wasserstein metrics (or variants thereof) [18, 19, 28, 11], it is technically and computationally challenging to work in this space. In a machine learning context, we would rather work with Hilbert spaces, primarily due to the highly regular structure and the abundance of readily available and well-studied methods for statistics and learning.
+One way to circumvent issues such as non-uniqueness of the Frechet mean [18] or computationally intensive algorithmic strategies [28] is to consider mappings of persistence barcodes into linear function spaces. Statistical computations can then be performed based on probability theory on Banach spaces [14]. However, the methods proposed in [4] cannot guarantee that different probability distributions can always be distinguished by a statistical test.
+Contribution. In this work, we consider the task of statistical computations with persistence diagrams. Our contribution is to approach this problem by leveraging the theory of embedding probability measures into reproducing kernel Hilbert spaces [23], in our case, probability measures on the space of persistence diagrams. In particular, we start with a recently introduced kernel on persistence diagrams by Reininghaus et al. [20] and identify missing properties that are essential for a well-founded use in the aforementioned framework. By enforcing mild restrictions on the underlying space, we can in fact close the remaining gaps and prove that a minor modification of the kernel is universal in the sense of Steinwart [25] (see Section 3). Our experiments demonstrate, on a couple of synthetic and real-world data samples, how this universal kernel enables a principled solution to the selected problem of (kernel-based) two-sample hypothesis testing.
+Related work. In the following, we focus our attention on work related to a statistical treatment of persistent homology. Since this is a rather new field, several avenues are pursued in parallel. Mileyko et al. [18] study properties of the set of persistence diagrams when endowed with the p-Wasserstein metric. They show, for instance, that under this metric, the space is Polish and the Frechet mean exists. However, it is not unique and no algorithmic solution is provided. Turner et al. [28] later show that the L2-Wasserstein metric on the set of persistence diagrams yields a geodesic space, and that the additional structure can be leveraged to construct an algorithm for computing the Frechet mean and to prove a law of large numbers. In [19], Munch et al. take a different approach and introduce a probabilistic variant of the Frechet mean as a probability measure on persistence diagrams. While this yields a unique mean, the solution itself is not a persistence diagram anymore. Techniques for computing confidence sets for persistence diagrams are investigated by Fasy et al. [11]. The authors focus on the Bottleneck metric (i.e., a special case of the p-Wasserstein metric when p = ), remarking that similar results could potentially be obtained for the case of the p-Wasserstein metric under stronger assumptions on the underlying topological space.
+While the aforementioned results concern properties of the set of persistence diagrams equipped with p-Wasserstein metrics, a different strategy is advocated by Bubenik in [4]. The key idea is to circumvent the peculiarities of the metric by mapping persistence diagrams into function spaces. One such representation is the persistence landscape, i.e., a sequence of 1-Lipschitz functions in a Banach space. While it is in general not possible to go back and forth between landscapes and persistence diagrams, the Banach space structure enables a well-founded theoretical treatment of statistical concepts, such as averages or confidence intervals [14]. Chazal et al. [6] establish additional convergence results and propose a bootstrap procedure for obtaining confidence sets.
+Another, less statistically oriented, approach towards a convenient summary of persistence barcodes is followed by Adcock et al. [1]. The idea is to attach numerical quantities to persistence barcodes, which can then be used as input to any machine learning algorithm in the form of feature vectors. This strategy is rooted in a study of algebraic functions on barcodes. However, it does not necessarily guarantee stability of the persistence summary representation, which is typically a desired property of a feature map [20].
+Our proposed approach to statistical TDA is also closely related to work in the field of kernel-based learning techniques [21] or, to be more specific, to the embedding of probability measures into a RKHS [23] and the study of suitable kernel functions in that context [7, 24]. In fact, the idea of mapping probability measures into a RKHS has led to many developments generalizing statistical concepts, such as two-sample testing [13], testing for conditional independence, or statistical inference [12], form Euclidean spaces to other domains equipped with a kernel. In the context of supervised learning with TDA, Reininghaus et al. [20] recently established a first connection to
+2
+
+kernel-based learning techniques via the definition of a positive definite kernel on persistence diagrams. While positive definiteness is sufficient for many techniques, such as support vector machines or kernel PCA, additional properties are required in the context of embedding probability measures.
+Organization. Section 2 briefly reviews some background material and introduces some notation. In Section 3, we show how a slight modification of the kernel in [20] fits into the framework of embedding probability measures into a RKHS. Section 4 presents a set of experiments on synthetic and real data, highlighting the advantages of the kernel. Finally, Section 5 summarizes the main contributions and discusses future directions.
+
+2 Background
+
+Since our discussion of statistical TDA from a kernel perspective is largely decoupled from how the topological summaries are obtained, we only review two important notions for the theory of persistent homology: filtrations and persistence diagrams. For a thorough treatment of the topic, we refer the reader to [10]. We also briefly review the concept of embedding probability measures into a RKHS, following [23].
+Filtrations. A standard approach to TDA assigns to some metric space (M, dM) a growing sequence of simplicial complexes (indexed by a parameter t  R), typically referred to as a filtration. Recall that an abstract simplicial complex is a collection of nonempty sets that is closed under taking nonempty subsets. Persistent homology then studies the evolution of the homology of these complexes for a growing parameter t. Some widely used constructions, particularly for point cloud data, are the Vietoris-Rips and the C ech complex. The Vietoris-Rips complex is a simplicial complex with vertex set M such that [x0, . . . , xm] is an m-simplex iff maxi, j m dM(xi , x j )  t. For a point set M  Rd in Euclidean space, the C ech complex is a simplicial complex with vertex set M  Rd such that [x0, . . . , xm] is an m-simplex iff the closed balls of radius t centered at the xi have a non-empty common intersection.
+A more general way of obtaining a filtration is to consider the sublevel sets f -1(-,t], for t  R, of a function f : X  R on a topological space X. For instance, in the case of surfaces meshes, a commonly used function is the heat kernel signature (HKS) [27]. The C ech and Vietoris-Rips filtrations appear as special cases, both being sublevel set filtrations of an appropriate function on the subsets (abstract simplices) of the vertex set M: for the C ech filtration, the function assigns to each subset the radius of its smallest enclosing sphere, while for the Vietoris-Rips filtration, the function assigns to each subset its diameter (equivalently, the length of its longest edge).
+
+Persistence diagrams. Studying the evolution of the topology of a filtration allows us to cap-
+
+ture interesting properties of the metric or function used to generate the filtration. Persistence di-
+
+agrams provide a concise description of the changes in homology that occur during this process.
+
+death
+
+Existing connected components may merge, cycles may appear, etc. This leads to the
+
+f :RR
+
+appearance and disappearance of homological
+
+features of different dimension. Persistent ho-
+
+mology tracks the birth b and death d of such
+
+topological features. The multiset of points p,
+
+where each point p = (b, d) corresponds to a
+
+birth
+
+birth/death time pair, is called the persistence diagram of the filtration. An example of a per-
+
+Fig. 1: A function and its 0-th persistence diagram.
+
+sistence diagram for 0-dimensional features (i.e., connected components) of a function f : X  R with X = R is shown in Fig. 2. We use the identifiers F, G to denote persistence diagrams in the
+
+remainder of the paper. Since d > b, all points lie in the half-plane above the diagonal.
+
+RKHS embedding of probability measures. An important concept for our work is the embedding
+of probability measures into reproducing kernel Hilbert spaces [23]. Consider a Borel probability measure P defined on a compact metric space (X, d), which we observe through the i.i.d. sample X = {xi }im=1 with xi  P. Furthermore, let k : X x X  R be a positive definite kernel, i.e., a function which realizes an inner product k (x, y) = (x), (y) G with x, y  X in some Hilbert space G for some (possibly unknown) map  : X  G (see [26, Definition 4.1.]). Also, let H be the associated RKHS, generated by functions kx = k (x, *) : X  R induced by the kernel, i.e.,
+H = span{kx : x  X} = span{ (x), (*) G : x  X}, with the scalar product kx , ky H = k (x, y).
+
+3
+
+The linear structure on the RKHS H admits the construction of means. The embedding of a probability measure P on X is now accomplished via the mean map  : P  P = ExP[kx ]. If this map is injective, the kernel k is called characteristic. This is true, in particular, if H is dense in the space
+of continuous functions X  R (with the supremum norm), in which case we refer to the kernel as universal [25]. While a universal kernel is always characteristic, the converse is not true.
+
+Since it has been shown [13] that the empirical estimate of the mean, X = 1/m i kxi , is a good proxy for P, the injectivity of  can be used to define distances between distributions P and Q, observed via samples X = {xi }im=1 and Y = {yi }in=1. Specifically, this can be done via the maximum mean discrepancy
+
+MMD[F , P, Q] = sup (ExP[ f (x)] - EyQ[ f (y)]),
+f F
+
+(1)
+
+where F denotes a suitable class of functions X  R, and ExP[ f (x)] denotes the expectation of
+
+f (x) w.r.t. P (which can be written as P, f by virtue of the reproducing property of k). Gretton
+
+et al. [13] restrict F to functions on a unit ball in H , i.e., F = { f  H : f   1}, and show
+
+that Eq. (1) can be expressed as the RHKS distance between the means P and Q of the measures
+
+P and Q as MMD2[F , P,Q] =
+
+P - Q
+
+2 H
+
+.
+
+Empirical
+
+estimates
+
+of
+
+this
+
+quantity
+
+are
+
+given
+
+in
+
+[13].
+
+This connection is of particular importance to us, since it allows for two-sample hypothesis testing
+
+in a principled manner given a suitable (characteristic/universal) kernel. Prominent examples of
+
+universal kernels for X = Rd are the Gaussian RBF kernel k (x, y) = e- x-y 2 and the kernel e x,y .
+
+However, without a characteristic/universal kernel, MMD[F , P,Q] = 0 does not imply P = Q. A
+
+well-known example of a non-characteristic kernel is the scalar product kernel k (x, y) = x, y with
+
+x, y  Rd. Even if P Q, e.g., if the variances of the distributions differ, the MMD will still be zero
+
+if the means are equal.
+
+In the context of a statistical treatment of persistent homology, the ability to embed probability
+measures on the space of persistence diagrams into a RKHS is appealing. Specifically, the problem of testing whether two different samples exhibit significantly different homological features - as captured in the persistence diagram - boils down to a two-sample test with null hypothesis H0 : P = Q vs. a general alternative HA : P Q, where P and Q are probability measures on the set of persistence diagrams. The computation of this test only involves evaluations of the kernel.
+Enabling this procedure via a suitable universal kernel will be discussed next.
+
+3 The universal persistence scale space kernel
+In the following, for 1  q   we let Dq = {F | dW,q (F, ) < }, denote the metric space of persistence diagrams with the q-Wasserstein metric dW,q 1, where  is the empty diagram. In [18, Theorem 1], Mileyko et al. show that (Dq, dW,q ) is a complete metric space. When the subscript q is omitted, we do not refer to any specific instance of q-Wasserstein metric.
+Let us fix the numbers N  N and R  R. We denote by S the subset of D consisting of those persistence diagrams that are birth-death bounded by R (i.e., for every D  S the birth/death time of its points is less or equal to R; see [18, Definition 5]) and whose total multiplicities (i.e., the sum of multiplicities of all points in a diagram) are bounded by N. While this might appear restrictive at first sight, it does not really pose a limitation in practice. In fact, for data generated by some finite process (e.g., meshes have a finite number of vertices/faces, images have limited resolution, etc.), establishing N and R is typically not a problem. We remark that the aforementioned restriction is similar to enforcing boundedness of the support of persistence landscapes in [4, Section 3.6].
+In [20], Reininghaus et al. introduce the persistence scale space (PSS) kernel as a stable, multi-scale kernel on the set D of persistence diagrams of finite total multiplicity, i.e., each diagram contains only finitely many points. Let p = (b, d) denote a point in a diagram F  D, and let p = (d, b) denote its mirror image across the diagonal. Further, let  = {x = (x1, x2)  R2, x2  x1}. The feature map  : D  L2() is given as the solution of a heat diffusion problem with a Dirichlet boundary condition on the diagonal by
+1The q-Wasserstein metric is defined as dW,q (F, G) = inf ( x F x - (x) q )1/q , where  ranges over all bijections from F  D to G  D, with D denoting the multiset of diagonal points (t,t), each with countably infinite multiplicity.
+
+4
+
+ (F) :   R,
+
+x 1
+
+e-
+
+x-p 2 4
+
+- e-
+
+x-p 2
+4 .
+
+4
+
+pF
+
+(2)
+
+The kernel k : D x D  R is then given in closed form as
+
+k (F, G) =
+
+ (F),  (G)
+
+L2 ()
+
+=
+
+1 8
+
+e-
+
+p-q 2 8
+
+- e-
+
+p-q 8
+
+2
+.
+
+pF
+
+q G
+
+(3)
+
+for  > 0 and F, G  D. By construction, positive definiteness of k is guaranteed. The kernel is stable in the sense that the distance d (F, G) = k (F, F) + k (G, G) - 2k (F, G) is bounded up to a constant by dW,1(F, G) [20, Theorem 2].
+We have the following property:
+Proposition 1. Restricting the kernel in Eq. (3) to S x S, the mean map  sends a probability measure P on S to an element P  H .
+
+Proof. The claim immediately follows from [13, Lemma 3] and [24, Proposition 2], since k is measurable and bounded on S, and hence P  H .
+
+While positive definiteness enables the use of k in many kernel-based learning techniques [21], we are interested in assessing whether it is universal, or if we can construct a universal kernel from k (see Section 2). The following theorem of Christmann and Steinwart [7] is particularly relevant to
+this question.
+
+Theorem 1. (cf. Theorem 2.2 of [7]) Let X be a compact metric space and G a separable Hilbert
+
+space such that there exists a continuous and injective map  : X  G. Furthermore, let K : R  R be a function that is analytic on some neighborhood of 0, i.e., it can locally be expressed by its Taylor
+
+series
+
+
+K (t) = antn, t  [-r,r].
+
+n=0
+
+If an > 0 for all n  N0, then k : X x X  R,
+
+
+
+k(x, y) = K( (x),(y) G) =
+
+an
+
+(x),(y)
+
+n G
+
+.
+
+n=0
+
+(4)
+
+is a universal kernel.
+
+Kernels of the form Eq. (4) are typically referred to as Taylor kernels.
+
+Note that universality of a kernel on X refers to a specific choice of metric on X. By using the same argument as for the linear dot-product kernel in Rd (see above), the PSS kernel k cannot be
+universal with respect to the metric dk , which is induced by the scalar product defining k. On the other hand, it is unclear whether k is universal with respect to the metric dW,q. However, we do
+have the following result:
+
+Proposition 2. The kernel kU : S x S  R,
+
+kU (F, G) = exp(k (F, G)),
+
+(5)
+
+is universal with respect to the metric dW,1.
+
+Proof. We prove this proposition by means of Theorem 1. We set G = L2(), which is a separable Hilbert space. As shown in Reininghaus et al. [20], the feature map  : D  L2() is injective. Furthermore, it is continuous by construction, as the metric on D is induced by the norm on L2(), and so is  restricted to S. The function K : R  R is defined as x  exp(x), and hence is analytic on R. Its Taylor coefficients an are 1/n!, and thus are positive for any n.
+It remains to show that (S, dW,1) is a compact metric space. First, define R = N  ([-R, R]2)N , which is a bounded, closed, and therefore compact subspace of (R2)N . Now consider the function
+
+5
+
+ (F1 )
+
+ (F2 )
+
+ (F3 )
+
+(FN )
+
+corresponds to the 2 holes average
+
+Fig. 2: Visualization of the mean PSS function (right) taken over 30 samples from a double-annulus (cf. [19]).
+f : R  S that maps (p1, . . . , pN )  R to the persistence diagram {pi : 1  i  N if pi }  S. We note that for all D = {p1, . . . , pn }  S, with n  N, there exists an X  R, e.g., X = (p1, . . . , pn, 0, . . . , 0), such that f (X ) = D; this implies S = f (R). Next, we show that f is 1-Lipschitz continuous w.r.t. the 1-Wasserstein distance on persistence diagrams, i.e.,
+X = (p1, . . . , pN ),Y = (q1, . . . , qN )  R : dW,1( f (X ), f (Y ))  d(X,Y ),
+where we defined d as inf 1i N pi - (pi )  with  ranging over all bijections between {p1, . . . , pN } and {q1, . . . , qN }. In other words, d corresponds to the 1-Wasserstein distance without allowing matches to the diagonal. Now, by definition, dW,1( f (X ), f (Y ))  d(X,Y ), because all bijections considered by d are also admissible for dW,1. Since thus R is compact and f is continuous, we have that S = f (R) is compact as well.
+We refer to the kernel of Eq. (5) as the universal persistence scale-space (u-PSS) kernel.
+Remark. While we prove Prop. 1 for the PSS kernel in Eq. (3), it obviously also holds for kU , since exponentiation does neither invalidate measurability nor boundedness.
+Relation to persistence landscapes. As the feature map  of Eq. (2) defines a function-valued summary of persistent homology in the Hilbert space L2(), the results on probability in Banach spaces [14], used in [4] for persistence landscapes, naturally apply to  as well. This includes, for instance, the law of large numbers or the central limit theorem [4, Theorems 9,10]. Conversely, considering a persistence landscape (D) as a function in L2(N x R) or L2(R2) yields a positive definite kernel (*), (*) L2 on persistence diagrams. However, it is unclear whether a universal kernel can be constructed from persistence landscapes in a way similar to the definition of kU . In particular, we are not aware of a proof that the construction of persistence landscapes, considered as functions in L2, is continuous with respect to dW,qfor some 1  q  . For a more detailed treatment of the differences between  and persistence landscapes, we refer the reader to [20].
+4 Experiments
+We first describe a set of experiments on synthetic data appearing in previous work to illustrate the use of the PSS feature map  and the universal persistence scale-space kernel on two different tasks. We then present two applications on real-world data, where we assess differences in the persistent homology of functions on 3D surfaces of lateral ventricles and corpora callosa with respect to different group assignments (i.e., age, demented/non-demented). In all experiments, filtrations and the persistence diagrams are obtained using Dipha2, which can directly handle our types of input data. Source code to reproduce the experiments is available at https://goo.gl/KouBPT.
+4.1 Synthetic data
+Computation of the mean PSS function. We repeat the experiment from [19, 4] of sampling from the union of two overlapping annuli. In particular, we repeatedly (N = 30 times) draw samples of size 100 (out of 10000), and then compute persistence diagrams F1, . . . , FN for 1-dim. features by considering sublevel sets of the distance function from the points. Finally, we compute the mean of the PSS functions  (Fi ) defined by the feature map from Eq. (2). This simply amounts to computing 1/N *  (F1  * * *  FN ). A visualization of the pointwise average, for a fixed choice of , is shown in Fig. 2. We remind the reader that the convergence results used in [4] equally hold for this feature map, as explained in Section 3. In particular, the above process of taking means converges to the expected value of the PSS function. As can be seen in Fig. 2, the two 1-dim. holes manifest themselves as two "bumps" at different positions in the mean PSS function.
+2available online: https://code.google.com/p/dipha/
+6
+
+Sphere: r2 = 2
+
+Torus: (r - 2)2 + z2 = 1
+
+0-dim./no-noise 0.06 0.05
+significance level 0.04 0.03 0.02 0.01 0.00
+10 20 30 40 50 60 70 80 90 100 0-dim./with-noise
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0 10 20 30 40 50 60 70 80 90 100
+
+1-dim./no-noise 0.7 0.6 0.5 0.4 0.3 0.2 0.1 0.0
+10 20 30 40 50 60 70 80 90 100 1-dim./with-noise
+1.0
+0.8
+0.6
+0.4
+0.2
+0.0 10 20 30 40 50 60 70 80 90 100
+
+Fig. 3: Left: Illustration of one random sample (of size 200) on a sphere and a torus in R3 with equal surface area. To generate a noisy sample, we add Gaussian noise N (0, 0.1) to each point in a sample (indicated by the vectors). Right: Two-sample hypothesis testing results (H0 : P = Q vs. HA : P Q) for 0- and 1-dim. features. The box plots show the variation in p-values (y-axis) over a selection of values for  as a function of
+increasing sample size (x-axis). Sample sizes for which the median p-value is less than the chosen significance level (here: 0.05) are marked green, and red otherwise.
+
+Torus vs. sphere. In this slightly more involved example, we repeat an experiment from [4, Section 4.3] on the problem of discriminating between a sphere and a torus in R3, based on random samples drawn from both objects. In particular, we repeatedly (N times) draw samples from the torus and the sphere (corresponding to measures P and Q) and then compute persistence diagrams. Eventually, we test the null-hypothesis H0 : P = Q, i.e., that samples were drawn from the same object; cf. [4] for a thorough description of the full setup. We remark that our setup uses the Delaunay triangulation of the point samples instead of the Coxeter-Freudenthal-Kuhn triangulation of a regular grid as in [4].
+Conceptually, the important difference is in the two-sample testing strategy. In [4], two factors influence the test: (1) the choice of a functional to map the persistence landscape to a scalar and (2) the choice of test statistic. Bubenik chooses a z-test to test for equality between the mean persistence landscapes. In contrast, we can test for true equality in distribution. This is possible since universality of the kernel ensures that the MMD of Eq. (1) is a metric for the space of probability measures on persistence diagrams. All p-values are obtained by bootstrapping the test statistic under H0 over 104 random permutations. We further vary the number of samples/object used to compute the MMD statistic from N = 10 to N = 100 and add Gaussian noise N (0, 0.1) in one experiment. Results are shown in Fig. 3 over a selection of u-PSS scales   {100, 10, 1, 0.1, 0.01, 0.001}. For 0-dimension features and no noise, we can always reject H0 at  = 0.05 significance. For 1-dim. features and no noise, we need at least 60 samples to reliably reject H0 at the same level of .
+
+4.2 Real-world data
+
+We use two real-world datasets in our experiments: (1) 3D surfaces of the corpus callosum and (2) 3D surfaces of the lateral ventricles from neotates. The corpus callosum surfaces were obtained from the longitudinal dataset of the OASIS brain database3. We use all subject data from the first visit, and the grouping criteria is disease state: dementia vs. non-dementia. Note that the demented group is comprised of individuals with very mild to mild AD. This discrimination is based on the clinical dementia rating (CDR) score; Marcus et al. [17] explain this dataset in detail. The lateral ventricle dataset is an extended version of [3]. It contains data from 43 neonates. All subjects were repeatedly imaged approximately every 3 months (starting from 2 weeks) in the first year and every 6 months in the second year. According to Bompard et al. [3], the ventricle growth is the dominant effect and occurs in a non-uniform manner most significantly during the first 6 months. This raises the question whether age also has an impact on the shape of these brain structures that can be detected by persistent homology of the HKS (see Setup below, or Section 2) function. Hence, we set our grouping criteria to be developmental age:  6 months vs. > 6 months. It is important to note that the heat kernel signature is not scale-invariant. For that reason, we normalize the (mean-subtracted) configuration matrices (containing the vertex coordinates of each mesh) by their Euclidean norm, cf. [9]. This ensures that our analysis is not biased by growth (scaling) effects.
+
+3available online: http://www.oasis-brains.org
+
+7
+
+1
+
+p-value
+
+0
+
+ in kU
+
+t1 t5 t10 t15 t20 HKS time
+(a) (Right) lateral ventricles; Grouping: subjects  6months vs. > 6months
+
+HKS time
+
+1
+
+p-value
+
+0
+
+ in kU
+
+t1 t5 t10 t15 t20 HKS time
+(b) Corpora callosa; Grouping: demented vs. non-demented subjects
+
+HKS time
+
+Fig. 4: Left: Effect of increasing HKS time ti , illustrated on one exemplary surface mesh of both datasets. Right: Contour plots of p-values estimated via random permutations, shown as a function of the u-PSS kernel scale  and the HKS time.
+Setup. We follow an experimental setup, similar to [16] and [20], and compute the heat kernel signature [27] for various times ti as a function defined on the 3D surface meshes. In all experiments, we use the proposed kernel u-PSS kernel kU of Eq. (5) and vary the HKS time ti in 1 = t1 < t2 < * * * < t20 = 10.5; Regarding the u-PSS kernel scale i , we sweep from 10-9 = 1 < * * * < 10 = 101. Null- (H0) and alternative (HA) hypotheses are defined as in Section 2 with two samples of persistence diagrams {Fi }im=1, {Gi }in=1. The test statistic under H0 is bootstrapped using B = 5 * 104 random permutations. This is also the setup recommended in [13] for low samples sizes.
+Results. Figure 4 shows the estimated p-values for both datasets as a function of the u-PSS kernel scale and the HKS time for 1-dim. features. The false discovery rate is controlled by the BenjaminiHochberg procedure. On the lateral ventricle data, we observe p-values < 0.01 (for the right ventricles), especially around HKS times t10 to t15, cf. Fig. 4(a). Since the results for left and right lateral ventricles are similar, only the p-values plots for the right lateral ventricle are shown. In general, the results indicate that, at specific settings of ti, the HKS function captures salient shape features of the surface, which lead to statistically significant differences in the persistent homology. We do, however, point out that there is no clear guideline on how to choose the HKS time. In fact, setting ti too low might emphasize noise, while setting ti too high tends to smooth-out details, as can be seen in the illustration of the HKS time on the left-hand side of Fig. 4. On the corpus callosum data, cf. Fig. 4(b), no significant differences in the persistent homology of the two groups (again for 1-dim. features) can be identified with p-values ranging from 0.1 to 0.9. This does not allow to reject H0 at any reasonable level.
+5 Discussion
+With the introduction of a universal kernel for persistence diagrams in Section 3, we enable the use of this topological summary representation in the framework of embedding probability measures into reproducing kernel Hilbert spaces. While our experiments are mainly limited to two-sample hypothesis testing, our kernel allows to use a wide variety of statistical techniques and learning methods which are situated in that framework. It is important to note that our construction, via Theorem 1, essentially depends on a restriction of the set D to a compact metric space. We remark that similar conditions are required in [4] in order to enable statistical computations, e.g., constraining the support of the persistence landscapes. However, it will be interesting to investigate which properties of the kernel remain valid when lifting these restrictions. From an application point of view, we have shown that we can test for a statistical difference in the distribution of persistence diagrams. This is in contrast to previous work, where hypothesis testing is typically limited to test for specific properties of the distributions, such as equality in mean.
+Acknowledgements. This work has been partially supported by the Austrian Science Fund, project no. KLI 00012. We also thank the anonymous reviewers for their valuable comments/suggestions.
+
+8
+
+References
+[1] A. Adcock, E. Carlsson, and G. Carlsson. The ring of algebraic functions on persistence bar codes. arXiv, available at http://arxiv.org/abs/1304.0530, 2013.
+[2] P. Bendich, J.S. Marron, E. Miller, A. Pieloch, and S. Skwerer. Persistent homology analysis of brain artery trees. arXiv, available at http://arxiv.org/abs/1411.6652, 2014.
+[3] L. Bompard, S. Xu, M. Styner, B. Paniagua, M. Ahn, Y. Yuan, V. Jewells, W. Gao, D. Shen, H. Zhu, and W. Lin. Multivariate longitudinal shape analysis of human lateral ventricles during the first twenty-four months of life. PLoS One, 2014.
+[4] P. Bubenik. Statistical topological data analysis using persistence landscapes. JMLR, 16:77-102, 2015. [5] G. Carlsson. Topology and data. Bull. Amer. Math. Soc., 46:255-308, 2009. [6] F. Chazal, B.T. Fasy, F. Lecci A. Rinaldo, and L. Wasserman. Stochastic convergence of persistence
+landscapes and silhouettes. In SoCG, 2014. [7] A. Christmann and I. Steinwart. Universal kernels on non-standard input spaces. In NIPS, 2010. [8] M.K. Chung, P. Bubenik, and P.T. Kim. Persistence diagrams of cortical surface data. In IPMI, 2009. [9] I.L. Dryden and K.V. Mardia. Statistical shape analysis. Wiley series in probability and statistics. Wiley,
+1998. [10] H. Edelsbrunner and J. Harer. Computational Topology. An Introduction. AMS, 2010. [11] B. Fasy, F. Lecci, A. Rinaldo, L. Wasserman, S. Balakrishnan, and A. Singh. Confidence sets for persis-
+tence diagrams. Ann. Statist., 42(6):2301-2339, 2014. [12] K. Fukumizu, L. Song, and A. Gretton. Kernel Bayes' rule: Bayesian inference with positive definite
+kernels. JMLR, 14:3753-3783, 2013. [13] A. Gretton, K.M. Borgwardt, M.J. Rasch, B. Scholkopf, and A. Smola. A kernel two-sample test. JMLR,
+13:723-773, 2012. [14] M. Ledoux and M. Talagrand. Probability in Banach spaces. Classics in Mathematics. Springer, 1991. [15] H. Lee, M.K. Chung, H. Kang, and D.S. Lee. Hole detection in metabolic connectivity of Alzheimer's
+disease using k-Laplacian. In MICCAI, 2014. [16] C. Li, M. Ovsjanikov, and F. Chazal. Persistence-based structural recognition. In CVPR, 2014. [17] D.S. Marcus, A.F. Fotenos, J.G. Csernansky, J.C. Morris, and R.L. Buckner. Open access series of imag-
+ing studies: longitudinal MRI data in nondemented and demented older adults. J. Cognitive Neurosci., 22(12):2677-2684, 2010. [18] Y. Mileyko, S. Mukherjee, and J. Harer. Probability measures on the space of persistence diagrams. Inverse Probl., 27(12), 2011. [19] E. Munch, P. Bendich, S. Mukherjee, J. Mattingly, and J. Harer. Probabilistic Frechet means and statistics on vineyards. CoRR, 2013. http://arxiv.org/abs/1307.6530. [20] R. Reininghaus, U. Bauer, S. Huber, and R. Kwitt. A stable multi-scale kernel for topological machine learning. In CVPR, 2015. [21] B. Scholkopf and A.J. Smola. Learning with Kernels: Support Vector Machines, Regularization, Optimization, and Beyond. MIT Press, Cambridge, MA, USA, 2001. [22] N. Singh, H. D. Couture, J. S. Marron, C. Perou, and M. Niethammer. Topological descriptors of histology images. In MLMI, 2014. [23] A. Smola, A. Gretton, L. Song, and B. Scholkopf. Hilbert space embedding for distributions. In ALT, 2007. [24] B. Sriperumbudur, A. Gretton, K. Fukumizu, B. Scholkopf, and G. Lanckriet. Hilbert space embeddings and metrics on probability measures. JMLR, 11:1517-1561, 2010. [25] I. Steinwart. On the influence of the kernel on the consistency of support vector machines. JMLR, 2:67- 93, 2001. [26] I. Steinwart and A. Christmann. Support Vector Machines. Springer, 2008. [27] J. Sun, M. Ovsjanikov, and L. Guibas. A concise and probably informative multi-scale signature based on heat diffusion. In SGP, 2009. [28] K. Turner, Y. Mileyko, S. Mukherjee, and J. Harer. Frechet means for distributions of persistence diagrams. Discrete Comput. Geom., 52(1):44-70, 2014.
+9
+

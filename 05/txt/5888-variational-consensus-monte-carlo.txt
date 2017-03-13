@@ -1,0 +1,574 @@
+Variational Consensus Monte Carlo
+Maxim Rabinovich, Elaine Angelino, and Michael I. Jordan Computer Science Division
+University of California, Berkeley {rabinovich, elaine, jordan}@eecs.berkeley.edu
+Abstract
+Practitioners of Bayesian statistics have long depended on Markov chain Monte Carlo (MCMC) to obtain samples from intractable posterior distributions. Unfortunately, MCMC algorithms are typically serial, and do not scale to the large datasets typical of modern machine learning. The recently proposed consensus Monte Carlo algorithm removes this limitation by partitioning the data and drawing samples conditional on each partition in parallel [22]. A fixed aggregation function then combines these samples, yielding approximate posterior samples. We introduce variational consensus Monte Carlo (VCMC), a variational Bayes algorithm that optimizes over aggregation functions to obtain samples from a distribution that better approximates the target. The resulting objective contains an intractable entropy term; we therefore derive a relaxation of the objective and show that the relaxed problem is blockwise concave under mild conditions. We illustrate the advantages of our algorithm on three inference tasks from the literature, demonstrating both the superior quality of the posterior approximation and the moderate overhead of the optimization step. Our algorithm achieves a relative error reduction (measured against serial MCMC) of up to 39% compared to consensus Monte Carlo on the task of estimating 300-dimensional probit regression parameter expectations; similarly, it achieves an error reduction of 92% on the task of estimating cluster comembership probabilities in a Gaussian mixture model with 8 components in 8 dimensions. Furthermore, these gains come at moderate cost compared to the runtime of serial MCMC--achieving near-ideal speedup in some instances.
+1 Introduction
+Modern statistical inference demands scalability to massive datasets and high-dimensional models. Innovation in distributed and stochastic optimization has enabled parameter estimation in this setting, e.g. via stochastic [3] and asynchronous [20] variants of gradient descent. Achieving similar success in Bayesian inference - where the target is a posterior distribution over parameter values, rather than a point estimate - remains computationally challenging. Two dominant approaches to Bayesian computation are variational Bayes and Markov chain Monte Carlo (MCMC). Within the former, scalable algorithms like stochastic variational inference [11] and streaming variational Bayes [4] have successfully imported ideas from optimization. Within MCMC, adaptive subsampling procedures [2, 14], stochastic gradient Langevin dynamics [25], and Firefly Monte Carlo [16] have applied similar ideas, achieving computational gains by operating only on data subsets. These algorithms are serial, however, and thus cannot take advantage of multicore and multi-machine architectures. This motivates data-parallel MCMC algorithms such as asynchronous variants of Gibbs sampling [1, 8, 12]. Our work belongs to a class of communication-avoiding data-parallel MCMC algorithms. These algorithms partition the full dataset X1:N into K disjoint subsets XI1:K where XIk denotes the data
+1
+
+associated with core k. Each core samples from a subposterior distribution,
+
+pk (k) / p (XIk | k) p (k)1/K ,
+
+(1)
+
+and then a centralized procedure combines the samples into an approximation of the full posterior.
+
+Due to their efficiency, such procedures have recently received substantial attention [18, 22, 24].
+
+One of these algorithms, consensus Monte Carlo (CMC), requires communication only at the start and end of sampling [22]. CMC proceeds from the intuition that subposterior samples, when aggregated correctly, can approximate full posterior samples. This is formally backed by the factorization
+
+YK YK p ( | x1:N ) / p () p (XIk | ) = pk () .
+
+(2)
+
+k=1
+
+k=1
+
+If one can approximate the subposterior densities pk, using kernel density estimates for instance [18], it is therefore possible to recombine them into an estimate of the full posterior.
+
+Unfortunately, the factorization does not make it immediately clear how to aggregate on the level of samples without first having to obtain an estimate of the densities pk themselves. CMC alters (2) to untie the parameters across partitions and plug in a deterministic link F from the k to :
+
+YK
+
+p ( | x1:N ) 
+
+pk (k) * =F (1,...,K ).
+
+(3)
+
+k=1
+
+This approximation and an aggregation function motivated by a Gaussian approximation lie at the core of the CMC algorithm [22].
+
+The introduction of CMC raises numerous interesting questions whose answers are essential to its wider application. Two among these stand out as particularly vital. First, how should the aggregation function be chosen to achieve the closest possible approximation to the target posterior? Second, when model parameters exhibit structure or must conform to constraints -- if they are, for example, positive semidefinite covariance matrices or labeled centers of clusters -- how can the weighted averaging strategy of Scott et al. [22] be modified to account for this structure?
+
+In this paper, we propose variational consensus Monte Carlo (VCMC), a novel class of data-parallel MCMC algorithms that allow both questions to be addressed. By formulating the choice of aggregation function as a variational Bayes problem, VCMC makes it possible to adaptively choose the aggregation function to achieve a closer approximation to the true posterior. The flexibility of VCMC likewise supports nonlinear aggregation functions, including structured aggregation functions applicable to not purely vectorial inference problems.
+
+An appealing benefit of the VCMC point of view is a clarification of the untying step leading
+
+to (3). In VCMC, the approximate factorization corresponds to a variational approximation to
+
+the true posterior. This approximation can be viewed as the joint distribution of (1, . . . , K ) and  in an augmented model that assumes conditional independence between the data partitions
+
+and posits a deterministic mapping from partition-level parameters to the single global parameter.
+
+The added flexibility of this point-of-view makes it possible to move beyond subposteriors and in-
+
+clude alternative forms of (3) within the CMC framework. In particular, it is possible to define
+
+pk (k) = extensive
+
+ipnv(eskt)igpa(tXionIk
+
+| k), of this
+
+using issue
+
+partial posteriors in place of is beyond the scope of this
+
+subposteriors (cf. [23]). paper, we provide some
+
+Although evidence
+
+in Section 6 that partial posteriors are a better choice in some circumstances and demonstrate that
+
+VCMC can provide substantial gains in both the partial posterior and subposterior settings.
+
+Before proceeding, we outline the remainder of this paper. Below, in 2, we review CMC and related data-parallel MCMC algorithms. Next, we cast CMC as a variational Bayes problem in 3. We define the variational optimization objective in 4, addressing the challenging entropy term by relaxing it to a concave lower bound, and give conditions for which this leads to a blockwise concave maximization problem. In 5, we define several aggregation functions, including novel ones that enable aggregation of structured samples--e.g. positive semidefinite matrices and mixture model parameters. In 6, we evaluate the performance of VCMC and CMC relative to serial MCMC. We replicate experiments carried out by Scott et al. [22] and execute more challenging experiments in higher dimensions and with more data. Finally in 7, we summarize our approach and discuss several open problems generated by this work.
+
+2
+
+2 Related work
+
+We focus on data-parallel MCMC algorithms for large-scale Bayesian posterior sampling. Several recent research threads propose schemes in the setting where the posterior factors as in (2). In general, these parallel strategies are approximate relative to serial procedures, and the specific algorithms differ in terms of the approximations employed and amount of communication required.
+
+At one end of the communication spectrum are algorithms that fit into the MapReduce model [7]. First, K parallel cores sample from K subposteriors, defined in (1), via any Monte Carlo sampling procedure. The subposterior samples are then aggregated to obtain approximate samples from the full posterior. This leads to the challenge of designing proper and efficient aggregation procedures.
+
+Scott et al. [22] propose consensus Monte Carlo (CMC), which constructs approximate posterior
+
+samples via weighted averages of subposterior samples; our algorithms are motivated by this work.
+
+Let k,t denote the t-th subposterior sample from core k. In CMC, the aggregation function averages
+
+across each averaging is
+
+saetnaotfuKralsbaumt pnlaeisve{hke,ut}riKks=ti1c
+
+to produce that can in
+
+one fact
+
+approximate be improved
+
+posterior upon via
+
+sample t. a weighted
+
+Uniform average,
+
+XK  = F (1:K ) = Wkk,
+
+(4)
+
+k=1
+
+where in general, k is a vector and Wk can be a matrix. The authors derive weights motivated by the
+
+special case of a Gaussian posterior, where each subposterior is consequently also Gaussian. Let k
+
+be the covariance of the k-th teriors' inverse covariances.
+
+subposterior. CMC treats
+
+This suggests weights arbitrary subpostertiors
+
+Wk as
+
+G=ausksi1anesq,uaagl gtoregthaetinsugbwpoitsh-
+
+weights given by empirical estimates of  k 1 computed from the observed subposterior samples.
+
+Neiswanger et al. [18] propose aggregation at the level of distributions rather than samples. Here, the idea is to form an approximate posterior via a product of density estimates fit to each subposterior, and then sample from this approximate posterior. The accuracy and computational requirements of this approach depend on the complexity of these density estimates. Wang and Dunson [24] develop alternate data-parallel MCMC methods based on applying a Weierstrass transform to each subposterior. These Weierstrass sampling procedures introduce auxiliary variables and additional communication between computational cores.
+
+3 Consensus Monte Carlo as variational inference
+
+Given the distributional form of the CMC framework (3), we would like to choose F so that the induced distribution on  is as close as possible to the true posterior. This is precisely the problem addressed by variational Bayes, which approximates an intractable posterior p ( | X) by the solution q to the constrained optimization problem
+
+min DKL (q || p (* | X)) subject to q 2 Q,
+
+where Q is the family of variational approximations to the distribution, usually chosen to make both optimization and evaluation of target expectations tractable. We thus view the aggregation problem
+
+in CMC as a variational inference problem, with the variational family given by all distributions
+
+Q = QF = {qF : F 2 F}, where each F is in some function class F and defines a density Z YK
+
+qF () =
+
+pk (k) * =F (1,...,K ) d1:K .
+
+K k=1
+
+In practice, we optimize over finite-dimensional F using projected stochastic gradient descent
+
+(SGD).
+
+4 The variational optimization problem
+
+Standard optimization of the variational Bayes objective uses the evidence lower bound (ELBO)
+
+log p (X) = log Eq
+
+p (, X) q ()
+
+Eq
+
+log
+
+p
+
+(, X) q ()
+
+= log p (X) DKL (q || p (* | X)) = : LVB (q) .
+
+(5)
+
+3
+
+We can therefore recast the variational optimization problem in an equivalent form as max LVB (q) subject to q 2 Q.
+
+Unfortunately, the variational Bayes objective LVB remains difficult to optimize. Indeed, by writing
+
+LVB (q) = Eq [log p (, X)] + H [q]
+
+we see that optimizing LVB requires computing an entropy H [q] and its gradients. We can deal with this issue by deriving a lower bound on the entropy that relaxes the objective further.
+
+Concretely, suppose that every F each Fk a differentiable bijection.
+
+2F Since
+
+tchaenkbecodmeceofmropmosesudbapsosFte(rio1r:sKc)o=ndPitioKkn=i1nFg kon(dki)f,fewreitnht
+
+segments of the data, they are independent. The entropy power inequality [6] therefore implies
+
+H [q]
+
+max
+1kK
+
+H
+
+[Fk
+
+(k )]
+
+=
+
+max
+1kK
+
+(H
+
+[pk ]
+
++
+
+Epk
+
+[log
+
+det
+
+[J
+
+(Fk )
+
+(k)]])
+
+min
+1kK
+
+H
+
+[pk ]
+
++
+
+max
+1kK
+
+Epk
+
+[log
+
+det
+
+[J
+
+(Fk )
+
+(k )]]
+
+(6)
+
+min
+1kK
+
+H [pk]
+
++
+
+1 K
+
+XK Epk
+
+[log det [J
+
+(Fk) (k)]]
+
+=:
+
+H [q] ,
+
+k=1
+
+(7)
+
+where J (f ) denotes the Jacobian of the function f . The proof can be found in the supplement.
+
+This approach gives an explicit, easily computed approximation to the entropy--and this approximation is a lower bound, allowing us to interpret it simply as a further relaxation of the original inference problem. Furthermore, and crucially, it decouples pk and Fk, thereby making it possible to optimize over Fk without estimating the entropy of any pk. We note additionally that if we are willing to sacrifice concavity, we can use the tighter lower bound on the entropy given by (6).
+
+Putting everything together, we can define our relaxed variational objective as
+
+L (q) = Eq [log p (, X)] + H [q] .
+
+(8)
+
+Maximizing this function is the variational Bayes problem we consider in the remainder of the paper.
+
+Conditions for concavity Under certain conditions, the problem posed above is blockwise concave. To see when this holds, we use the language of graphical models and exponential families. To derive the result in the greatest possible generality, we decompose the variational objective as
+
+LVB = Eq [log p (, X)] + H [q] L + H [q]
+
+and prove concavity directly for L, then treat our choice of relaxed entropy (7). We emphasize that while the entropy relaxation is only defined for decomposed aggregation functions, concavity of the partial objective holds for arbitrary aggregation functions. All proofs are in the supplement.
+
+Suppose the model distribution is specified via a graphical model G, so that  = (u)u2V (G), such that each conditional distribution is defined by an exponential family
+
+ log p u | par(u) = log hu (u) +
+
+X
+
+ u0
+
+T
+
+T u0!u
+
+(u)
+
+ log Au par(u) .
+
+u0 2par(u)
+
+If each of these log conditional density functions is log-concave in u, we can guarantee that the log likelihood is concave in each u individually.
+
+Theorem 4.1 (Blockwise concavity of the variational cross-entropy). Suppose that the model dis-
+
+tribution is specified by a graphical model G in which each conditional probability density is a
+
+lsoagti-scfioenscFave=eQxpuo2nVen(Gti)alFfuamsuilcyh.
+
+Suppose further that the variational aggregation function family that we can decompose each aggregation function across nodes via
+
+F () = (F u (u))u2V (G) , F 2 F and F u 2 F u.
+
+If each Fu is a convex subset of some vector space Hu, then the variational cross-entropy L is concave in each F u individually.
+
+4
+
+Assuming that the aggregation function can be decomposed into a sum over functions of individual
+
+subposterior terms we can also prove concavity of our entropy relaxation (7).
+
+TFrehla2exoerFdemednetc4ro.o2mpy(pCo(7os)innicgsavcaoistnyFcao(vfe1th,ine. .Fr.e,.laKxe)d=enPtroKkp=y1)F. kS(upkp)ofsoer
+
+F
+
+=
+
+QK
+k=1
+
+Fk ,
+
+unique bijective
+
+with Fk 2
+
+each Fk .
+
+function Then the
+
+As a result, we derive concavity of the variational objective in a broad range of settings. Corollary 4.1 (Concavity of the variational objective). Under the hypotheses of Theorems 4.1 and 4.2, the variational Bayes objective L = L + H is concave in each F u individually.
+
+5 Variational aggregation function families
+
+The performance of our algorithm depends critically on the choice of aggregation function family F. The family must be sufficiently simple to support efficient optimization, expressive to capture the complex transformation from the set of subposteriors to the full posterior, and structured to preserve structure in the parameters. We now illustrate some aggregation functions that meet these criteria.
+
+Vector aggregation. gation function FW =
+
+PIn Kthe
+k=1
+
+simplest case,  2 Rd is Wkk makes sense, and
+
+an unconstrained vector. Then, a linear aggreit is natural to impose constraints to make this
+
+saunmd PbeKkh=a1veWlkik=e aIdw.eFigohrtceodmapvuetraatgieo--nail.ere.,aseoanchs,
+
+Wk it is
+
+2 S+d often
+
+is a positive semidefinite (PSD) matrix desirable to restrict to diagonal Wk.
+
+Spectral aggregation. Cases involving structure exhibit more interesting behavior. Indeed, if our
+
+parameter is vector form we note that
+
+vtahePicsS(sDtr)amtoeafgttyrhixwe opua2rldamSin+edtg,eearnpdeporlaeylsinlnegoadtthsteuovfFfiecWceto.(rDa1eg:ngmor)etig=nagtiPoelneKkm=fu1ennWcttwikoinseabmkoav2/teriSxto+dpt.rhoedflucattteans ed,
+
+We therefore introduce a more sophisticated aggregation function that preserves PSD structure. For this, given symmetric A 2 Rdd, define R (A) and D (A) to be orthogonal and diagonal matrices,
+
+respectively, such that A = R (A)T D (A) R (A). Impose further--and crucially--the canonical ordering D (A)11 * * * D (A)dd. We can then define our spectral aggregation function by
+
+FWspec (1:K ) = XK R (k)T [WkD (k)] R (k) .
+
+k=1
+
+Assuming Wk restrict the set
+
+2 of
+
+S+d , the output of this function is guaranteed to be Wk to the matrix simplex {(Wk)Kk=1 : Wk 2 S+d ,
+
+PPSKkD=,1aWs rkeq=uirIe}d..
+
+As
+
+above
+
+we
+
+Combinatorial aggregation. Additional complexity arises with unidentifiable latent variables and, more generally, models with multimodal posteriors. Since this class encompasses many popular algorithms in machine learning, including factor analysis, mixtures of Gaussians and multinomials, and latent Dirichlet allocation (LDA), we now show how our framework can accommodate them.
+
+For concreteness, suppose now that our model parameters are given by  2 RLd, where L denotes
+
+the number of global latent variables (e.g. cluster centers). We introduce discrete alignment param-
+
+eters ak that indicate how latent variables associated with partitions map to global latent variables. Each ak is thus a one-to-one correspondence [L] ! [L], with ak denoting the index on worker core k of cluster center . For fixed a, we then obtain the variational aggregation function
+
+XK
+
+L
+
+Fa (1:K ) =
+
+Wkkak()
+
+.
+
+k=1
+
+=1
+
+Optimization can then proceed in an alternating manner, switching between the alignments ak
+
+and the weights Wk, or in a greedy manner, fixing the alignments at the start and optimizing
+
+tOphaer(taiwt)ieo=inghkPt. mAKk=ast2OriPcesuLs=.g1geInstksp,arkwacetisceet1, aw122e
+
+do the latter, aligning using a simple heuristic objective , where k denotes the mean value of cluster center  on = . Minimizing O via the Hungarian algorithm [15] leads
+
+to good alignments.
+
+5
+
+Figure 1: High-dimensional probit regression (d = 300). Moment approximation error for the
+
+uniform and Gaussian averaging baselines and VCMC, relative to serial MCMC, for subposteri-
+
+ors (left) and partial posteriors (right); note the different vertical axis scales. We assessed three
+
+groups of functions: first moments, with f ( ) = j for 1  j  d; pure second moments, with
+
+f( ) = brevity,
+
+rej2suflotsr
+
+1  j  d; and mixed second moments, with f ( ) = i j for 1  i for pure second moments are relegated to Figure 5 in the supplement.
+
+<
+
+j
+
+
+
+d.
+
+For
+
+6 Empirical evaluation
+
+We now evaluate VCMC on three inference problems, in a range of data and dimensionality conditions. In the vector parameter case, we compare directly to the simple weighting baselines corresponding to previous work on CMC [22]; in the other cases, we compare to structured analogues of these weighting schemes. Our experiments demonstrate the advantages of VCMC across the whole range of model dimensionality, data quantity, and availability of parallel resources.
+
+Baseline weight settings. Scott et al. [22] studied linear aggregation functions with fixed weights,
+
+Wkunif
+
+=
+
+1 K
+
+* Id
+
+and
+
+ Wkgauss / diag  k
+
+1
+,
+
+(9)
+
+corresponding to uniform averaging and Gaussian averaging, respectively, where  k denotes the standard empirical estimate of the covariance. These are our baselines for comparison.
+
+Evaluation metrics. Since the goal of MCMC is usually to estimate event probabilities and function expectations, we evaluate algorithm accuracy for such estimates, relative to serial MCMC output. For each model, we consider a suite of test functions f 2 F (e.g. low degree polynomials, cluster comembership indicators), and we assess the error of each algorithm A using the metric
+
+A
+
+(f )
+
+=
+
+|EA
+
+[f ] EMCMC |EMCMC [f ]|
+
+[f ]| .
+
+In the body of the paper, we report median values of A, computed within each test function class. The supplement expands on this further, showing quartiles for the differences in VCMC and CMC.
+
+Bayesian probit regression. We consider the nonconjugate probit regression model. In this case, we use linear aggregation functions as our function class. For computational efficiency, we also limit ourselves to diagonal Wk. We use Gibbs sampling on the following augmented model:
+
+ N (0, 2Id),
+
+Zn | , xn  N ( T xn, 1),
+
+Yn | Zn,
+
+,
+
+xn
+
+=
+
+ 1 0
+
+if Zn > 0, otherwise.
+
+This augmentation allows us to implement an efficient and rapidly mixing Gibbs sampler, where
+
+| x1:N = X, z1:N = z  N XT z,  ,  = 2Id + XT X 1 .
+
+We run two experiments: the first using a data generating distribution from Scott et al. [22], with N = 8500 data points and d = 5 dimensions, and the second using N = 105 data points and d = 300 dimensions. As shown in Figure 1 and, in the supplement,1 Figures 4 and 5, VCMC decreases the error of moment estimation compared to the baselines, with substantial gains starting at K = 25 partitions (and increasing with K). We also run the high-dimensional experiment using partial posteriors [23] in place of subposteriors, and observe substantially lower errors in this case.
+
+6
+
+Figure 2: High-dimensional normal-inverse Wishart model (d = 100). (Far left, left, right) Moment approximation error for the uniform and Gaussian averaging baselines and VCMC, relative to serial MCMC. Letting j denote the jth largest eigenvalue of  1, we assessed three groups of functions: first moments, with f () = j for 1  j  d; pure second moments, with f () = 2j for 1  j  d; and mixed second moments, with f () = ij for 1  i < j  d. (Far right) Graph of error in estimating E [j] as a function of j (where 1 2 * * * d).
+
+Normal-inverse Wishart model. To compare directly to prior work [22], we consider the normalinverse Wishart model
+  Wishart (, V ) , Xn | ,   N ,  1 . Here, we use spectral aggregation rules as our function class, restricting to diagonal Wk for computational efficiency. We run two sets of experiments: one using the covariance matrix from Scott et al. [22], with N = 5000 data points and d = 5 dimensions, and one using a higher-dimensional covariance matrix designed to have a small spectral gap and a range of eigenvalues, with N = 105 data points and d = 100 dimensions. In both cases, we use a form of projected SGD, using 40 samples per iteration to estimate the variational gradients and running 25 iterations of optimization. We note that because the mean  is treated as a point-estimated parameter, one could sample  exactly using normal-inverse Wishart conjugacy [10]. As Figure 2 shows,2 VCMC improves both first and second posterior moment estimation as compared to the baselines. Here, the greatest gains from VCMC appear at large numbers of partitions (K = 50, 100). We also note that uniform and Gaussian averaging perform similarly because the variances do not differ much across partitions.
+
+Mixture of Gaussians. A substantial portion of Bayesian inference focuses on latent variable models and, in particular, mixture models. We therefore evaluate VCMC on a mixture of Gaussians,
+
+1:L  N 0,  2Id ,
+
+Zn  Cat () ,
+
+Xn | Zn = z  N z, 2Id ,
+
+where the mixture weights  and the prior and likelihood variances  2 and 2 are assumed known. We use the combinatorial aggregation functions defined in Section 5; we set L = 8,  = 2, = 1, and  uniform and generate N = 5  104 data points in d = 8 dimensions, using the model from Nishihara et al. [19]. The resulting inference problem is therefore L  d = 64-dimensional. All samples were drawn using the PyStan implementation of Hamiltonian Monte Carlo (HMC).
+
+As Figure 3a shows, VCMC drastically improves moment estimation compared to the baseline Gaussian averaging (9). To assess how VCMC influences estimates in cluster membership probabilities, we generated 100 new test points from the model and analyzed cluster comembership probabilities for all pairs in the test set. Concretely, for each xi and xj in the test data, we estimated P [xi and xj belong to the same cluster]. Figure 3a shows the resulting boost in accuracy: when = 1, VCMC delivers estimates close to those of serial MCMC, across all numbers of partitions; the errors are larger for = 2. Unlike previous models, uniform averaging here outperforms Gaussian averaging, and indeed is competitive with VCMC.
+
+Assessing computational efficiency. The efficiency of VCMC depends on that of the optimization step, which depends on factors including the step size schedule, number of samples used per iteration to estimate gradients, and size of data minibatches used per iteration. Extensively assessing the influence of all these factors is beyond the scope of this paper, and is an active area of research both in general and specifically in the context of variational inference [13, 17, 21]. Here, we provide
+1Due to space constraints, we relegate results for d = 5 to the supplement. 2Due to space constraints, we compare to the d = 5 experiment of Scott et al. [22] in the supplement.
+
+7
+
+(a) Mixture of Gaussians (d = 8, L = 8).
+
+(b) Error versus timing and speedup measurements.
+
+Figure 3: (a) Expectation approximation error for the uniform and Gaussian baselines and VCMC. We report the median error, relative to serial MCMC, for cluster comembership probabilities of pairs of test data points, for (left) = 1 and (right) = 2, where we run the VCMC optimization procedure for 50 and 200 iterations, respectively. When = 2, some comembership probabilities are estimated poorly by all methods; we therefore only use the 70% of comembership probabilities with the smallest errors across all the methods. (b) (Left) VCMC error as a function of number of seconds of optimization. The cost of optimization is nonnegligible, but still moderate compared to serial MCMC--particularly since our optimization scheme only needs small batches of samples and can therefore operate concurrently with the sampler. (Right) Error versus speedup relative to serial MCMC, for both CMC with Gaussian averaging (small markers) and VCMC (large markers).
+
+an initial assessment of the computational efficiency of VCMC, taking the probit regression and Gaussian mixture models as our examples, using step sizes and sample numbers from above, and eschewing minibatching on data points. Figure 3b shows timing results for both models. For the probit regression, while the optimization cost is not negligible, it is significantly smaller than that of serial sampling, which takes over 6000 seconds to produce 1000 effective samples.3 Across most numbers of partitions, approximately 25 iterations--corresponding to less than 1500 seconds of wall clock time--suffices to give errors close to those at convergence. For the mixture, on the other hand, the computational cost of optimization is minimal compared to serial sampling. We can see this in the overall speedup of VCMC relative to serial MCMC: for sampling and optimization combined, low numbers of partitions (K  25) achieve speedups close to the ideal value of K, and large numbers (K = 50, 100) still achieve good speedups of about K/2. The cost of the VCMC optimization step is thus moderate--and, when the MCMC step is expensive, small enough to preserve the linear speedup of embarrassingly parallel sampling. Moreover, since the serial bottleneck is an optimization, we are optimistic that performance, both in terms of number of iterations and wall clock time, can be significantly increased by using techniques like data minibatching [9], adaptive step sizes [21], or asynchronous updates [20].
+7 Conclusion and future work
+The flexibility of variational consensus Monte Carlo (VCMC) opens several avenues for further research. Following previous work on data-parallel MCMC, we used the subposterior factorization. Our variational framework can accomodate more general factorizations that might be more statistically or computationally efficient - e.g. the factorization used by Broderick et al. [4]. We also introduced structured sample aggregation, and analyzed some concrete instantiations. Complex latent variable models would require more sophisticated aggregation functions - e.g. ones that account for symmetries in the model [5] or lift the parameter to a higher dimensional space before aggregating. Finally, recall that our algorithm - again following previous work - aggregates in a sample-by-sample manner, cf. (4). Other aggregation paradigms may be useful in building approximations to multimodal posteriors or in boosting the statistical efficiency of the overall sampler. Acknowledgments. We thank R.P. Adams, N. Altieri, T. Broderick, R. Giordano, M.J. Johnson, and S.L. Scott for helpful discussions. E.A. is supported by the Miller Institute for Basic Research in Science, University of California, Berkeley. M.R. is supported by a Hertz Foundation Fellowship, generously endowed by Google, and an NSF Graduate Research Fellowship. Support for this project was provided by Amazon and by ONR under the MURI program (N00014-11-1-0688).
+3We ran the sampler for 5100 iterations, including 100 burnin steps, and kept every fifth sample.
+8
+
+References
+[1] A. U. Asuncion, P. Smyth, and M. Welling. Asynchronous distributed learning of topic models. In Advances in Neural Information Processing Systems 21, pages 81-88, 2008.
+[2] R. Bardenet, A. Doucet, and C. Holmes. Towards scaling up Markov chain Monte Carlo: An adaptive subsampling approach. In Proceedings of the 31st International Conference on Machine Learning, 2014.
+[3] D. P. Bertsekas. Nonlinear Programming. Athena Scientific, Belmont, MA, 2nd edition, 1990. [4] T. Broderick, N. Boyd, A. Wibisono, A. C. Wilson, and M. I. Jordan. Streaming variational Bayes. In
+Advances in Neural Information Processing Systems 26, pages 1727-1735, 2013. [5] T. Campbell and J. P. How. Approximate decentralized Bayesian inference. In 30th Conference on
+Uncertainty in Artificial Intelligence, 2014. [6] T. M. Cover and J. A. Thomas. Elements of Information Theory (Wiley Series in Telecommunications and
+Signal Processing). Wiley-Interscience, 2006. [7] J. Dean and S. Ghemawat. MapReduce: Simplified data processing on large clusters. Communications of
+the ACM, 51(1):107-113, Jan. 2008. [8] F. Doshi-Velez, D. A. Knowles, S. Mohamed, and Z. Ghahramani. Large scale nonparametric Bayesian
+inference: Data parallelisation in the Indian buffet process. In Advances in Neural Information Processing Systems 22, pages 1294-1302, 2009. [9] J. C. Duchi, E. Hazan, and Y. Singer. Adaptive subgradient methods for online learning and stochastic optimization. Journal of Machine Learning Research, 12:2121-2159, 2011. [10] A. Gelman, J. B. Carlin, H. S. Stern, D. B. Dunson, A. Vehtari, and D. B. Rubin. Bayesian Data Analysis, Third Edition. Chapman and Hall/CRC, 2013. [11] M. D. Hoffman, D. M. Blei, C. Wang, and J. Paisley. Stochastic variational inference. Journal of Machine Learning Research, 14(1):1303-1347, May 2013. [12] M. Johnson, J. Saunderson, and A. Willsky. Analyzing Hogwild parallel Gaussian Gibbs sampling. In Advances in Neural Information Processing Systems 26, pages 2715-2723, 2013. [13] R. Johnson and T. Zhang. Accelerating stochastic gradient descent using predictive variance reduction. In Advances in Neural Information Processing Systems 26, pages 315-323, 2013. [14] A. Korattikara, Y. Chen, and M. Welling. Austerity in MCMC land: Cutting the Metropolis-Hastings budget. In Proceedings of the 31st International Conference on Machine Learning, 2014. [15] H. W. Kuhn. The Hungarian method for the assignment problem. Naval Research Logistics Quarterly, 2 (1-2):83-97, 1955. [16] D. Maclaurin and R. P. Adams. Firefly Monte Carlo: Exact MCMC with subsets of data. In Proceedings of 30th Conference on Uncertainty in Artificial Intelligence, 2014. [17] S. Mandt and D. M. Blei. Smoothed gradients for stochastic variational inference. In Advances in Neural Information Processing Systems 27, pages 2438-2446, 2014. [18] W. Neiswanger, C. Wang, and E. Xing. Asymptotically exact, embarrassingly parallel MCMC. In 30th Conference on Uncertainty in Artificial Intelligence, 2014. [19] R. Nishihara, I. Murray, and R. P. Adams. Parallel MCMC with generalized elliptical slice sampling. Journal of Machine Learning Research, 15:2087-2112, 2014. [20] F. Niu, B. Recht, C. Re, and S. Wright. Hogwild!: A lock-free approach to parallelizing stochastic gradient descent. In Advances in Neural Information Processing Systems 24, pages 693-701, 2011. [21] R. Ranganath, C. Wang, D. M. Blei, and E. P. Xing. An adaptive learning rate for stochastic variational inference. In Proceedings of the 30th International Conference on Machine Learning, pages 298-306, 2013. [22] S. L. Scott, A. W. Blocker, and F. V. Bonassi. Bayes and big data: The consensus Monte Carlo algorithm. In Bayes 250, 2013. [23] H. Strathmann, D. Sejdinovic, and M. Girolami. Unbiased Bayes for big data: Paths of partial posteriors. arXiv:1501.03326, 2015. [24] X. Wang and D. B. Dunson. Parallel MCMC via Weierstrass sampler. arXiv:1312.4605, 2013. [25] M. Welling and Y. W. Teh. Bayesian learning via stochastic gradient Langevin dynamics. In Proceedings of the 28th International Conference on Machine Learning, 2011.
+9
+
