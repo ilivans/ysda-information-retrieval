@@ -24,6 +24,7 @@ class Tests(TestCase):
             valid_url("https://simple.wikipedia.org/w/index.php?title=Special:UserLogin&returnto=Main+Page"))
         self.assertFalse(valid_url("http://en.wikiversity.org/?uselang=mk"))
 
+        self.assertFalse(valid_url("https://simple.wikipedia.org/wiki/"))
         self.assertFalse(valid_url("https://simple.wikipedia.org/wiki/Special:RecentChangesLinked/Summer"))
         self.assertFalse(valid_url("https://simple.wikipedia.org/wiki/File:Science-symbol-2.svg"))
         self.assertFalse(valid_url("https://simple.wikipedia.org/wiki/Category:All_articles_with_dead_external_links"))
