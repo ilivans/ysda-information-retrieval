@@ -9,7 +9,7 @@ class LinkParser(HTMLParser):
     _BASE_URL = "https://simple.wikipedia.org/wiki/"
     _BASE_URL_LEN = len(_BASE_URL)
     _INVALID_NAME_PATTERN = re.compile(
-        "((Category|File|Help|Media|Special|Talk|Template|Template_talk|User|User_talk|Wikipedia):|#)")
+        "((Category|File|Help|Media|Special|Talk|Template|Template_talk|User|User_talk|Wikipedia):|#|\Z)")
     _PAGES_DIR = "/media/ssd/simple.wiki/pages"
     if not os.path.exists(_PAGES_DIR):
         os.mkdir(_PAGES_DIR)
